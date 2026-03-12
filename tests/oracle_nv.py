@@ -30,8 +30,8 @@ Also includes exhaustive small-domain property tests that verify algebraic
 invariants over all valid layouts up to a size bound.
 """
 
-from tensor_layouts import *
-from tensor_layouts.layout_utils import make_ordered_layout, tile_to_shape
+from layout_algebra import *
+from layout_algebra.layout_utils import make_ordered_layout, tile_to_shape
 
 import pytest
 

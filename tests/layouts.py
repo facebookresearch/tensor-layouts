@@ -22,8 +22,8 @@
 
 import pytest
 
-from tensor_layouts import *
-from tensor_layouts.layout_utils import make_layout_like, make_ordered_layout, tile_to_shape
+from layout_algebra import *
+from layout_algebra.layout_utils import make_layout_like, make_ordered_layout, tile_to_shape
 
 
 # These tests roughly follow:
@@ -1037,7 +1037,7 @@ def test_swizzled_layout_eq_hash():
 
 
 def test_offset_swizzled_layout_basic():
-    from tensor_layouts import Tensor
+    from layout_algebra import Tensor
     sw_layout = compose(Swizzle(3, 0, 3), Layout((8, 8), (8, 1)))
     tensor = Tensor(sw_layout)
     # Slicing a Tensor produces a Tensor with offset
@@ -1051,7 +1051,7 @@ def test_offset_swizzled_layout_basic():
 
 
 def test_offset_swizzled_layout_repr():
-    from tensor_layouts import Tensor
+    from layout_algebra import Tensor
     sw_layout = compose(Swizzle(3, 0, 3), Layout((8, 8), (8, 1)))
     tensor = Tensor(sw_layout)
     row_slice = tensor[2, :]
@@ -1061,7 +1061,7 @@ def test_offset_swizzled_layout_repr():
 
 
 def test_offset_swizzled_layout_eq():
-    from tensor_layouts import Tensor
+    from layout_algebra import Tensor
     sw_layout = compose(Swizzle(3, 0, 3), Layout((8, 8), (8, 1)))
     tensor = Tensor(sw_layout)
     slice1 = tensor[3, :]

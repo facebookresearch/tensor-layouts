@@ -1,7 +1,7 @@
-# tensor-layouts
+# layout-algebra
 
-[![CI](https://github.com/facebookresearch/tensor-layouts/actions/workflows/ci.yml/badge.svg)](https://github.com/facebookresearch/tensor-layouts/actions/workflows/ci.yml)
-[![PyPI](https://img.shields.io/pypi/v/tensor-layouts)](https://pypi.org/project/tensor-layouts/)
+[![CI](https://github.com/facebookresearch/layout-algebra/actions/workflows/ci.yml/badge.svg)](https://github.com/facebookresearch/layout-algebra/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/pypi/v/layout-algebra)](https://pypi.org/project/layout-algebra/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 A pure-Python implementation of the [NVIDIA CuTe](https://github.com/NVIDIA/cutlass/blob/main/media/docs/cute/00_quickstart.md) layout algebra. **No GPU required.**
@@ -16,19 +16,19 @@ understand layout algebra.
 ## Installation
 
 ```bash
-pip install tensor-layouts
+pip install layout-algebra
 ```
 
 For visualization support:
 
 ```bash
-pip install tensor-layouts[viz]
+pip install layout-algebra[viz]
 ```
 
 ## Quick Start
 
 ```python
-from tensor_layouts import Layout, compose, complement, logical_divide
+from layout_algebra import Layout, compose, complement, logical_divide
 
 # A 4x8 column-major layout: offset(i,j) = i + j*4
 layout = Layout((4, 8), (1, 4))
@@ -67,10 +67,12 @@ Plus `Swizzle(B, M, S)` for XOR-based bank conflict avoidance patterns.
 
 ## MMA Atoms
 
-The library includes tensor core atom definitions for all major NVIDIA architectures:
+The library includes tensor core atom definitions for NVIDIA and AMD architectures.
+
+### NVIDIA Atoms
 
 ```python
-from tensor_layouts.atoms_nv import *
+from layout_algebra.atoms_nv import *
 
 atom = SM90_64x64x16_F16F16F16_SS
 print(atom.name)        # SM90_64x64x16_F16F16F16_SS
@@ -82,13 +84,27 @@ Supported architectures: SM70 (Volta), SM75 (Turing), SM80 (Ampere),
 SM89 (Ada Lovelace), SM90 (Hopper GMMA), SM100 (Blackwell UMMA),
 SM120 (Blackwell B200).
 
-## Visualization
-
-With `pip install tensor-layouts[viz]`:
+### AMD Atoms
 
 ```python
-from tensor_layouts import Layout, Swizzle
-from tensor_layouts.viz import draw_layout, draw_swizzle
+from layout_algebra.atoms_amd import *
+
+atom = CDNA3_32x32x16_F32F8F8_MFMA
+print(atom.name)        # CDNA3_32x32x16_F32F8F8_MFMA
+print(atom.shape_mnk)   # (32, 32, 16)
+print(atom.c_layout)    # Thread-value layout for C accumulator
+```
+
+Supported architectures: CDNA1 (gfx908 / MI100), CDNA2 (gfx90a / MI200),
+CDNA3 (gfx942 / MI300), CDNA3+ (gfx950).
+
+## Visualization
+
+With `pip install layout-algebra[viz]`:
+
+```python
+from layout_algebra import Layout, Swizzle
+from layout_algebra.viz import draw_layout, draw_swizzle
 
 draw_layout(Layout((8, 8), (8, 1)), title="Row-Major 8x8", colorize=True)
 draw_swizzle(Layout((8, 8), (8, 1)), Swizzle(3, 0, 3), colorize=True)
@@ -120,12 +136,17 @@ pip install -e ".[test]"
 pytest tests/
 ```
 
-Oracle tests (cross-validation against NVIDIA's pycute reference) require
-`nvidia-cutlass` and are skipped automatically if unavailable:
+Oracle tests cross-validate against vendor reference implementations and are
+skipped automatically if the corresponding tool is unavailable:
 
 ```bash
+# NVIDIA (cross-validation against pycute)
 pip install -e ".[test,oracle-nv]"
 pytest tests/oracle_nv.py
+
+# AMD (cross-validation against amd_matrix_instruction_calculator)
+pip install -e ".[test,oracle-amd]"
+pytest tests/oracle_amd.py
 ```
 
 ## References
@@ -133,6 +154,8 @@ pytest tests/oracle_nv.py
 - [CuTe Documentation](https://github.com/NVIDIA/cutlass/blob/main/media/docs/cute/00_quickstart.md)
 - [MMA Atom Documentation](https://github.com/NVIDIA/cutlass/blob/main/media/docs/cute/0t_mma_atom.md)
 - [NVIDIA CUTLASS](https://github.com/NVIDIA/cutlass)
+- [AMD Matrix Instruction Calculator](https://github.com/ROCm/amd_matrix_instruction_calculator)
+- [AMD Matrix Cores Lab Notes](https://gpuopen.com/learn/amd-lab-notes/amd-lab-notes-matrix-cores-readme/)
 
 ## License
 

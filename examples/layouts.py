@@ -23,7 +23,7 @@
 
 """Layout Algebra Examples — no dependencies.
 
-Demonstrates the core tensor-layouts API: construction, querying,
+Demonstrates the core layout-algebra API: construction, querying,
 coordinate mapping, and the four algebraic operations (compose,
 complement, divide, product).
 
@@ -35,7 +35,7 @@ See also:
     viz.ipynb    — Jupyter notebook gallery
 """
 
-from tensor_layouts import *
+from layout_algebra import *
 
 
 # =============================================================================

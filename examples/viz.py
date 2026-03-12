@@ -37,9 +37,9 @@ Reference: https://github.com/NVIDIA/cutlass/blob/main/media/docs/cute/
 from pathlib import Path
 import sys
 
-from tensor_layouts import *
-from tensor_layouts.atoms_nv import *
-from tensor_layouts.viz import *
+from layout_algebra import *
+from layout_algebra.atoms_nv import *
+from layout_algebra.viz import *
 
 
 def setup_output_dir(name: str = "examples_output") -> Path:
@@ -722,7 +722,7 @@ def _draw_combined(a_grid, b_grid, c_grid, M, N, K, filename, title):
     matplotlib.use('Agg')
     import matplotlib.pyplot as plt
     import matplotlib.patches as patches
-    from tensor_layouts.viz import _make_rainbow_palette, _is_dark
+    from layout_algebra.viz import _make_rainbow_palette, _is_dark
 
     # Use 8-color CuTe palette, cycle with phys_thread % 8
     colors = _make_rainbow_palette(8)
@@ -790,7 +790,7 @@ def _draw_tiled_mma(atom, atom_layout, output: Path, tile_mnk=None):
         tile_mnk: Optional (M, N, K) final tile. If larger than the atom
                   arrangement, replicates across values.
     """
-    from tensor_layouts.layout_utils import tile_mma_grid
+    from layout_algebra.layout_utils import tile_mma_grid
 
     M_a, N_a, K_a = atom.shape_mnk
     atom_shape = atom_layout.shape
@@ -816,7 +816,7 @@ def _draw_tiled_mma(atom, atom_layout, output: Path, tile_mnk=None):
         matplotlib.use('Agg')
         import matplotlib.pyplot as plt
         import matplotlib.patches as patches
-        from tensor_layouts.viz import _make_rainbow_palette, _is_dark
+        from layout_algebra.viz import _make_rainbow_palette, _is_dark
 
         # Use 8-color CuTe palette (TikzColor_TV), cycle with phys_thread % 8
         colors = _make_rainbow_palette(8)

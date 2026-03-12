@@ -3,7 +3,7 @@ requires = ["setuptools>=64"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "tensor-layouts"
+name = "layout-algebra"
 version = "0.1.0"
 description = "Pure-Python GPU layout algebra for NVIDIA and AMD tensor core access patterns — no GPU required"
 readme = "README.md"
@@ -32,12 +32,13 @@ dependencies = []
 viz = ["matplotlib>=3.5"]
 test = ["pytest>=7.0"]
 oracle-nv = ["nvidia-cutlass"]
+oracle-amd = ["amd-matrix-instruction-calculator"]
 dev = ["pytest>=7.0", "matplotlib>=3.5"]
 
 [project.urls]
-Homepage = "https://github.com/facebookresearch/tensor-layouts"
-Repository = "https://github.com/facebookresearch/tensor-layouts"
-Issues = "https://github.com/facebookresearch/tensor-layouts/issues"
+Homepage = "https://github.com/facebookresearch/layout-algebra"
+Repository = "https://github.com/facebookresearch/layout-algebra"
+Issues = "https://github.com/facebookresearch/layout-algebra/issues"
 
 [tool.hatch.envs.default.scripts]
 clean = "make clean"

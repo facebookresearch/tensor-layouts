@@ -36,11 +36,11 @@ The key invariant: tensor[fixed_coords, :](remaining_coords) == tensor(all_coord
 
 import pytest
 
-from tensor_layouts import (
+from layout_algebra import (
     Layout, Swizzle, compose, complement, logical_divide, logical_product,
     rank, size, cosize, mode, flatten, coalesce
 )
-from tensor_layouts import Tensor
+from layout_algebra import Tensor
 
 
 # =============================================================================
