@@ -20,13 +20,36 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+import tempfile
+
 import pytest
 
 from layout_algebra import Layout, Swizzle
+from layout_algebra.atoms_amd import (
+    CDNA3P_16x16x32_F32F16F16_MFMA,
+    CDNA3_32x32x16_F32F8F8_MFMA,
+)
+from layout_algebra.atoms_nv import (
+    SM80_16x8x16_F16F16F16F16_TN,
+    SM90_16x8x4_F64F64F64F64_TN,
+    SM120_16x8x32_F32E4M3E4M3F32_TN,
+)
+from layout_algebra.layout_utils import tile_mma_grid
 
 try:
     import matplotlib.figure
-    from layout_algebra.viz import show_layout, show_swizzle
+    import matplotlib.pyplot as plt
+    from layout_algebra.viz import (
+        draw_composite,
+        draw_layout,
+        draw_mma_layout,
+        draw_slice,
+        draw_swizzle,
+        draw_tiled_grid,
+        draw_tv_layout,
+        show_layout,
+        show_swizzle,
+    )
     HAS_VIZ = True
 except ImportError:
     HAS_VIZ = False
@@ -37,18 +60,113 @@ requires_viz = pytest.mark.skipif(
     reason="layout_algebra.viz not available (needs matplotlib)"
 )
 
+MIXED_VIZ_ATOMS = [
+    # Representative cross-section for visualization smoke tests:
+    # - NVIDIA: Ampere (SM80), Hopper-era scalar/legacy-style atom (SM90),
+    #   and Blackwell (SM120)
+    # - AMD: CDNA3 fp8 and CDNA3+ fp16
+    # Keep this list small so viz tests stay lightweight while still covering
+    # multiple layout families and thread/value mapping styles.
+    SM80_16x8x16_F16F16F16F16_TN,
+    SM90_16x8x4_F64F64F64F64_TN,
+    SM120_16x8x32_F32E4M3E4M3F32_TN,
+    CDNA3_32x32x16_F32F8F8_MFMA,
+    CDNA3P_16x16x32_F32F16F16_MFMA,
+]
+
 
 @requires_viz
 def test_show_layout_returns_figure_without_raising():
     """Smoke test for show_layout helper."""
     fig = show_layout(Layout((8, 8), (8, 1)))
-    assert isinstance(fig, matplotlib.figure.Figure)
-    assert len(fig.axes) == 1
+    try:
+        assert isinstance(fig, matplotlib.figure.Figure)
+        assert len(fig.axes) == 1
+    finally:
+        plt.close(fig)
 
 
 @requires_viz
 def test_show_swizzle_returns_figure_without_raising():
     """Regression test for show_swizzle helper."""
     fig = show_swizzle(Layout((8, 8), (8, 1)), Swizzle(3, 0, 3))
-    assert isinstance(fig, matplotlib.figure.Figure)
-    assert len(fig.axes) == 2
+    try:
+        assert isinstance(fig, matplotlib.figure.Figure)
+        assert len(fig.axes) == 2
+    finally:
+        plt.close(fig)
+
+
+@requires_viz
+def test_draw_layout_smoke():
+    with tempfile.NamedTemporaryFile(suffix=".png") as f:
+        draw_layout(Layout((8, 8), (8, 1)), filename=f.name)
+
+
+@requires_viz
+def test_draw_swizzle_smoke():
+    with tempfile.NamedTemporaryFile(suffix=".png") as f:
+        draw_swizzle(Layout((8, 8), (8, 1)), Swizzle(3, 0, 3), filename=f.name)
+
+
+@requires_viz
+def test_draw_slice_smoke():
+    with tempfile.NamedTemporaryFile(suffix=".png") as f:
+        draw_slice(Layout((4, 8), (8, 1)), (2, None), filename=f.name)
+
+
+@requires_viz
+@pytest.mark.parametrize("atom", MIXED_VIZ_ATOMS, ids=lambda a: a.name)
+def test_draw_tv_layout_smoke(atom):
+    m, n, _ = atom.shape_mnk
+    with tempfile.NamedTemporaryFile(suffix=".png") as f:
+        draw_tv_layout(
+            atom.c_layout,
+            filename=f.name,
+            grid_shape=(m, n),
+            colorize=True,
+            thr_id_layout=atom.thr_id,
+        )
+
+
+@requires_viz
+@pytest.mark.parametrize("atom", MIXED_VIZ_ATOMS, ids=lambda a: a.name)
+def test_draw_mma_layout_smoke(atom):
+    with tempfile.NamedTemporaryFile(suffix=".png") as f:
+        draw_mma_layout(
+            atom.a_layout,
+            atom.b_layout,
+            atom.c_layout,
+            filename=f.name,
+            tile_mnk=atom.shape_mnk,
+            colorize=True,
+            thr_id_layout=atom.thr_id,
+        )
+
+
+@requires_viz
+@pytest.mark.parametrize("atom", MIXED_VIZ_ATOMS, ids=lambda a: a.name)
+def test_draw_tiled_grid_smoke(atom):
+    atom_layout = Layout((2, 2), (1, 2))
+    grid, tile_shape = tile_mma_grid(atom, atom_layout, matrix="C")
+    with tempfile.NamedTemporaryFile(suffix=".png") as f:
+        draw_tiled_grid(
+            grid,
+            tile_shape[0],
+            tile_shape[1],
+            filename=f.name,
+            title="tiled grid smoke",
+        )
+
+
+@requires_viz
+def test_draw_composite_smoke():
+    panels = [Layout((4, 4), (4, 1)), Layout((4, 4), (1, 4))]
+    with tempfile.NamedTemporaryFile(suffix=".png") as f:
+        draw_composite(
+            panels,
+            filename=f.name,
+            titles=["Row-Major", "Column-Major"],
+            main_title="Composite Smoke",
+            colorize=True,
+        )
