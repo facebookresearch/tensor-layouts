@@ -40,6 +40,12 @@ try:
     import matplotlib.figure
     import matplotlib.pyplot as plt
     from layout_algebra.viz import (
+        _format_hierarchical_cell_lines,
+        _format_nested_coord,
+        _coord_levels,
+        _level_block_sizes,
+        _level_spans,
+        _get_hierarchical_cell_coords_2d,
         _get_indices_2d,
         _get_color_indices_2d,
         draw_composite,
@@ -235,3 +241,47 @@ def test_get_color_indices_2d_uniform_layout_is_uniform():
         [0, 0, 0],
         [0, 0, 0],
     ]
+
+
+@requires_viz
+def test_get_hierarchical_cell_coords_2d_preserves_nested_coordinates():
+    layout = Layout(((2, 3), (2, 4)), ((1, 6), (2, 12)))
+    coords = _get_hierarchical_cell_coords_2d(layout)
+    assert coords[0, 0] == ((0, 0), (0, 0))
+    assert coords[1, 0] == ((1, 0), (0, 0))
+    assert coords[2, 0] == ((0, 1), (0, 0))
+    assert coords[0, 1] == ((0, 0), (1, 0))
+    assert coords[0, 2] == ((0, 0), (0, 1))
+
+
+@requires_viz
+def test_format_nested_coord_formats_hierarchical_labels():
+    assert _format_nested_coord(3) == "3"
+    assert _format_nested_coord((1, 2)) == "(1,2)"
+    assert _format_nested_coord(((1, 2), 3)) == "((1,2),3)"
+
+
+@requires_viz
+def test_format_hierarchical_cell_lines_is_explicit_and_pedagogical():
+    assert _format_hierarchical_cell_lines((1, 2), (3, 4), 17) == (
+        "row=(1,2)",
+        "col=(3,4)",
+        "offset=17",
+    )
+
+
+@requires_viz
+def test_coord_levels_flattens_nested_coordinates_for_axis_labels():
+    assert _coord_levels(3) == (3,)
+    assert _coord_levels((1, 2)) == (1, 2)
+    assert _coord_levels(((1, 2), 3)) == (1, 2, 3)
+
+
+@requires_viz
+def test_level_spans_supports_three_level_hierarchy():
+    assert _level_spans((2, 3, 4)) == (2, 6, 24)
+
+
+@requires_viz
+def test_level_block_sizes_supports_three_level_hierarchy():
+    assert _level_block_sizes((2, 3, 4)) == (1, 2, 6)

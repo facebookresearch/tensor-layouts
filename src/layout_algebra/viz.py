@@ -62,6 +62,7 @@ if matplotlib.get_backend() == 'agg' or not hasattr(matplotlib, '_called_from_ju
         matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
+import matplotlib.transforms as mtransforms
 import numpy as np
 
 from .layouts import *
@@ -119,6 +120,13 @@ DARK_COLORS = {'#505050', '#3D3D3D', '#2B2B2B', '#696969', '#504B4B'}
 
 HIGHLIGHT_COLOR = '#FFDC96'  # Orange for highlighted cells
 HIGHLIGHT_EDGE = '#FF0000'   # Red border
+HIERARCHY_LEVEL_COLORS = [
+    '#1f77b4',  # blue
+    '#ff7f0e',  # orange
+    '#2ca02c',  # green
+    '#d62728',  # red
+    '#9467bd',  # purple
+]
 
 
 def _is_dark(hex_color: str) -> bool:
@@ -493,43 +501,140 @@ def _get_hierarchical_indices_2d(layout) -> Tuple[np.ndarray, int, int, tuple, t
     row_shape = mode(layout.shape, 0)
     col_shape = mode(layout.shape, 1)
 
-    # Get the structure for rows and cols
-    if isinstance(row_shape, tuple):
-        inner_rows, outer_rows = row_shape[0], row_shape[1] if len(row_shape) > 1 else 1
-        total_rows = inner_rows * outer_rows
-        row_structure = row_shape
-    else:
-        inner_rows, outer_rows = row_shape, 1
-        total_rows = inner_rows
-        row_structure = (row_shape,)
-
-    if isinstance(col_shape, tuple):
-        inner_cols, outer_cols = col_shape[0], col_shape[1] if len(col_shape) > 1 else 1
-        total_cols = inner_cols * outer_cols
-        col_structure = col_shape
-    else:
-        inner_cols, outer_cols = col_shape, 1
-        total_cols = inner_cols
-        col_structure = (col_shape,)
+    total_rows = size(row_shape)
+    total_cols = size(col_shape)
+    row_structure = row_shape if isinstance(row_shape, tuple) else (row_shape,)
+    col_structure = col_shape if isinstance(col_shape, tuple) else (col_shape,)
 
     indices = np.zeros((total_rows, total_cols), dtype=np.int32)
 
     for i in range(total_rows):
         for j in range(total_cols):
-            # Build hierarchical coordinate
-            if isinstance(row_shape, tuple) and len(row_shape) == 2:
-                row_coord = (i % inner_rows, i // inner_rows)
-            else:
-                row_coord = i
-
-            if isinstance(col_shape, tuple) and len(col_shape) == 2:
-                col_coord = (j % inner_cols, j // inner_cols)
-            else:
-                col_coord = j
-
+            row_coord = idx2crd(i, row_shape)
+            col_coord = idx2crd(j, col_shape)
             indices[i, j] = layout(row_coord, col_coord)
 
     return indices, total_rows, total_cols, row_structure, col_structure
+
+
+def _format_nested_coord(coord) -> str:
+    """Format a scalar or nested tuple coordinate compactly."""
+    if isinstance(coord, tuple):
+        return "(" + ",".join(_format_nested_coord(c) for c in coord) + ")"
+    return str(coord)
+
+
+def _coord_levels(coord) -> tuple[int, ...]:
+    """Flatten a scalar or nested coordinate into level-ordered scalar components."""
+    flat = flatten(coord)
+    return tuple(flat) if isinstance(flat, tuple) else (int(flat),)
+
+
+def _level_spans(shape) -> tuple[int, ...]:
+    """Return the span at each flattened coordinate level.
+
+    For flattened shape (s0, s1, s2), returns (s0, s0*s1, s0*s1*s2).
+    Level 0 is the fastest-varying coordinate.
+    """
+    flat_shape = flatten(shape)
+    flat_shape = tuple(flat_shape) if isinstance(flat_shape, tuple) else (flat_shape,)
+    spans = []
+    prod = 1
+    for dim in flat_shape:
+        prod *= int(dim)
+        spans.append(prod)
+    return tuple(spans)
+
+
+def _level_block_sizes(shape) -> tuple[int, ...]:
+    """Return the run length for each flattened coordinate level.
+
+    For flattened shape (s0, s1, s2), returns (1, s0, s0*s1). These are the
+    sizes of contiguous displayed runs for which level-k stays constant.
+    """
+    spans = _level_spans(shape)
+    if not spans:
+        return ()
+    return (1,) + spans[:-1]
+
+
+def _hierarchy_level_color(level: int) -> str:
+    """Color for a hierarchy level.
+
+    Level 0 is the fastest-varying coordinate and has no corresponding tile
+    boundary, so keep it neutral. Coarser levels map to the hierarchy palette.
+    """
+    if level == 0:
+        return '#333333'
+    return HIERARCHY_LEVEL_COLORS[(level - 1) % len(HIERARCHY_LEVEL_COLORS)]
+
+
+def _format_hierarchical_cell_lines(row_coord, col_coord, offset: int) -> tuple[str, str, str]:
+    """Format pedagogical hierarchical cell labels.
+
+    Returns three explicit lines:
+      row=<row-coord>
+      col=<col-coord>
+      offset=<offset>
+    """
+    return (
+        f"row={_format_nested_coord(row_coord)}",
+        f"col={_format_nested_coord(col_coord)}",
+        f"offset={offset}",
+    )
+
+
+def _draw_colored_coord_line(ax, x: float, y: float, prefix: str, coord,
+                             base_color: str, fontsize: float,
+                             use_level_colors: bool):
+    """Draw row=/col= line with per-coordinate level colors.
+
+    When enabled, the scalar coordinate components use the same colors as the
+    corresponding hierarchy-level margin labels/boundaries.
+
+    This helper lays out colored coordinate components using point offsets and
+    an approximate monospace character width (`fontsize * 0.58`). That is a
+    practical heuristic for pedagogical diagrams, but it is not exact text
+    measurement and may vary slightly across renderers/platforms.
+    """
+    levels = _coord_levels(coord)
+    pieces = [(f"{prefix}=(", base_color)]
+    for level, value in enumerate(levels):
+        pieces.append((str(value),
+                       _hierarchy_level_color(level) if use_level_colors else base_color))
+        if level != len(levels) - 1:
+            pieces.append((",", base_color))
+    pieces.append((")", base_color))
+
+    # Left-align within the cell using monospace character widths in point offsets.
+    char_width_pts = fontsize * 0.58
+    offset_pts = 0
+    for text, color in pieces:
+        trans = mtransforms.offset_copy(ax.transData, fig=ax.figure,
+                                        x=offset_pts, y=0, units='points')
+        ax.text(x, y, text, transform=trans,
+                ha='left', va='center', fontsize=fontsize,
+                color=color, family='monospace')
+        offset_pts += len(text) * char_width_pts
+
+
+def _get_hierarchical_cell_coords_2d(layout) -> np.ndarray:
+    """Return per-cell hierarchical coordinates aligned with the displayed grid.
+
+    Each entry is a `(row_coord, col_coord)` tuple, where each coordinate may be
+    scalar or nested depending on the corresponding top-level mode shape.
+    """
+    _, rows, cols, _, _ = _get_hierarchical_indices_2d(layout)
+    row_shape = mode(layout.shape, 0)
+    col_shape = mode(layout.shape, 1)
+
+    coords = np.empty((rows, cols), dtype=object)
+    for i in range(rows):
+        row_coord = idx2crd(i, row_shape)
+        for j in range(cols):
+            col_coord = idx2crd(j, col_shape)
+            coords[i, j] = (row_coord, col_coord)
+    return coords
 
 
 def _draw_hierarchical_grid(ax, layout,
@@ -538,19 +643,36 @@ def _draw_hierarchical_grid(ax, layout,
                             title: Optional[str] = None,
                             colorize: bool = False,
                             flatten_hierarchical: bool = True,
+                            label_hierarchy_levels: bool = False,
                             num_shades: int = 8):
     """Draw a hierarchical layout grid.
 
     Args:
         flatten_hierarchical: If True, show flat grid with offset values.
-                              If False, show hierarchical coordinates with
-                              blue tile boundary lines (cute-viz style).
+                              If False, show explicit pedagogical labels in
+                              each cell:
+                                - row=... for the nested row coordinate
+                                - col=... for the nested column coordinate
+                                - offset=... for the resulting offset
+                              plus blue tile boundary lines.
+        label_hierarchy_levels: If True, annotate axes with each hierarchy
+                              level at block/tile granularity using labels
+                              such as row[1]=..., row[2]=..., col[1]=...,
+                              col[2]=.... Label colors match the corresponding
+                              hierarchy boundary lines. If False, keep axes
+                              simple (R0, R1, ... / C0, C1, ...).
     """
     indices, rows, cols, row_struct, col_struct = _get_hierarchical_indices_2d(layout)
+    cell_coords = _get_hierarchical_cell_coords_2d(layout)
 
-    # Determine inner dimensions for nested display
-    inner_rows = row_struct[0] if isinstance(row_struct, tuple) else row_struct
-    inner_cols = col_struct[0] if isinstance(col_struct, tuple) else col_struct
+    row_shape = mode(layout.shape, 0)
+    col_shape = mode(layout.shape, 1)
+    row_spans = _level_spans(row_shape)
+    col_spans = _level_spans(col_shape)
+    row_block_sizes = _level_block_sizes(row_shape)
+    col_block_sizes = _level_block_sizes(col_shape)
+    n_row_levels = len(row_block_sizes)
+    n_col_levels = len(col_block_sizes)
 
     # Build palette
     if colorize:
@@ -558,8 +680,15 @@ def _draw_hierarchical_grid(ax, layout,
     else:
         colors = _make_grayscale_palette(num_shades)
 
-    ax.set_xlim(-0.5, cols + 0.5)
-    ax.set_ylim(-0.5, rows + 0.5)
+    if flatten_hierarchical or not label_hierarchy_levels:
+        left_margin = 0.9
+        top_margin = 0.9
+    else:
+        # One label band per hierarchical level beyond the fastest-varying one.
+        left_margin = 0.9 + 1.0 * max(n_row_levels, 0)
+        top_margin = 0.9 + 0.7 * max(n_col_levels, 0)
+    ax.set_xlim(-left_margin, cols + 0.5)
+    ax.set_ylim(-top_margin, rows + 0.5)
     ax.set_aspect('equal')
     ax.invert_yaxis()
     ax.axis('off')
@@ -567,66 +696,128 @@ def _draw_hierarchical_grid(ax, layout,
     if title:
         ax.set_title(title, fontsize=10, fontweight='bold', pad=10)
 
+    max_levels = max(n_row_levels, n_col_levels, 1)
+    coord_fontsize = max(3.2, 5.5 - 0.45 * (max_levels - 1))
+    offset_fontsize = coord_fontsize
+
     for i in range(rows):
         for j in range(cols):
             idx = int(indices[i, j])
             color_idx = idx % len(colors)
             facecolor = colors[color_idx]
-            edgecolor = 'black'
-            linewidth = 0.5
+            if flatten_hierarchical:
+                edgecolor = 'black'
+                linewidth = 0.5
+            else:
+                # In pedagogical hierarchical mode, keep per-cell borders light
+                # so hierarchy boundary lines stand out clearly.
+                edgecolor = '#444444'
+                linewidth = 0.3
 
             rect = patches.Rectangle(
                 (j, i), cell_size, cell_size,
-                facecolor=facecolor, edgecolor=edgecolor, linewidth=linewidth
+                facecolor=facecolor, edgecolor=edgecolor, linewidth=linewidth,
+                zorder=1
             )
             ax.add_patch(rect)
 
-            # Draw offset value in cell
             text_color = 'white' if _is_dark(facecolor) else 'black'
-            ax.text(j + 0.5, i + 0.5, str(idx),
-                    ha='center', va='center', fontsize=8, color=text_color)
+            if flatten_hierarchical:
+                # Draw flat offset value in cell
+                ax.text(j + 0.5, i + 0.5, str(idx),
+                        ha='center', va='center', fontsize=8, color=text_color)
+            else:
+                # Draw explicit pedagogical labels: row coordinate, column
+                # coordinate, and resulting offset.
+                row_coord, col_coord = cell_coords[i, j]
+                row_line, col_line, off_line = _format_hierarchical_cell_lines(row_coord, col_coord, idx)
+                x_left = j + 0.12
+                _draw_colored_coord_line(
+                    ax, x_left, i + 0.22, "row", row_coord,
+                    text_color, coord_fontsize, use_level_colors=label_hierarchy_levels
+                )
+                _draw_colored_coord_line(
+                    ax, x_left, i + 0.50, "col", col_coord,
+                    text_color, coord_fontsize, use_level_colors=label_hierarchy_levels
+                )
+                offset_label, offset_value = off_line.split("=", 1)
+                ax.text(x_left, i + 0.78, f"{offset_label}=",
+                        ha='left', va='center', fontsize=offset_fontsize, color=text_color,
+                        family='monospace')
+                offset_label_pts = len(f"{offset_label}=") * offset_fontsize * 0.58
+                trans = mtransforms.offset_copy(ax.transData, fig=ax.figure,
+                                                x=offset_label_pts, y=0, units='points')
+                ax.text(x_left, i + 0.78, offset_value, transform=trans,
+                        ha='left', va='center', fontsize=offset_fontsize,
+                        color=text_color, fontweight='bold', family='monospace')
 
     # Draw blue tile boundary lines for nested view
     if not flatten_hierarchical:
-        # Horizontal tile boundaries
-        for i in range(0, rows + 1, inner_rows):
-            ax.plot([0, cols], [i, i], color='blue', linewidth=2)
-        # Vertical tile boundaries
-        for j in range(0, cols + 1, inner_cols):
-            ax.plot([j, j], [0, rows], color='blue', linewidth=2)
+        def _is_shadowed_by_coarser(level: int, pos: int, block_sizes: tuple[int, ...]) -> bool:
+            """Return True if a same-orientation coarser hierarchy line also sits at pos."""
+            for coarser_level in range(level + 1, len(block_sizes)):
+                coarser_block = block_sizes[coarser_level]
+                if coarser_block > 0 and pos % coarser_block == 0:
+                    return True
+            return False
+
+        # Horizontal boundaries for each hierarchy level beyond the
+        # fastest-varying one. Draw from coarsest to finest so intersections
+        # are colored by the finest granularity present there, while the
+        # thicker coarser lines remain underneath.
+        for level in reversed(range(1, n_row_levels)):
+            block_size = row_block_sizes[level]
+            color = HIERARCHY_LEVEL_COLORS[(level - 1) % len(HIERARCHY_LEVEL_COLORS)]
+            linewidth = 2.0 + 1.2 * (level - 1)
+            for i in range(block_size, rows, block_size):
+                if _is_shadowed_by_coarser(level, i, row_block_sizes):
+                    continue
+                ax.plot([0, cols], [i, i], color=color, linewidth=linewidth,
+                        zorder=4 + (n_row_levels - level))
+        # Vertical boundaries for each hierarchy level beyond the
+        # fastest-varying one. Draw from coarsest to finest for the same
+        # reason as horizontal boundaries.
+        for level in reversed(range(1, n_col_levels)):
+            block_size = col_block_sizes[level]
+            color = HIERARCHY_LEVEL_COLORS[(level - 1) % len(HIERARCHY_LEVEL_COLORS)]
+            linewidth = 2.0 + 1.2 * (level - 1)
+            for j in range(block_size, cols, block_size):
+                if _is_shadowed_by_coarser(level, j, col_block_sizes):
+                    continue
+                ax.plot([j, j], [0, rows], color=color, linewidth=linewidth,
+                        zorder=4 + (n_col_levels - level))
 
     if show_labels:
-        if not flatten_hierarchical and isinstance(row_struct, tuple) and len(row_struct) == 2:
-            # Two-level labels: inner (black) and outer (blue)
-            # Inner row labels
-            for i in range(rows):
-                inner_idx = i % inner_rows
-                ax.text(-0.2, i + 0.5, str(inner_idx), ha='center', va='center',
-                        fontsize=8, color='black')
-            # Outer row labels (blue, centered on each tile)
-            outer_rows = rows // inner_rows
-            for outer_i in range(outer_rows):
-                y_center = outer_i * inner_rows + inner_rows / 2
-                ax.text(-0.5, y_center, str(outer_i), ha='center', va='center',
-                        fontsize=10, color='blue', fontweight='bold')
-            # Inner column labels
-            for j in range(cols):
-                inner_idx = j % inner_cols
-                ax.text(j + 0.5, -0.2, str(inner_idx), ha='center', va='center',
-                        fontsize=8, color='black')
-            # Outer column labels (blue, centered on each tile)
-            outer_cols = cols // inner_cols
-            for outer_j in range(outer_cols):
-                x_center = outer_j * inner_cols + inner_cols / 2
-                ax.text(x_center, -0.5, str(outer_j), ha='center', va='center',
-                        fontsize=10, color='blue', fontweight='bold')
+        if not flatten_hierarchical and label_hierarchy_levels:
+            # Annotate each hierarchy level at the block/tile granularity where
+            # that level is constant, rather than labeling every displayed row/col.
+            for level in range(n_row_levels):
+                block_size = row_block_sizes[level]
+                color = _hierarchy_level_color(level)
+                x = -0.55 - 1.0 * level
+                for start in range(0, rows, block_size):
+                    center = start + block_size / 2
+                    value = _coord_levels(idx2crd(start, row_shape))[level]
+                    ax.text(x, center, f"row[{level}]={value}",
+                            ha='center', va='center', fontsize=7,
+                            color=color, fontweight='bold')
+            for level in range(n_col_levels):
+                block_size = col_block_sizes[level]
+                color = _hierarchy_level_color(level)
+                y = -0.55 - 0.7 * level
+                for start in range(0, cols, block_size):
+                    center = start + block_size / 2
+                    value = _coord_levels(idx2crd(start, col_shape))[level]
+                    ax.text(center, y, f"col[{level}]={value}",
+                            ha='center', va='center', fontsize=7,
+                            color=color, fontweight='bold')
         else:
             # Single-level labels
             for i in range(rows):
-                ax.text(-0.3, i + 0.5, str(i), ha='center', va='center',
+                ax.text(-0.3, i + 0.5, f"R{i}", ha='center', va='center',
                         fontsize=8, color='blue')
             for j in range(cols):
-                ax.text(j + 0.5, -0.3, str(j), ha='center', va='center',
+                ax.text(j + 0.5, -0.3, f"C{j}", ha='center', va='center',
                         fontsize=8, color='blue')
 
 
@@ -637,7 +828,8 @@ def draw_layout(layout, filename=None,
                 colorize: bool = False,
                 color_layout: Optional[Layout] = None,
                 num_shades: int = 8,
-                flatten_hierarchical: bool = True):
+                flatten_hierarchical: bool = True,
+                label_hierarchy_levels: bool = False):
     """Draw a layout and save to file.
 
     Args:
@@ -647,14 +839,23 @@ def draw_layout(layout, filename=None,
         dpi: Resolution for raster formats
         figsize: Figure size in inches (auto-calculated if None)
         colorize: If True, use rainbow colors; if False, use grayscale
-        color_layout: Layout that maps (row, col) to color index. Examples:
-            - Layout((8,8), (1, 0)): color by row (darker down rows)
-            - Layout((8,8), (0, 1)): color by column (darker across cols)
+        color_layout: Optional layout controlling cell coloring. For displayed
+            rank-2 grids, this is evaluated in the same logical coordinate
+            space as the layout being drawn, so displayed cell (row, col) is
+            colored by color_layout(row_coord, col_coord). Examples:
+            - Layout((8,8), (1, 0)): color by row
+            - Layout((8,8), (0, 1)): color by column
             - Layout(1, 0): uniform color
             - None: color by cell value (default)
         num_shades: Number of colors/shades in palette (default 8)
         flatten_hierarchical: For hierarchical layouts, if True show flat grid with
-            offset values. If False, show hierarchical coordinates in cells.
+            offset values. If False, show explicit cell labels:
+              - row=... nested row coordinate
+              - col=... nested column coordinate
+              - offset=... resulting offset
+        label_hierarchy_levels: For hierarchical nested views, if True annotate
+            axes with each hierarchy level at block/tile granularity. Label
+            colors match the corresponding hierarchy boundary lines.
     """
     # Check if this is a hierarchical layout (has nested tuple shapes)
     r = rank(layout)
@@ -687,6 +888,7 @@ def draw_layout(layout, filename=None,
     if is_hierarchical and not flatten_hierarchical:
         _draw_hierarchical_grid(ax, layout, title=title or str(layout),
                                 colorize=colorize, flatten_hierarchical=False,
+                                label_hierarchy_levels=label_hierarchy_levels,
                                 num_shades=num_shades)
     else:
         _draw_grid(ax, indices, title=title or str(layout),
@@ -1403,7 +1605,8 @@ def draw_slice(layout, slice_spec, filename=None,
         dpi: Resolution for raster formats
         figsize: Figure size in inches (auto-calculated if None)
         colorize: If True, use rainbow colors for background cells
-        color_layout: Layout for coloring (None = color by value)
+        color_layout: Optional layout controlling background-cell coloring in
+            the same logical coordinate space as `layout` (None = color by value)
         num_shades: Number of colors/shades in palette
     """
     indices = _get_indices_2d(layout)
@@ -1478,7 +1681,8 @@ def show_layout(layout, title: Optional[str] = None,
         title: Optional title
         figsize: Figure size in inches
         colorize: If True, use rainbow colors for distinct cells
-        color_layout: Layout for coloring (None = color by value)
+        color_layout: Optional layout controlling cell coloring in the same
+            logical coordinate space as `layout` (None = color by value)
         num_shades: Number of colors/shades in palette
 
     Returns:

@@ -26,8 +26,11 @@
 This file demonstrates the visualization capabilities of the layouts library,
 following examples from NVIDIA's CuTe (CUDA Templates) documentation.
 
-Run this script to generate all visualizations:
-    python viz.py
+Run this script to generate all visualizations from a source checkout:
+    PYTHONPATH=src python3 examples/viz.py
+
+or after installing the package in editable mode:
+    python3 examples/viz.py
 
 Output will be saved to ./examples_output/ directory.
 
@@ -36,6 +39,13 @@ Reference: https://github.com/NVIDIA/cutlass/blob/main/media/docs/cute/
 
 from pathlib import Path
 import sys
+
+# Allow running this example script directly from a source checkout without
+# requiring `pip install -e .` first.
+REPO_ROOT = Path(__file__).resolve().parents[1]
+SRC_DIR = REPO_ROOT / "src"
+if str(SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(SRC_DIR))
 
 from layout_algebra import *
 from layout_algebra.atoms_nv import *
@@ -65,9 +75,12 @@ def example_output_formats(output: Path):
 
     Coloring is controlled by color_layout, which is itself a Layout:
     - color_layout=None: color by cell value (default)
-    - color_layout=Layout((r,c), (1, 0)): color by row
-    - color_layout=Layout((r,c), (0, 1)): color by column
+    - color_layout=Layout((r,c), (1, 0)): color by logical row
+    - color_layout=Layout((r,c), (0, 1)): color by logical column
     - color_layout=Layout(1, 0): uniform color (no variation)
+
+    For ordinary 2D layouts, displayed cell (row, col) is colored by
+    evaluating color_layout at that same logical coordinate.
     """
     print("\n" + "=" * 60)
     print("1. Output Formats (SVG, PNG, PDF) and Coloring")
@@ -260,9 +273,14 @@ def example_hierarchical_layouts(output: Path):
                 title=f"Flat: {hier_2x2_3x4}", flatten_hierarchical=True)
     print(f"✓ Flat view: hier_2x2_3x4_flat.svg")
 
-    # Nested view with tile boundaries
+    # Nested pedagogical view:
+    #   - each cell shows row=... (nested row coordinate)
+    #   - each cell shows col=... (nested column coordinate)
+    #   - each cell shows offset=... (resulting offset)
+    #   - axes stay simple (R0, R1, ... / C0, C1, ...)
     draw_layout(hier_2x2_3x4, output / "hier_2x2_3x4_nested.svg",
-                title=f"Nested: {hier_2x2_3x4}", flatten_hierarchical=False)
+                title=f"Nested: {hier_2x2_3x4}", flatten_hierarchical=False,
+                label_hierarchy_levels=True)
     print(f"✓ Nested view: hier_2x2_3x4_nested.svg")
 
     # =========================================================================
@@ -274,8 +292,65 @@ def example_hierarchical_layouts(output: Path):
     draw_layout(hier_layout, output / "hier_2x2_tiles_flat.svg",
                 title=f"Flat: {hier_layout}", flatten_hierarchical=True)
     draw_layout(hier_layout, output / "hier_2x2_tiles_nested.svg",
-                title=f"Nested: {hier_layout}", flatten_hierarchical=False)
+                title=f"Nested: {hier_layout}", flatten_hierarchical=False,
+                label_hierarchy_levels=True)
     print(f"✓ Hierarchical 2×2 in 2×2: {hier_layout}")
+    print(f"  Nested view is pedagogical: row=... / col=... show nested coordinates, offset=... shows mapping")
+
+    # =========================================================================
+    # Example 3: 3-level asymmetric hierarchy with per-level axis labels
+    # =========================================================================
+    print("\n  --- 3-Level Asymmetric Hierarchy ---")
+    hier_3level = Layout(
+        ((2, 3, 2), (3, 2, 2)),
+        ((1, 2, 6), (12, 36, 72)),
+    )
+    draw_layout(
+        hier_3level,
+        output / "hier_3level_asymmetric_flat.svg",
+        title=f"Flat: {hier_3level}",
+        flatten_hierarchical=True,
+    )
+    draw_layout(
+        hier_3level,
+        output / "hier_3level_asymmetric_nested.svg",
+        title=f"Nested: {hier_3level}",
+        flatten_hierarchical=False,
+        label_hierarchy_levels=True,
+    )
+    print("✓ 3-level asymmetric hierarchy")
+    print("  Row shape = (2,3,2), Col shape = (3,2,2)")
+    print("  Nested view labels hierarchy levels at tile/block granularity")
+    print("  and uses matching colors for boundary lines and level labels.")
+    print("  Axis labels use row[k]=... / col[k]=... to match cell notation.")
+    print("  Output: hier_3level_asymmetric_nested.svg")
+
+    # =========================================================================
+    # Example 4: 4-level asymmetric hierarchy with larger finest-level tiles
+    # =========================================================================
+    print("\n  --- 4-Level Asymmetric Hierarchy (Small Cells) ---")
+    hier_4level = Layout(
+        ((3, 2, 2, 2), (4, 2, 2, 2)),
+        ((1, 3, 6, 12), (24, 96, 192, 384)),
+    )
+    draw_layout(
+        hier_4level,
+        output / "hier_4level_asymmetric_flat.svg",
+        title=f"Flat: {hier_4level}",
+        flatten_hierarchical=True,
+    )
+    draw_layout(
+        hier_4level,
+        output / "hier_4level_asymmetric_nested.svg",
+        title=f"Nested: {hier_4level}",
+        flatten_hierarchical=False,
+        label_hierarchy_levels=True,
+    )
+    print("✓ 4-level asymmetric hierarchy")
+    print("  Row shape = (3,2,2,2), Col shape = (4,2,2,2)")
+    print("  This example makes cells much smaller, so it is useful for checking")
+    print("  whether hierarchy-level labels and colored boundaries remain readable.")
+    print("  Output: hier_4level_asymmetric_nested.svg")
 
     # Flatten the hierarchical layout (algebra operation)
     flat_layout = flatten(hier_layout)
@@ -313,25 +388,34 @@ def example_hierarchical_layouts(output: Path):
     print(f"✓ (4,8):(1,5) — non-injective (surjective) layout")
 
     # (4,(4,2)):(4,(1,16)) — hierarchical column dimension
+    # Nested rendering explicitly shows how the hierarchical column coordinate
+    # maps to the final offset for each displayed cell.
     cecka_4 = Layout((4, (4, 2)), (4, (1, 16)))
     draw_layout(cecka_4, output / "cecka_hier_col.svg",
-                title="(4,(4,2)):(4,(1,16))", flatten_hierarchical=False)
+                title="(4,(4,2)):(4,(1,16))", flatten_hierarchical=False,
+                label_hierarchy_levels=True)
     draw_layout(cecka_4, output / "cecka_hier_col_flat.svg",
                 title="(4,(4,2)):(4,(1,16))", flatten_hierarchical=True)
     print(f"✓ (4,(4,2)):(4,(1,16)) — hierarchical column")
 
     # ((2,2),(4,2)):((1,8),(2,16)) — hierarchical in both modes
+    # This is a good example where explicit row=... / col=... labels help explain
+    # the two-level row and column structure.
     cecka_5 = Layout(((2, 2), (4, 2)), ((1, 8), (2, 16)))
     draw_layout(cecka_5, output / "cecka_hier_both.svg",
-                title="((2,2),(4,2)):((1,8),(2,16))", flatten_hierarchical=False)
+                title="((2,2),(4,2)):((1,8),(2,16))", flatten_hierarchical=False,
+                label_hierarchy_levels=True)
     draw_layout(cecka_5, output / "cecka_hier_both_flat.svg",
                 title="((2,2),(4,2)):((1,8),(2,16))", flatten_hierarchical=True)
     print(f"✓ ((2,2),(4,2)):((1,8),(2,16)) — hierarchical both modes")
 
     # ((2,2),(2,4)):((0,2),(0,4)) — zero-stride (broadcast) layout
+    # The pedagogical nested view is especially useful here because repeated
+    # offsets are easier to interpret when the source coordinates are explicit.
     cecka_6 = Layout(((2, 2), (2, 4)), ((0, 2), (0, 4)))
     draw_layout(cecka_6, output / "cecka_broadcast.svg",
-                title="((2,2),(2,4)):((0,2),(0,4))", flatten_hierarchical=False)
+                title="((2,2),(2,4)):((0,2),(0,4))", flatten_hierarchical=False,
+                label_hierarchy_levels=True)
     draw_layout(cecka_6, output / "cecka_broadcast_flat.svg",
                 title="((2,2),(2,4)):((0,2),(0,4))", flatten_hierarchical=True)
     print(f"✓ ((2,2),(2,4)):((0,2),(0,4)) — broadcast (zero-stride) layout")
@@ -1073,7 +1157,8 @@ def example_slicing(output: Path):
     draw_layout(cecka_t, output / "cecka_slice_base.svg",
                 title=f"Tensor: {cecka_t}", flatten_hierarchical=True)
     draw_layout(cecka_t, output / "cecka_slice_base_nested.svg",
-                title=f"Tensor: {cecka_t}", flatten_hierarchical=False)
+                title=f"Tensor: {cecka_t}", flatten_hierarchical=False,
+                label_hierarchy_levels=True)
     print(f"✓ Base tensor: {cecka_t}")
 
     # Slice (2, None) — fix mode-0 to flat index 2, keep all of mode-1

@@ -9,6 +9,12 @@ For runnable examples see [`examples/viz.py`](../examples/viz.py)
 and the Jupyter notebook [`examples/viz.ipynb`](../examples/viz.ipynb).
 For the core layout algebra see [`docs/layout_api.md`](layout_api.md).
 
+From a source checkout, run the example script with:
+
+```bash
+PYTHONPATH=src python3 examples/viz.py
+```
+
 ## Output and Display
 
 Every `draw_*` function accepts a `filename` parameter:
@@ -49,6 +55,7 @@ draw_layout(Layout((8, 8), (8, 1)), title="Row-Major 8x8", colorize=True)
 | `color_layout` | `Layout` | `None` | Custom coloring (see below) |
 | `num_shades` | `int` | `8` | Number of distinct grayscale shades |
 | `flatten_hierarchical` | `bool` | `True` | Flatten nested shapes to 2D grid |
+| `label_hierarchy_levels` | `bool` | `False` | In nested hierarchical mode, annotate hierarchy levels at tile/block granularity; label colors match boundary colors |
 
 ### Coloring
 
@@ -82,14 +89,65 @@ draw_layout(layout, color_layout=Layout(1, 0))
 ### Hierarchical Layouts
 
 When `flatten_hierarchical=True` (default), nested shapes are flattened
-to a 2D grid.  Set it to `False` to show tile boundaries:
+to a 2D grid. Set it to `False` to show explicit pedagogical labels inside
+each cell:
+
+- `row=...` = nested row coordinate
+- `col=...` = nested column coordinate
+- `offset=...` = resulting offset
+
+The axes remain simple displayed row/column indices (`R0`, `R1`, ... and
+`C0`, `C1`, ...), while tile boundaries still reveal the higher-level
+structure:
 
 ```python
 hier = Layout(((2, 3), (2, 4)), ((1, 6), (2, 12)))
-draw_layout(hier, flatten_hierarchical=False, title="With tile boundaries")
+draw_layout(hier, flatten_hierarchical=False, title="With explicit nested coordinates")
 ```
 
 ![hierarchical](images/hierarchical.png)
+
+This nested view is intended to be pedagogical: instead of showing only a
+flattened offset grid, it makes the mapping explicit cell-by-cell.
+
+For deeper hierarchies, you can also label each hierarchy level on the axes:
+
+```python
+hier3 = Layout(((2, 3, 2), (3, 2, 2)), ((1, 2, 6), (12, 36, 72)))
+draw_layout(
+    hier3,
+    "hier_3level_asymmetric_nested.svg",
+    flatten_hierarchical=False,
+    label_hierarchy_levels=True,
+    title="3-level asymmetric hierarchy",
+)
+```
+
+In that mode, the axes still represent displayed rows/columns, but hierarchy
+labels are drawn at the granularity of the corresponding blocks/tiles rather
+than on every row and column. Boundary colors and label colors match by level,
+making the nesting structure easier to read.
+
+The per-level axis labels use the same indexing convention as the in-cell
+coordinates, e.g. `row[0]=...`, `row[1]=...`, `col[0]=...`, `col[1]=...`.
+
+For examples where the hierarchy itself is central to the lesson, enabling
+`label_hierarchy_levels=True` is recommended.
+
+You can push this further with deeper asymmetric hierarchies to test how the
+level labels behave when cells become small:
+
+```python
+hier4 = Layout(((3, 2, 2, 2), (4, 2, 2, 2)),
+               ((1, 3, 6, 12), (24, 96, 192, 384)))
+draw_layout(
+    hier4,
+    "hier_4level_asymmetric_nested.svg",
+    flatten_hierarchical=False,
+    label_hierarchy_levels=True,
+    title="4-level asymmetric hierarchy",
+)
+```
 
 ## draw_swizzle
 

@@ -12,6 +12,9 @@ plain Python — useful for understanding tensor core access patterns, debugging
 swizzled shared memory, and prototyping tiled GPU kernels without compiling any CUDA.
 The code in src/layouts.py is intended to be readable and helpful to learn and
 understand layout algebra.
+The visualization layer is also designed to be pedagogical: for example,
+hierarchical layout views can explicitly show nested row/column coordinates and
+the resulting offset for each displayed cell.
 
 ## Installation
 
@@ -125,8 +128,8 @@ gallery of layout, swizzle, MMA atom, and tiled MMA visualizations.
 
 - [Layout Algebra API](docs/layout_api.md) — construction, querying, compose, complement, divide, product
 - [Visualization API](docs/viz_api.md) — draw_layout, draw_swizzle, draw_mma_layout, and more
-- [Layout Examples](examples/layouts.py) — runnable script covering the full algebra (no matplotlib needed)
-- [Visualization Examples](examples/viz.py) — runnable script generating all visualization types
+- [Layout Examples](examples/layouts.py) — runnable script covering the full algebra (run from source checkout with `PYTHONPATH=src python3 examples/layouts.py`)
+- [Visualization Examples](examples/viz.py) — runnable script generating all visualization types (run from source checkout with `PYTHONPATH=src python3 examples/viz.py`)
 - [Visualization Notebook](examples/viz.ipynb) — Jupyter gallery
 
 ## Testing
