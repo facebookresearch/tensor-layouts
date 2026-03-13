@@ -648,6 +648,17 @@ def test_logical_divide_2d():
         assert divided(i) == L(i)
 
 
+def test_logical_divide_hierarchical_stride():
+    # Shape tiler with hierarchical strides should not crash.
+    # CuTe C++ always uses compose/complement (no shortcut), so this
+    # exercises the fallback path in _logical_divide_by_shape.
+    L = Layout(((2, 4), 8), ((1, 2), 8))
+    divided = logical_divide(L, (4, 4))
+    assert size(divided) == size(L)
+    for i in range(size(L)):
+        assert divided(i) == L(i)
+
+
 def test_tiled_divide():
     # tiled_divide: ((TileM,TileN), RestM, RestN, L, ...)
     # Mode 0 is the grouped tiles, remaining modes are individual rests
