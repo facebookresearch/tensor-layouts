@@ -108,7 +108,7 @@ values packed into 2 VGPRs). The lane-to-row mapping for A and B is the
 same: lane selects a row, VGPRs hold the K elements.
 
 Usage:
-    from layout_algebra.atoms_amd import CDNA_32x32x8_F32F16F16_MFMA, CDNA_16x16x16_F32F16F16_MFMA
+    from tensor_layouts.atoms_amd import CDNA_32x32x8_F32F16F16_MFMA, CDNA_16x16x16_F32F16F16_MFMA
     print(CDNA_32x32x8_F32F16F16_MFMA.c_layout)
 """
 

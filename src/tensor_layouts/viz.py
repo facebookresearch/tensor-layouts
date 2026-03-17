@@ -26,8 +26,8 @@ Visualize layouts, swizzled layouts, and tensor slices in cute-viz style.
 Supports multiple output formats: SVG, PNG, PDF.
 
 Usage:
-    from layout_algebra.viz import draw_layout, draw_swizzle, draw_slice
-    from layout_algebra import Layout, Swizzle, compose
+    from tensor_layouts.viz import draw_layout, draw_swizzle, draw_slice
+    from tensor_layouts import Layout, Swizzle, compose
 
     # Basic layout - format inferred from extension
     draw_layout(Layout((8, 8), (8, 1)), "row_major.svg")
@@ -42,7 +42,7 @@ Usage:
     draw_slice(Layout((4, 8), (8, 1)), (2, None), "slice.svg")
 
     # Jupyter notebook display
-    from layout_algebra.viz import show_layout
+    from tensor_layouts.viz import show_layout
     show_layout(Layout((8, 8), (8, 1)))
 
 Requirements:

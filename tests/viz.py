@@ -25,30 +25,30 @@ import tempfile
 
 import pytest
 
-from layout_algebra import Layout, Swizzle
-from layout_algebra.tensor import Tensor
-from layout_algebra.layouts import (
-    mode, rank, flat_divide,
+from tensor_layouts import Layout, Swizzle
+from tensor_layouts.tensor import Tensor
+from tensor_layouts.layouts import (
+    mode, rank, flat_divide, tiled_divide, flat_product,
 )
-from layout_algebra.atoms_amd import (
+from tensor_layouts.atoms_amd import (
     CDNA3P_16x16x32_F32F16F16_MFMA,
     CDNA3_32x32x16_F32F8F8_MFMA,
 )
-from layout_algebra.atoms_nv import (
+from tensor_layouts.atoms_nv import (
     SM80_16x8x16_F16F16F16F16_TN,
     SM90_16x8x4_F64F64F64F64_TN,
     SM120_16x8x32_F32E4M3E4M3F32_TN,
 )
-from layout_algebra.layout_utils import tile_mma_grid
+from tensor_layouts.layout_utils import tile_mma_grid
 
 try:
     import matplotlib.figure
     import matplotlib.pyplot as plt
     from matplotlib.colors import to_rgba
     from matplotlib.transforms import Bbox
-    import layout_algebra.viz as viz_mod
-    from layout_algebra.viz import (
-        _build_swizzle_figure,  # noqa: F401 (used via monkeypatch)
+    import tensor_layouts.viz as viz_mod
+    from tensor_layouts.viz import (
+        _build_swizzle_figure,
         _compute_tv_mapping,
         _draw_hierarchical_grid,
         _format_hierarchical_cell_lines,
@@ -89,7 +89,7 @@ except ImportError:
 
 requires_viz = pytest.mark.skipif(
     not HAS_VIZ,
-    reason="layout_algebra.viz not available (needs matplotlib)"
+    reason="tensor_layouts.viz not available (needs matplotlib)"
 )
 
 
@@ -430,7 +430,7 @@ def test_show_copy_layout_returns_figure():
 @requires_viz
 def test_draw_copy_atom_smoke():
     """draw_copy_atom handles the upcast from bit coordinates automatically."""
-    from layout_algebra.atoms_nv import SM75_U32x1_LDSM_N
+    from tensor_layouts.atoms_nv import SM75_U32x1_LDSM_N
     with tempfile.NamedTemporaryFile(suffix=".png") as f:
         draw_copy_atom(SM75_U32x1_LDSM_N, element_bits=16, filename=f.name)
 
@@ -438,7 +438,7 @@ def test_draw_copy_atom_smoke():
 @requires_viz
 def test_show_copy_atom_returns_figure():
     """show_copy_atom returns a Figure for Jupyter display."""
-    from layout_algebra.atoms_nv import SM90_U32x4_STSM_N
+    from tensor_layouts.atoms_nv import SM90_U32x4_STSM_N
     fig = show_copy_atom(SM90_U32x4_STSM_N, element_bits=16)
     try:
         assert isinstance(fig, matplotlib.figure.Figure)
@@ -457,7 +457,7 @@ def test_show_tv_layout_returns_figure():
 
 @requires_viz
 def test_show_mma_layout_returns_figure():
-    from layout_algebra.atoms_nv import SM80_16x8x16_F16F16F16F16_TN
+    from tensor_layouts.atoms_nv import SM80_16x8x16_F16F16F16F16_TN
     atom = SM80_16x8x16_F16F16F16F16_TN
     fig = show_mma_layout(atom.a_layout, atom.b_layout, atom.c_layout,
                           tile_mnk=atom.shape_mnk, colorize=True,
@@ -470,7 +470,7 @@ def test_show_mma_layout_returns_figure():
 
 @requires_viz
 def test_show_tiled_grid_returns_figure():
-    from layout_algebra.atoms_nv import SM80_16x8x16_F16F16F16F16_TN
+    from tensor_layouts.atoms_nv import SM80_16x8x16_F16F16F16F16_TN
     atom = SM80_16x8x16_F16F16F16F16_TN
     atom_layout = Layout((2, 2), (1, 2))
     grid, tile_shape = tile_mma_grid(atom, atom_layout, matrix="C")

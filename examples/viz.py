@@ -47,10 +47,10 @@ SRC_DIR = REPO_ROOT / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
-from layout_algebra import *
-from layout_algebra.atoms_nv import *
-from layout_algebra.atoms_amd import *
-from layout_algebra.viz import *
+from tensor_layouts import *
+from tensor_layouts.atoms_nv import *
+from tensor_layouts.atoms_amd import *
+from tensor_layouts.viz import *
 
 
 def setup_output_dir(name: str = "examples_output") -> Path:
@@ -292,17 +292,27 @@ def example_hierarchical_layouts(output: Path):
     print(f"✓ Nested view: hier_2x2_3x4_nested.svg")
 
     # =========================================================================
-    # Example 2: Simpler 2×2 tiles in 2×2 grid (4×4 total)
+    # Example 2: 2×2 tiles in 2×2 grid (4×4 total) — the project logo layout
     # =========================================================================
-    print("\n  --- 2×2 Tiles in 2×2 Grid ---")
-    hier_layout = Layout(((2, 2), (2, 2)), ((1, 4), (2, 8)))
+    print("\n  --- 2×2 Tiles in 2×2 Grid (Logo Layout) ---")
+    logo_layout = Layout(((2, 2), (2, 2)), ((1, 2), (4, 8)))
 
-    draw_layout(hier_layout, output / "hier_2x2_tiles_flat.svg",
-                title=f"Flat: {hier_layout}", flatten_hierarchical=True)
-    draw_layout(hier_layout, output / "hier_2x2_tiles_nested.svg",
-                title=f"Nested: {hier_layout}", flatten_hierarchical=False,
+    # This is the layout shown in the project logo (docs/images/logo-a.svg).
+    # Inner 2×2 tiles use stride (1, 2) (column-major within each tile),
+    # and the 2×2 outer grid uses stride (4, 8) to place tiles.
+    #
+    # Tile (0,0): 0 2    Tile (0,1): 8 10
+    #             1 3                9 11
+    #
+    # Tile (1,0): 4 6    Tile (1,1): 12 14
+    #             5 7                13 15
+
+    draw_layout(logo_layout, output / "hier_2x2_tiles_flat.svg",
+                title=f"Flat: {logo_layout}", flatten_hierarchical=True)
+    draw_layout(logo_layout, output / "hier_2x2_tiles_nested.svg",
+                title=f"Nested: {logo_layout}", flatten_hierarchical=False,
                 label_hierarchy_levels=True)
-    print(f"✓ Hierarchical 2×2 in 2×2: {hier_layout}")
+    print(f"✓ Hierarchical 2×2 in 2×2 (logo layout): {logo_layout}")
     print(f"  Nested view is pedagogical: row=... / col=... show nested coordinates, offset=... shows mapping")
 
     # =========================================================================
@@ -790,7 +800,7 @@ def _draw_tiled_mma(atom, atom_layout, output: Path, tile_mnk=None):
         tile_mnk: Optional (M, N, K) final tile. If larger than the atom
                   arrangement, replicates across values.
     """
-    from layout_algebra.layout_utils import tile_mma_grid
+    from tensor_layouts.layout_utils import tile_mma_grid
 
     M_a, N_a, K_a = atom.shape_mnk
     atom_shape = atom_layout.shape

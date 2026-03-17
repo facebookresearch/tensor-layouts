@@ -10,10 +10,10 @@ Or:
 import shutil
 from pathlib import Path
 
-from layout_algebra import Layout, Swizzle
-from layout_algebra.atoms_nv import SM80_16x8x16_F16F16F16F16_TN
-from layout_algebra.layout_utils import tile_mma_grid
-from layout_algebra.viz import (
+from tensor_layouts import Layout, Swizzle
+from tensor_layouts.atoms_nv import SM80_16x8x16_F16F16F16F16_TN
+from tensor_layouts.layout_utils import tile_mma_grid
+from tensor_layouts.viz import (
     draw_composite,
     draw_layout,
     draw_slice,

@@ -27,7 +27,7 @@ This test imports AMD's matrix_calculator.py reference tool and compares
 its lane-to-element mapping against our Layout-based atom definitions.
 
 Also includes comprehensive structural, algebraic, and visualization tests
-that exercise the full layout_algebra API against every AMD MFMA atom.
+that exercise the full tensor_layouts API against every AMD MFMA atom.
 
 The oracle tool is available at:
     https://github.com/ROCm/amd_matrix_instruction_calculator
@@ -42,17 +42,17 @@ Skipped automatically if the tool is not installed.
 import tempfile
 import pytest
 
-from layout_algebra import Layout, size, rank, depth, mode, cosize
-from layout_algebra.layouts import (
+from tensor_layouts import Layout, size, rank, depth, mode, cosize
+from tensor_layouts.layouts import (
     compose, complement, flatten, coalesce,
     logical_divide, logical_product,
     left_inverse, right_inverse,
     idx2crd, crd2idx,
 )
-from layout_algebra.layout_utils import (
+from tensor_layouts.layout_utils import (
     make_ordered_layout, tile_to_shape, product_each,
 )
-from layout_algebra.atoms_amd import *
+from tensor_layouts.atoms_amd import *
 
 # Try to import the AMD matrix instruction calculator.
 try:
@@ -72,14 +72,14 @@ requires_calculator = pytest.mark.skipif(
 
 # Try to import visualization module (requires matplotlib).
 try:
-    from layout_algebra.viz import draw_tv_layout, draw_mma_layout, _compute_tv_mapping
+    from tensor_layouts.viz import draw_tv_layout, draw_mma_layout, _compute_tv_mapping
     HAS_VIZ = True
 except ImportError:
     HAS_VIZ = False
 
 requires_viz = pytest.mark.skipif(
     not HAS_VIZ,
-    reason="layout_algebra.viz not available (needs matplotlib)"
+    reason="tensor_layouts.viz not available (needs matplotlib)"
 )
 
 
