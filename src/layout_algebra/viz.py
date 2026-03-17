@@ -866,7 +866,9 @@ def _get_hierarchical_cell_coords_2d(layout) -> np.ndarray:
     return coords
 
 
-def _draw_hierarchical_grid(ax, layout,
+def _draw_hierarchical_grid(ax, indices, rows, cols,
+                            cell_coords,
+                            row_shape, col_shape,
                             cell_size: float = 1.0,
                             show_labels: bool = True,
                             title: Optional[str] = None,
@@ -878,6 +880,12 @@ def _draw_hierarchical_grid(ax, layout,
     """Draw a hierarchical layout grid.
 
     Args:
+        indices: 2D array of offset values (rows × cols)
+        rows: Number of grid rows
+        cols: Number of grid columns
+        cell_coords: 2D object array of (row_coord, col_coord) tuples
+        row_shape: Hierarchical row shape (e.g. (4, 2) for inner=4, outer=2)
+        col_shape: Hierarchical column shape
         flatten_hierarchical: If True, show flat grid with offset values.
                               If False, show explicit pedagogical labels in
                               each cell:
@@ -892,13 +900,6 @@ def _draw_hierarchical_grid(ax, layout,
                               hierarchy boundary lines. If False, keep axes
                               simple (R0, R1, ... / C0, C1, ...).
     """
-    indices, rows, cols, row_struct, col_struct = _get_hierarchical_indices_2d(layout)
-    cell_coords = _get_hierarchical_cell_coords_2d(layout)
-
-    row_shape = mode(layout.shape, 0)
-    col_shape = mode(layout.shape, 1)
-    row_spans = _level_spans(row_shape)
-    col_spans = _level_spans(col_shape)
     row_block_sizes = _level_block_sizes(row_shape)
     col_block_sizes = _level_block_sizes(col_shape)
     n_row_levels = len(row_block_sizes)
@@ -1043,10 +1044,17 @@ def _build_layout_figure(layout,
                        (isinstance(mode(layout.shape, 0), tuple) or
                         isinstance(mode(layout.shape, 1), tuple)))
 
+    cell_coords = None
+    row_shape = None
+    col_shape = None
+
     if is_hierarchical and not flatten_hierarchical:
         # Use hierarchical grid rendering
         try:
             indices, rows, cols, _, _ = _get_hierarchical_indices_2d(layout)
+            cell_coords = _get_hierarchical_cell_coords_2d(layout)
+            row_shape = mode(layout.shape, 0)
+            col_shape = mode(layout.shape, 1)
         except (ValueError, TypeError):
             # Fall back to regular rendering if hierarchical extraction fails
             indices = _get_indices_2d(layout)
@@ -1070,7 +1078,10 @@ def _build_layout_figure(layout,
     fig, ax = plt.subplots(figsize=figsize)
 
     if is_hierarchical and not flatten_hierarchical:
-        _draw_hierarchical_grid(ax, layout, title=title or str(layout),
+        _draw_hierarchical_grid(ax, indices, rows, cols,
+                                cell_coords=cell_coords,
+                                row_shape=row_shape, col_shape=col_shape,
+                                title=title or str(layout),
                                 colorize=colorize, color_indices=color_indices,
                                 flatten_hierarchical=False,
                                 label_hierarchy_levels=label_hierarchy_levels,

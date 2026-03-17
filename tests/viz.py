@@ -26,6 +26,7 @@ import tempfile
 import pytest
 
 from layout_algebra import Layout, Swizzle
+from layout_algebra.layouts import mode
 from layout_algebra.atoms_amd import (
     CDNA3P_16x16x32_F32F16F16_MFMA,
     CDNA3_32x32x16_F32F8F8_MFMA,
@@ -54,6 +55,7 @@ try:
         _level_block_sizes,
         _level_spans,
         _get_hierarchical_cell_coords_2d,
+        _get_hierarchical_indices_2d,
         _get_indices_2d,
         _get_color_indices_2d,
         draw_composite,
@@ -75,6 +77,20 @@ requires_viz = pytest.mark.skipif(
     not HAS_VIZ,
     reason="layout_algebra.viz not available (needs matplotlib)"
 )
+
+
+def _call_draw_hierarchical_grid(ax, layout, **kwargs):
+    """Test helper: extract data from layout and call _draw_hierarchical_grid."""
+    indices, rows, cols, _, _ = _get_hierarchical_indices_2d(layout)
+    cell_coords = _get_hierarchical_cell_coords_2d(layout)
+    row_shape = mode(layout.shape, 0)
+    col_shape = mode(layout.shape, 1)
+    return _draw_hierarchical_grid(
+        ax, indices, rows, cols,
+        cell_coords=cell_coords,
+        row_shape=row_shape, col_shape=col_shape,
+        **kwargs,
+    )
 
 MIXED_VIZ_ATOMS = [
     # Representative cross-section for visualization smoke tests:
@@ -327,8 +343,10 @@ def test_draw_layout_nested_passes_color_indices_to_hierarchical_renderer(monkey
     color_layout = Layout(layout.shape, ((1, 2), (0, 0)))
     seen = {}
 
-    def fake_draw(ax, passed_layout, **kwargs):
-        seen["layout"] = passed_layout
+    def fake_draw(ax, indices, rows, cols, **kwargs):
+        seen["indices"] = indices
+        seen["rows"] = rows
+        seen["cols"] = cols
         seen["color_indices"] = kwargs.get("color_indices")
 
     monkeypatch.setattr(viz_mod, "_draw_hierarchical_grid", fake_draw)
@@ -341,7 +359,8 @@ def test_draw_layout_nested_passes_color_indices_to_hierarchical_renderer(monkey
         color_layout=color_layout,
     )
 
-    assert seen["layout"] == layout
+    assert seen["rows"] == 4
+    assert seen["cols"] == 4
     assert seen["color_indices"] is not None
     assert seen["color_indices"].shape == (4, 4)
 
@@ -354,7 +373,7 @@ def test_draw_hierarchical_grid_uses_supplied_color_indices():
 
     fig, ax = plt.subplots()
     try:
-        _draw_hierarchical_grid(
+        _call_draw_hierarchical_grid(
             ax,
             layout,
             colorize=True,
@@ -476,7 +495,7 @@ def test_draw_hierarchical_grid_draws_outer_perimeter_for_coarse_tiles():
 
     fig, ax = plt.subplots()
     try:
-        _draw_hierarchical_grid(ax, layout, flatten_hierarchical=False)
+        _call_draw_hierarchical_grid(ax, layout, flatten_hierarchical=False)
         blue = viz_mod.HIERARCHY_LEVEL_COLORS[0]
         horizontal, vertical = _hierarchy_line_positions(ax, blue)
         assert horizontal == {0.0, 2.0, 4.0}
@@ -491,7 +510,7 @@ def test_draw_hierarchical_grid_cecka_hier_col_margin_labels_do_not_overlap():
 
     fig, ax = plt.subplots(figsize=(8 * 0.8 + 1, 4 * 0.8 + 1))
     try:
-        _draw_hierarchical_grid(ax, layout, flatten_hierarchical=False,
+        _call_draw_hierarchical_grid(ax, layout, flatten_hierarchical=False,
                                 label_hierarchy_levels=True)
         row_boxes, col_boxes = _label_bboxes(ax)
         assert row_boxes
@@ -508,7 +527,7 @@ def test_draw_hierarchical_grid_offset_values_clear_offset_equals_label():
 
     fig, ax = plt.subplots(figsize=(8 * 0.8 + 1, 4 * 0.8 + 1))
     try:
-        _draw_hierarchical_grid(ax, layout, flatten_hierarchical=False,
+        _call_draw_hierarchical_grid(ax, layout, flatten_hierarchical=False,
                                 label_hierarchy_levels=True)
         pairs = _offset_label_value_bboxes(ax)
         assert pairs
@@ -562,7 +581,7 @@ def test_draw_hierarchical_grid_leaves_corner_gap_between_axis_label_bands():
 
     fig, ax = plt.subplots(figsize=(12 * 0.8 + 1, 6 * 0.8 + 1))
     try:
-        _draw_hierarchical_grid(ax, layout, flatten_hierarchical=False,
+        _call_draw_hierarchical_grid(ax, layout, flatten_hierarchical=False,
                                 label_hierarchy_levels=True)
         row_boxes, col_boxes = _label_bboxes(ax)
         assert row_boxes
@@ -588,7 +607,7 @@ def test_draw_hierarchical_grid_draws_outer_perimeter_for_multiple_levels():
 
     fig, ax = plt.subplots()
     try:
-        _draw_hierarchical_grid(ax, layout, flatten_hierarchical=False)
+        _call_draw_hierarchical_grid(ax, layout, flatten_hierarchical=False)
         blue = viz_mod.HIERARCHY_LEVEL_COLORS[0]
         orange = viz_mod.HIERARCHY_LEVEL_COLORS[1]
         green = viz_mod.HIERARCHY_LEVEL_COLORS[2]
@@ -613,7 +632,7 @@ def test_draw_hierarchical_grid_closes_boxes_for_column_only_hierarchy():
 
     fig, ax = plt.subplots()
     try:
-        _draw_hierarchical_grid(ax, layout, flatten_hierarchical=False)
+        _call_draw_hierarchical_grid(ax, layout, flatten_hierarchical=False)
         blue = viz_mod.HIERARCHY_LEVEL_COLORS[0]
         blue_horizontal, blue_vertical = _hierarchy_line_positions(ax, blue)
         assert blue_horizontal == {0.0, 4.0}
@@ -628,7 +647,7 @@ def test_draw_hierarchical_grid_closes_boxes_for_coarse_column_only_level():
 
     fig, ax = plt.subplots()
     try:
-        _draw_hierarchical_grid(ax, layout, flatten_hierarchical=False)
+        _call_draw_hierarchical_grid(ax, layout, flatten_hierarchical=False)
         orange = viz_mod.HIERARCHY_LEVEL_COLORS[1]
         orange_horizontal, orange_vertical = _hierarchy_line_positions(ax, orange)
         assert orange_horizontal == {0.0, 6.0}
@@ -646,7 +665,7 @@ def test_draw_hierarchical_grid_draws_coarser_lines_above_finer_lines():
 
     fig, ax = plt.subplots()
     try:
-        _draw_hierarchical_grid(ax, layout, flatten_hierarchical=False)
+        _call_draw_hierarchical_grid(ax, layout, flatten_hierarchical=False)
         blue = viz_mod.HIERARCHY_LEVEL_COLORS[0]
         orange = viz_mod.HIERARCHY_LEVEL_COLORS[1]
         blue_zorders = _hierarchy_line_zorders(ax, blue)
