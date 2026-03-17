@@ -1,6 +1,6 @@
 # Layout Algebra API
 
-This document covers the core `layout_algebra` API: constructing layouts,
+This document covers the core `tensor_layouts` API: constructing layouts,
 querying their properties, and applying the four algebraic operations
 (compose, complement, divide, product).
 
@@ -20,7 +20,7 @@ logical domain (how many elements along each dimension); the **stride**
 describes how far apart elements are in memory along that dimension.
 
 ```python
-from layout_algebra import Layout
+from tensor_layouts import Layout
 
 col_major = Layout((4, 8), (1, 4))   # offset(i,j) = i + 4*j
 row_major = Layout((4, 8), (8, 1))   # offset(i,j) = 8*i + j
@@ -96,7 +96,7 @@ For the stride-1 (innermost) mode, the shape shrinks by `n`.  All strides
 are divided by `n`.  `downcast` is the inverse.
 
 ```python
-from layout_algebra import Layout, upcast, downcast
+from tensor_layouts import Layout, upcast, downcast
 
 # Bit layout for SM75 LDMATRIX x4 (dst side)
 bits = Layout((32, (32, 4)), (32, (1, 1024)))

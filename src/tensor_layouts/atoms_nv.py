@@ -47,7 +47,7 @@ PTX ISA documentation:
     §9.7.12  Matrix Load/Store
 
 Usage:
-    from layout_algebra.atoms_nv import SM70_8x8x4_F32F16F16F32_NT, SM80_16x8x8_F16F16F16F16_TN
+    from tensor_layouts.atoms_nv import SM70_8x8x4_F32F16F16F32_NT, SM80_16x8x8_F16F16F16F16_TN
     print(SM70_8x8x4_F32F16F16F32_NT.a_layout)
 """
 

@@ -1,9 +1,9 @@
 # Visualization API
 
-This document covers the `layout_algebra.viz` module for drawing layouts,
+This document covers the `tensor_layouts.viz` module for drawing layouts,
 swizzle comparisons, MMA atoms, and more.
 
-Requires: `pip install layout-algebra[viz]` (adds matplotlib).
+Requires: `pip install tensor-layouts[viz]` (adds matplotlib).
 
 For runnable examples see [`examples/viz.py`](../examples/viz.py)
 and the Jupyter notebook [`examples/viz.ipynb`](../examples/viz.ipynb).
@@ -34,8 +34,8 @@ The `show_*` functions always display inline and return the matplotlib
 Draw a single layout as a grid of cells showing memory offsets.
 
 ```python
-from layout_algebra import Layout
-from layout_algebra.viz import draw_layout
+from tensor_layouts import Layout
+from tensor_layouts.viz import draw_layout
 
 draw_layout(Layout((8, 8), (8, 1)), title="Row-Major 8x8", colorize=True)
 ```
@@ -157,8 +157,8 @@ draw_layout(
 Side-by-side comparison of a linear layout and its swizzled version.
 
 ```python
-from layout_algebra import Layout, Swizzle
-from layout_algebra.viz import draw_swizzle
+from tensor_layouts import Layout, Swizzle
+from tensor_layouts.viz import draw_swizzle
 
 draw_swizzle(Layout((8, 8), (8, 1)), Swizzle(3, 0, 3), colorize=True)
 ```
@@ -183,8 +183,8 @@ Draw a Thread-Value layout with T (thread ID) and V (value index) labels
 in each cell.  Used for visualizing how GPU threads map to matrix elements.
 
 ```python
-from layout_algebra.atoms_nv import *
-from layout_algebra.viz import draw_tv_layout
+from tensor_layouts.atoms_nv import *
+from tensor_layouts.viz import draw_tv_layout
 
 atom = SM80_16x8x16_F16F16F16F16_TN
 draw_tv_layout(atom.c_layout, title="SM80 16x8x16 C (Thread-Value)", colorize=True)
@@ -213,8 +213,8 @@ Draw an MMA atom's A, B, and C matrices in standard MMA arrangement
 (B top-right, A bottom-left, C bottom-right).
 
 ```python
-from layout_algebra.atoms_nv import *
-from layout_algebra.viz import draw_mma_layout
+from tensor_layouts.atoms_nv import *
+from tensor_layouts.viz import draw_mma_layout
 
 atom = SM80_16x8x16_F16F16F16F16_TN
 draw_mma_layout(atom.a_layout, atom.b_layout, atom.c_layout,
@@ -246,8 +246,8 @@ of integers/None) for fixed dimensions.  This is especially useful for
 visualizing hierarchical slicing patterns from CuTe.
 
 ```python
-from layout_algebra import Layout
-from layout_algebra.viz import draw_slice
+from tensor_layouts import Layout
+from tensor_layouts.viz import draw_slice
 
 # Cecka's hierarchical tensor: ((3,2),((2,3),2)):((4,1),((2,15),100))
 # Slice ((1,:),((:,0),:)) — fix inner-row=1 and middle-col=0
@@ -276,8 +276,8 @@ draw_slice(layout, ((1, None), ((None, 0), None)), title="((1,:),((:,0),:))")
 Draw multiple layouts in a multi-panel figure.
 
 ```python
-from layout_algebra import Layout
-from layout_algebra.viz import draw_composite
+from tensor_layouts import Layout
+from tensor_layouts.viz import draw_composite
 
 panels = [Layout((4, 4), (4, 1)), Layout((4, 4), (1, 4))]
 draw_composite(panels, "comparison.png",
@@ -306,10 +306,10 @@ draw_composite(panels, "comparison.png",
 Draw a tiled MMA grid produced by `tile_mma_grid()`.
 
 ```python
-from layout_algebra import Layout
-from layout_algebra.atoms_nv import *
-from layout_algebra.layout_utils import tile_mma_grid
-from layout_algebra.viz import draw_tiled_grid
+from tensor_layouts import Layout
+from tensor_layouts.atoms_nv import *
+from tensor_layouts.layout_utils import tile_mma_grid
+from tensor_layouts.viz import draw_tiled_grid
 
 atom = SM80_16x8x16_F16F16F16F16_TN
 atom_layout = Layout((2, 2), (1, 2))  # 2x2 grid of atoms
@@ -338,9 +338,9 @@ Matches CUTLASS `print_latex_copy`: both panels use the same thread
 coloring so data movement is visually traceable.
 
 ```python
-from layout_algebra import Layout, upcast
-from layout_algebra.atoms_nv import SM75_U32x4_LDSM_N
-from layout_algebra.viz import draw_copy_layout
+from tensor_layouts import Layout, upcast
+from tensor_layouts.atoms_nv import SM75_U32x4_LDSM_N
+from tensor_layouts.viz import draw_copy_layout
 
 atom = SM75_U32x4_LDSM_N
 src = upcast(atom.src_layout_bits, 16)  # bit → fp16 elements
@@ -370,10 +370,10 @@ you have pre-computed `(row, col) → (phys_thread, value, logical_thread)`
 dicts (e.g. from `tile_mma_grid`).
 
 ```python
-from layout_algebra import Layout
-from layout_algebra.atoms_nv import SM80_16x8x16_F16F16F16F16_TN
-from layout_algebra.layout_utils import tile_mma_grid
-from layout_algebra.viz import draw_combined_mma_grid
+from tensor_layouts import Layout
+from tensor_layouts.atoms_nv import SM80_16x8x16_F16F16F16F16_TN
+from tensor_layouts.layout_utils import tile_mma_grid
+from tensor_layouts.viz import draw_combined_mma_grid
 
 atom = SM80_16x8x16_F16F16F16F16_TN
 atom_layout = Layout((2, 2), (1, 2))
@@ -415,7 +415,7 @@ and returns the matplotlib `Figure`:
 | `draw_composite` | `show_composite` |
 
 ```python
-from layout_algebra.viz import show_layout, show_swizzle, show_tv_layout
+from tensor_layouts.viz import show_layout, show_swizzle, show_tv_layout
 
 fig = show_layout(Layout((8, 8), (8, 1)), colorize=True)
 fig = show_swizzle(Layout((8, 8), (8, 1)), Swizzle(3, 0, 3))

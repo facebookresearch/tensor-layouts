@@ -22,8 +22,8 @@
 
 import pytest
 
-from layout_algebra import *
-from layout_algebra.layout_utils import round_up
+from tensor_layouts import *
+from tensor_layouts.layout_utils import round_up
 
 
 ## Complement Layouts
@@ -706,7 +706,7 @@ def _test_swizzle_2d(sw_layout):
 
     This tests that slicing a tensor with swizzled layout preserves correct indexing.
     """
-    from layout_algebra import Tensor
+    from tensor_layouts import Tensor
     tensor = Tensor(sw_layout)
 
     # Get dimensions

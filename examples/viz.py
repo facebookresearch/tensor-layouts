@@ -47,10 +47,10 @@ SRC_DIR = REPO_ROOT / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
-from layout_algebra import *
-from layout_algebra.atoms_nv import *
-from layout_algebra.atoms_amd import *
-from layout_algebra.viz import *
+from tensor_layouts import *
+from tensor_layouts.atoms_nv import *
+from tensor_layouts.atoms_amd import *
+from tensor_layouts.viz import *
 
 
 def setup_output_dir(name: str = "examples_output") -> Path:
@@ -790,7 +790,7 @@ def _draw_tiled_mma(atom, atom_layout, output: Path, tile_mnk=None):
         tile_mnk: Optional (M, N, K) final tile. If larger than the atom
                   arrangement, replicates across values.
     """
-    from layout_algebra.layout_utils import tile_mma_grid
+    from tensor_layouts.layout_utils import tile_mma_grid
 
     M_a, N_a, K_a = atom.shape_mnk
     atom_shape = atom_layout.shape

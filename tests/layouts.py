@@ -22,8 +22,8 @@
 
 import pytest
 
-from layout_algebra import *
-from layout_algebra.layout_utils import make_layout_like, make_ordered_layout, tile_to_shape
+from tensor_layouts import *
+from tensor_layouts.layout_utils import make_layout_like, make_ordered_layout, tile_to_shape
 
 
 # These tests roughly follow:
@@ -1053,7 +1053,7 @@ def test_swizzled_layout_eq_hash():
 
 
 def test_offset_swizzled_layout_basic():
-    from layout_algebra import Tensor
+    from tensor_layouts import Tensor
     sw_layout = compose(Swizzle(3, 0, 3), Layout((8, 8), (8, 1)))
     tensor = Tensor(sw_layout)
     # Slicing a Tensor produces a Tensor with offset
@@ -1067,7 +1067,7 @@ def test_offset_swizzled_layout_basic():
 
 
 def test_offset_swizzled_layout_repr():
-    from layout_algebra import Tensor
+    from tensor_layouts import Tensor
     sw_layout = compose(Swizzle(3, 0, 3), Layout((8, 8), (8, 1)))
     tensor = Tensor(sw_layout)
     row_slice = tensor[2, :]
@@ -1077,7 +1077,7 @@ def test_offset_swizzled_layout_repr():
 
 
 def test_offset_swizzled_layout_eq():
-    from layout_algebra import Tensor
+    from tensor_layouts import Tensor
     sw_layout = compose(Swizzle(3, 0, 3), Layout((8, 8), (8, 1)))
     tensor = Tensor(sw_layout)
     slice1 = tensor[3, :]
@@ -1637,7 +1637,7 @@ def test_upcast_known_copy_atoms():
     These are the element-level layouts used in examples/viz.py,
     derived from the CUTLASS C++ copy_traits_sm75.hpp source.
     """
-    from layout_algebra.atoms_nv import (
+    from tensor_layouts.atoms_nv import (
         SM75_U32x1_LDSM_N, SM75_U32x4_LDSM_N,
         SM75_U16x2_LDSM_T, SM75_U16x4_LDSM_T, SM75_U16x8_LDSM_T,
     )

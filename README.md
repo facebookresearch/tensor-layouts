@@ -1,7 +1,7 @@
-# layout-algebra
+# tensor-layouts
 
-[![CI](https://github.com/facebookresearch/layout-algebra/actions/workflows/ci.yml/badge.svg)](https://github.com/facebookresearch/layout-algebra/actions/workflows/ci.yml)
-[![PyPI](https://img.shields.io/pypi/v/layout-algebra)](https://pypi.org/project/layout-algebra/)
+[![CI](https://github.com/facebookresearch/tensor-layouts/actions/workflows/ci.yml/badge.svg)](https://github.com/facebookresearch/tensor-layouts/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/pypi/v/tensor-layouts)](https://pypi.org/project/tensor-layouts/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 A pure-Python implementation of the [NVIDIA CuTe](https://github.com/NVIDIA/cutlass/blob/main/media/docs/cute/00_quickstart.md) layout algebra. **No GPU required.**
@@ -19,19 +19,19 @@ the resulting offset for each displayed cell.
 ## Installation
 
 ```bash
-pip install layout-algebra
+pip install tensor-layouts
 ```
 
 For visualization support:
 
 ```bash
-pip install layout-algebra[viz]
+pip install tensor-layouts[viz]
 ```
 
 ## Quick Start
 
 ```python
-from layout_algebra import Layout, compose, complement, logical_divide
+from tensor_layouts import Layout, compose, complement, logical_divide
 
 # A 4x8 column-major layout: offset(i,j) = i + j*4
 layout = Layout((4, 8), (1, 4))
@@ -75,7 +75,7 @@ The library includes tensor core atom definitions for NVIDIA and AMD architectur
 ### NVIDIA Atoms
 
 ```python
-from layout_algebra.atoms_nv import *
+from tensor_layouts.atoms_nv import *
 
 atom = SM90_64x64x16_F16F16F16_SS
 print(atom.name)        # SM90_64x64x16_F16F16F16_SS
@@ -90,7 +90,7 @@ SM120 (Blackwell B200).
 ### AMD Atoms
 
 ```python
-from layout_algebra.atoms_amd import *
+from tensor_layouts.atoms_amd import *
 
 atom = CDNA3_32x32x16_F32F8F8_MFMA
 print(atom.name)        # CDNA3_32x32x16_F32F8F8_MFMA
@@ -103,11 +103,11 @@ CDNA3 (gfx942 / MI300), CDNA3+ (gfx950).
 
 ## Visualization
 
-With `pip install layout-algebra[viz]`:
+With `pip install tensor-layouts[viz]`:
 
 ```python
-from layout_algebra import Layout, Swizzle
-from layout_algebra.viz import draw_layout, draw_swizzle
+from tensor_layouts import Layout, Swizzle
+from tensor_layouts.viz import draw_layout, draw_swizzle
 
 draw_layout(Layout((8, 8), (8, 1)), title="Row-Major 8x8", colorize=True)
 draw_swizzle(Layout((8, 8), (8, 1)), Swizzle(3, 0, 3), colorize=True)
