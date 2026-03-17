@@ -50,6 +50,7 @@ Requirements:
 """
 
 from functools import lru_cache
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional, Set, Tuple
 
@@ -139,6 +140,89 @@ HIERARCHY_LEVEL_COLORS_LIGHT = [
     '#ff9896',  # light red
     '#c5b0d5',  # light purple
 ]
+
+
+# =============================================================================
+# Grid data model
+# =============================================================================
+
+@dataclass
+class OffsetGrid:
+    """Pre-computed data for an offset-based grid visualization.
+
+    Captures everything needed to render a flat or hierarchical layout grid,
+    separating data extraction (what to draw) from rendering (how to draw it).
+
+    Attributes:
+        indices: 2D array of offset values, shape (rows, cols).
+        color_indices: 2D array of palette indices, shape (rows, cols).
+        highlight_mask: Optional boolean mask for highlighted cells.
+        cell_coords: For hierarchical layouts, 2D object array of
+            (row_coord, col_coord) tuples.  None for flat layouts.
+        row_shape: Hierarchical row shape, or None for flat layouts.
+        col_shape: Hierarchical col shape, or None for flat layouts.
+    """
+    indices: np.ndarray
+    color_indices: np.ndarray
+    highlight_mask: Optional[np.ndarray] = None
+    cell_coords: Optional[np.ndarray] = None
+    row_shape: object = None
+    col_shape: object = None
+
+    @property
+    def rows(self) -> int:
+        return self.indices.shape[0]
+
+    @property
+    def cols(self) -> int:
+        return self.indices.shape[1]
+
+    @property
+    def is_hierarchical(self) -> bool:
+        return self.cell_coords is not None
+
+
+def _prepare_offset_grid(layout, color_layout=None,
+                         slice_spec=None,
+                         hierarchical: bool = False) -> OffsetGrid:
+    """Extract all visualization data from a layout into an OffsetGrid.
+
+    Args:
+        layout: Layout object to visualize.
+        color_layout: Optional layout controlling cell coloring.
+        slice_spec: Optional slice specification for highlight mask.
+        hierarchical: If True, extract hierarchical cell coordinates.
+    """
+    cell_coords = None
+    row_shape = None
+    col_shape = None
+
+    if hierarchical:
+        try:
+            indices, rows, cols, _, _ = _get_hierarchical_indices_2d(layout)
+            cell_coords = _get_hierarchical_cell_coords_2d(layout)
+            row_shape = mode(layout.shape, 0)
+            col_shape = mode(layout.shape, 1)
+        except (ValueError, TypeError):
+            indices = _get_indices_2d(layout)
+            hierarchical = False
+    else:
+        indices = _get_indices_2d(layout)
+
+    color_indices = _get_color_indices_2d(layout, color_layout)
+
+    highlight_mask = None
+    if slice_spec is not None:
+        highlight_mask = _get_slice_highlight_mask_2d(layout, slice_spec)
+
+    return OffsetGrid(
+        indices=indices,
+        color_indices=color_indices,
+        highlight_mask=highlight_mask,
+        cell_coords=cell_coords,
+        row_shape=row_shape,
+        col_shape=col_shape,
+    )
 
 
 def _is_dark(hex_color: str) -> bool:
