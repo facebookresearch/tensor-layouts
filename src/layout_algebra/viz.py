@@ -242,6 +242,8 @@ def _get_color_indices_2d(layout, color_layout) -> Optional[np.ndarray]:
 
 def _draw_grid(ax, indices: np.ndarray,
                highlight: Optional[Set[int]] = None,
+               highlight_mask: Optional[np.ndarray] = None,
+               hierarchy_shapes: Optional[Tuple[object, object]] = None,
                cell_size: float = 1.0,
                show_labels: bool = True,
                title: Optional[str] = None,
@@ -254,7 +256,10 @@ def _draw_grid(ax, indices: np.ndarray,
     Args:
         ax: Matplotlib axis to draw on
         indices: 2D array of index values
-        highlight: Set of indices to highlight
+        highlight: Deprecated offset-based highlighting set
+        highlight_mask: Boolean mask aligned with `indices`
+        hierarchy_shapes: Optional `(row_shape, col_shape)` pair used to draw
+            hierarchy boundary overlays on top of a flattened displayed grid
         cell_size: Size of each cell
         show_labels: Whether to show row/column labels
         title: Optional title for the plot
@@ -281,54 +286,81 @@ def _draw_grid(ax, indices: np.ndarray,
     if title:
         ax.set_title(title, fontsize=10, fontweight='bold', pad=10)
 
+    final_facecolors = np.empty((rows, cols), dtype=object)
+    highlighted_cells = []
+
     for i in range(rows):
         for j in range(cols):
             idx = int(indices[i, j])
 
-            # Determine colors
-            is_hl = highlight and idx in highlight
-            if is_hl:
-                facecolor = HIGHLIGHT_COLOR
-                edgecolor = HIGHLIGHT_EDGE
-                linewidth = 2
+            # Determine highlight state
+            if highlight_mask is not None:
+                is_hl = bool(highlight_mask[i, j])
             else:
-                # Determine color index
-                if color_indices is not None:
-                    color_idx = int(color_indices[i, j]) % len(colors)
-                elif color_layout is None:
-                    # Default: color by cell value
-                    color_idx = idx % len(colors)
-                else:
-                    # Backward-compatible fallback for direct display-coordinate use
-                    result = color_layout(i, j)
-                    color_idx = _color_result_to_index(result) % len(colors)
+                is_hl = bool(highlight and idx in highlight)
 
-                facecolor = colors[color_idx]
-                edgecolor = 'black'
-                linewidth = 1
+            # Determine base face color
+            if color_indices is not None:
+                color_idx = int(color_indices[i, j]) % len(colors)
+            elif color_layout is None:
+                # Default: color by cell value
+                color_idx = idx % len(colors)
+            else:
+                # Backward-compatible fallback for direct display-coordinate use
+                result = color_layout(i, j)
+                color_idx = _color_result_to_index(result) % len(colors)
 
-            # Draw cell
+            base_facecolor = colors[color_idx]
+            final_facecolors[i, j] = HIGHLIGHT_COLOR if is_hl else base_facecolor
+
+            # Draw base cell first; highlights are overlaid later so their
+            # borders are not covered by neighboring cells.
             rect = patches.Rectangle(
                 (j, i), cell_size, cell_size,
-                facecolor=facecolor, edgecolor=edgecolor, linewidth=linewidth
+                facecolor=base_facecolor, edgecolor='black', linewidth=1,
+                zorder=1
             )
             ax.add_patch(rect)
 
-            # Draw index text (use white text on dark colors for readability)
+            if is_hl:
+                highlighted_cells.append((i, j))
+
+    if hierarchy_shapes is not None:
+        row_shape, col_shape = hierarchy_shapes
+        _draw_hierarchy_boundary_lines(
+            ax, rows, cols,
+            _level_block_sizes(row_shape),
+            _level_block_sizes(col_shape),
+            zorder_base=4,
+        )
+
+    for i, j in highlighted_cells:
+        rect = patches.Rectangle(
+            (j, i), cell_size, cell_size,
+            facecolor=HIGHLIGHT_COLOR, edgecolor=HIGHLIGHT_EDGE, linewidth=2,
+            zorder=6
+        )
+        ax.add_patch(rect)
+
+    for i in range(rows):
+        for j in range(cols):
+            idx = int(indices[i, j])
+            facecolor = final_facecolors[i, j]
             text_color = 'white' if _is_dark(facecolor) else 'black'
             ax.text(j + 0.5, i + 0.5, str(idx),
-                    ha='center', va='center', fontsize=8, color=text_color)
+                    ha='center', va='center', fontsize=8, color=text_color,
+                    zorder=7)
 
     if show_labels:
         # Row labels (left)
         for i in range(rows):
             ax.text(-0.3, i + 0.5, str(i), ha='center', va='center',
-                    fontsize=8, color='blue')
+                    fontsize=8, color='blue', zorder=8)
 
         # Column labels (top)
         for j in range(cols):
             ax.text(j + 0.5, -0.3, str(j), ha='center', va='center',
-                    fontsize=8, color='blue')
+                    fontsize=8, color='blue', zorder=8)
 
 
 def _save_figure(fig, filename, dpi: int = 150):
@@ -1589,6 +1621,105 @@ def _expand_hier_slice(spec, shape):
         yield spec
 
 
+def _is_flat_slice_component(spec) -> bool:
+    """Return True for top-level flat slice components."""
+    return spec is None or isinstance(spec, (int, slice))
+
+
+def _match_flat_slice_component(display_idx: int, spec, extent: int) -> bool:
+    """Match a displayed row/column index against a flat slice component."""
+    if spec is None:
+        return True
+    if isinstance(spec, int):
+        return display_idx == spec
+    return display_idx in range(*spec.indices(extent))
+
+
+def _match_nested_slice_component(coord, spec, shape) -> bool:
+    """Match a hierarchical coordinate against a nested slice spec."""
+    if spec is None:
+        return True
+    if isinstance(spec, int):
+        return coord == spec
+    if isinstance(spec, slice):
+        if is_tuple(coord):
+            raise TypeError(f"Slice spec {spec} requires a scalar coordinate, got {coord!r}")
+        return coord in range(*spec.indices(shape))
+    if is_tuple(spec):
+        if not is_tuple(coord) or not is_tuple(shape):
+            raise TypeError(f"Tuple spec {spec!r} is incompatible with coordinate {coord!r}")
+        if len(spec) != len(coord) or len(spec) != len(shape):
+            raise ValueError(
+                f"Tuple spec length {len(spec)} does not match coordinate/shape lengths "
+                f"{len(coord)} / {len(shape)}"
+            )
+        return all(
+            _match_nested_slice_component(c, s, sh)
+            for c, s, sh in zip(coord, spec, shape)
+        )
+    raise TypeError(f"Unsupported slice component {spec!r}")
+
+
+def _get_slice_highlight_mask_2d(layout, slice_spec) -> np.ndarray:
+    """Return a displayed-cell highlight mask for draw_slice()."""
+    indices = _get_indices_2d(layout)
+    rows, cols = indices.shape
+    mask = np.zeros((rows, cols), dtype=bool)
+    r = rank(layout)
+
+    if r == 2:
+        row_shape = mode(layout.shape, 0)
+        col_shape = mode(layout.shape, 1)
+    else:
+        row_shape = None
+        col_shape = None
+
+    if isinstance(slice_spec, int):
+        target_coord = idx2crd(slice_spec, layout.shape)
+        if r == 2:
+            target_row, target_col = target_coord
+            for i in range(rows):
+                row_coord = idx2crd(i, row_shape)
+                if row_coord != target_row:
+                    continue
+                for j in range(cols):
+                    col_coord = idx2crd(j, col_shape)
+                    if col_coord == target_col:
+                        mask[i, j] = True
+        else:
+            for j in range(cols):
+                coord = idx2crd(j, layout.shape)
+                mask[0, j] = coord == target_coord
+        return mask
+
+    if isinstance(slice_spec, tuple) and r == 2:
+        row_spec, col_spec = slice_spec
+        row_flat = _is_flat_slice_component(row_spec)
+        col_flat = _is_flat_slice_component(col_spec)
+
+        for i in range(rows):
+            row_coord = idx2crd(i, row_shape)
+            row_match = (
+                _match_flat_slice_component(i, row_spec, rows)
+                if row_flat else
+                _match_nested_slice_component(row_coord, row_spec, row_shape)
+            )
+            if not row_match:
+                continue
+
+            for j in range(cols):
+                col_coord = idx2crd(j, col_shape)
+                col_match = (
+                    _match_flat_slice_component(j, col_spec, cols)
+                    if col_flat else
+                    _match_nested_slice_component(col_coord, col_spec, col_shape)
+                )
+                if col_match:
+                    mask[i, j] = True
+
+    return mask
+
+
 def draw_slice(layout, slice_spec, filename=None,
                title: Optional[str] = None,
                dpi: int = 150,
@@ -1617,48 +1748,7 @@ def draw_slice(layout, slice_spec, filename=None,
     indices = _get_indices_2d(layout)
     rows, cols = indices.shape
 
-    # Compute highlighted indices
-    highlight = set()
-    r = rank(layout)
-
-    def _is_flat_spec(s):
-        """Check if a slice component is flat (int, None, or slice)."""
-        return s is None or isinstance(s, (int, slice))
-
-    if isinstance(slice_spec, int):
-        # Single linear index
-        highlight.add(layout(slice_spec))
-    elif isinstance(slice_spec, tuple) and r == 2:
-        row_spec, col_spec = slice_spec
-
-        if _is_flat_spec(row_spec) and _is_flat_spec(col_spec):
-            # Flat 2D slicing (original path)
-            # Parse row range
-            if row_spec is None:
-                row_range = range(rows)
-            elif isinstance(row_spec, int):
-                row_range = [row_spec]
-            else:
-                row_range = range(*row_spec.indices(rows))
-
-            # Parse column range
-            if col_spec is None:
-                col_range = range(cols)
-            elif isinstance(col_spec, int):
-                col_range = [col_spec]
-            else:
-                col_range = range(*col_spec.indices(cols))
-
-            for i in row_range:
-                for j in col_range:
-                    highlight.add(layout(i, j))
-        else:
-            # Hierarchical slicing: expand nested specs with None wildcards
-            import itertools
-            row_coords = list(_expand_hier_slice(row_spec, layout.shape[0]))
-            col_coords = list(_expand_hier_slice(col_spec, layout.shape[1]))
-            for rc, cc in itertools.product(row_coords, col_coords):
-                highlight.add(layout(rc, cc))
+    highlight_mask = _get_slice_highlight_mask_2d(layout, slice_spec)
 
     if figsize is None:
         figsize = (cols * 0.5 + 1, rows * 0.5 + 1)
@@ -1668,7 +1758,7 @@ def draw_slice(layout, slice_spec, filename=None,
 
     fig, ax = plt.subplots(figsize=figsize)
     color_indices = _get_color_indices_2d(layout, color_layout)
-    _draw_grid(ax, indices, highlight=highlight, title=title,
+    _draw_grid(ax, indices, highlight_mask=highlight_mask, title=title,
                colorize=colorize, color_layout=color_layout,
                color_indices=color_indices, num_shades=num_shades)
     _save_figure(fig, filename, dpi)

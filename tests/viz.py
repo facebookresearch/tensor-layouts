@@ -45,6 +45,7 @@ try:
         _format_hierarchical_cell_lines,
         _format_nested_coord,
         _coord_levels,
+        _get_slice_highlight_mask_2d,
         _level_block_sizes,
         _level_spans,
         _get_hierarchical_cell_coords_2d,
@@ -341,3 +342,12 @@ def test_level_spans_supports_three_level_hierarchy():
 @requires_viz
 def test_level_block_sizes_supports_three_level_hierarchy():
     assert _level_block_sizes((2, 3, 4)) == (1, 2, 6)
+
+
+def test_slice_highlight_mask_tracks_logical_cells_not_offsets():
+    layout = Layout((2, 2), (0, 1))
+    mask = _get_slice_highlight_mask_2d(layout, (0, None))
+    assert mask.tolist() == [
+        [True, True],
+        [False, False],
+    ]
