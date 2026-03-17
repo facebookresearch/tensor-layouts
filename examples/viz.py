@@ -295,9 +295,10 @@ def example_hierarchical_layouts(output: Path):
     # Example 2: 2×2 tiles in 2×2 grid (4×4 total) — the project logo layout
     # =========================================================================
     print("\n  --- 2×2 Tiles in 2×2 Grid (Logo Layout) ---")
-    logo_layout = Layout(((2, 2), (2, 2)), ((1, 2), (4, 8)))
+    logo_layout = Layout(((2, 2), (2, 2)), ((1, 4), (2, 8)))
 
-    # This is the layout shown in the project logo (docs/images/logo-a.svg).
+    # This is the layout shown in the project logo (docs/images/logo.svg).
+    # It's a 4×4 Morton (Z-order) layout: blocked_product of 2×2 Z-tiles.
     # Inner 2×2 tiles use stride (1, 2) (column-major within each tile),
     # and the 2×2 outer grid uses stride (4, 8) to place tiles.
     #
@@ -373,13 +374,13 @@ def example_hierarchical_layouts(output: Path):
     print("  Output: hier_4level_asymmetric_nested.{svg,pdf,png}")
 
     # Flatten the hierarchical layout (algebra operation)
-    flat_layout = flatten(hier_layout)
+    flat_layout = flatten(logo_layout)
     draw_layout(flat_layout, output / "hier_flattened.svg",
                 title=f"flatten(): {flat_layout}")
     print(f"✓ Flattened (algebra): {flat_layout}")
 
     # Coalesce to merge contiguous dimensions
-    coal_layout = coalesce(hier_layout)
+    coal_layout = coalesce(logo_layout)
     draw_layout(coal_layout, output / "hier_coalesced.svg",
                 title=f"coalesce(): {coal_layout}")
     print(f"✓ Coalesced: {coal_layout}")
@@ -461,13 +462,13 @@ def example_hierarchical_layouts(output: Path):
 
     # Show nested mode access
     # Mode 0 is the row dimension with shape (2, 2)
-    mode0 = mode(hier_layout, 0)
+    mode0 = mode(logo_layout, 0)
     draw_layout(mode0, output / "hier_mode0.svg",
                 title=f"Mode 0 (rows): {mode0}")
     print(f"✓ Mode 0 (rows): {mode0}")
 
     # Mode 1 is the column dimension with shape (2, 2)
-    mode1 = mode(hier_layout, 1)
+    mode1 = mode(logo_layout, 1)
     draw_layout(mode1, output / "hier_mode1.svg",
                 title=f"Mode 1 (cols): {mode1}")
     print(f"✓ Mode 1 (cols): {mode1}")

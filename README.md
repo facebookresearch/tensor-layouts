@@ -1,4 +1,6 @@
-# tensor-layouts
+<p align="center">
+  <img src="docs/images/logo.svg" alt="tensor-layouts" width="520">
+</p>
 
 [![CI](https://github.com/facebookresearch/tensor-layouts/actions/workflows/ci.yml/badge.svg)](https://github.com/facebookresearch/tensor-layouts/actions/workflows/ci.yml)
 [![PyPI](https://img.shields.io/pypi/v/tensor-layouts)](https://pypi.org/project/tensor-layouts/)

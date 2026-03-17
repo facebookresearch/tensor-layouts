@@ -1,0 +1,93 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 520 160" width="520" height="160">
+  <defs>
+    <!-- Four gradient levels: one per tile (colored by offset range) -->
+    <linearGradient id="g0" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#4A90D9"/><stop offset="100%" stop-color="#357ABD"/></linearGradient>
+    <linearGradient id="g1" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#5BA0E6"/><stop offset="100%" stop-color="#4A90D9"/></linearGradient>
+    <linearGradient id="g2" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#6DB3F0"/><stop offset="100%" stop-color="#5BA0E6"/></linearGradient>
+    <linearGradient id="g3" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#82C4F8"/><stop offset="100%" stop-color="#6DB3F0"/></linearGradient>
+  </defs>
+
+  <!-- 2x2 grid of 2x2 tiles (Morton / Z-order)
+       Layout: ((2,2),(2,2)):((1,4),(2,8))
+       offset(r,c,R,C) = r + 4R + 2c + 8C
+
+       Tile(0,0): 0 2 / 1 3    Tile(0,1): 8 10 / 9 11
+       Tile(1,0): 4 6 / 5 7    Tile(1,1): 12 14 / 13 15
+  -->
+  <g transform="translate(16, 18)">
+    <!-- Tile (0,0) — offsets 0-3 -->
+    <rect x="0"  y="0"  width="28" height="28" rx="3" fill="url(#g0)"/>
+    <rect x="30" y="0"  width="28" height="28" rx="3" fill="url(#g0)"/>
+    <rect x="0"  y="30" width="28" height="28" rx="3" fill="url(#g0)"/>
+    <rect x="30" y="30" width="28" height="28" rx="3" fill="url(#g0)"/>
+
+    <!-- Tile (0,1) — offsets 8-11 -->
+    <rect x="68" y="0"  width="28" height="28" rx="3" fill="url(#g2)"/>
+    <rect x="98" y="0"  width="28" height="28" rx="3" fill="url(#g2)"/>
+    <rect x="68" y="30" width="28" height="28" rx="3" fill="url(#g2)"/>
+    <rect x="98" y="30" width="28" height="28" rx="3" fill="url(#g2)"/>
+
+    <!-- Tile (1,0) — offsets 4-7 -->
+    <rect x="0"  y="68" width="28" height="28" rx="3" fill="url(#g1)"/>
+    <rect x="30" y="68" width="28" height="28" rx="3" fill="url(#g1)"/>
+    <rect x="0"  y="98" width="28" height="28" rx="3" fill="url(#g1)"/>
+    <rect x="30" y="98" width="28" height="28" rx="3" fill="url(#g1)"/>
+
+    <!-- Tile (1,1) — offsets 12-15 -->
+    <rect x="68" y="68" width="28" height="28" rx="3" fill="url(#g3)"/>
+    <rect x="98" y="68" width="28" height="28" rx="3" fill="url(#g3)"/>
+    <rect x="68" y="98" width="28" height="28" rx="3" fill="url(#g3)"/>
+    <rect x="98" y="98" width="28" height="28" rx="3" fill="url(#g3)"/>
+
+    <!-- Offset numbers
+         Row 0: 0  2  |  8 10
+         Row 1: 1  3  |  9 11
+         Row 2: 4  6  | 12 14
+         Row 3: 5  7  | 13 15
+    -->
+    <text x="14"  y="19" text-anchor="middle" font-family="'JetBrains Mono','Fira Code',monospace" font-size="11" fill="white" font-weight="600">0</text>
+    <text x="44"  y="19" text-anchor="middle" font-family="'JetBrains Mono','Fira Code',monospace" font-size="11" fill="white" font-weight="600">2</text>
+    <text x="14"  y="49" text-anchor="middle" font-family="'JetBrains Mono','Fira Code',monospace" font-size="11" fill="white" font-weight="600">1</text>
+    <text x="44"  y="49" text-anchor="middle" font-family="'JetBrains Mono','Fira Code',monospace" font-size="11" fill="white" font-weight="600">3</text>
+
+    <text x="82"  y="19" text-anchor="middle" font-family="'JetBrains Mono','Fira Code',monospace" font-size="11" fill="white" font-weight="600">8</text>
+    <text x="112" y="19" text-anchor="middle" font-family="'JetBrains Mono','Fira Code',monospace" font-size="10" fill="white" font-weight="600">10</text>
+    <text x="82"  y="49" text-anchor="middle" font-family="'JetBrains Mono','Fira Code',monospace" font-size="11" fill="white" font-weight="600">9</text>
+    <text x="112" y="49" text-anchor="middle" font-family="'JetBrains Mono','Fira Code',monospace" font-size="10" fill="white" font-weight="600">11</text>
+
+    <text x="14"  y="87" text-anchor="middle" font-family="'JetBrains Mono','Fira Code',monospace" font-size="11" fill="white" font-weight="600">4</text>
+    <text x="44"  y="87" text-anchor="middle" font-family="'JetBrains Mono','Fira Code',monospace" font-size="11" fill="white" font-weight="600">6</text>
+    <text x="14"  y="117" text-anchor="middle" font-family="'JetBrains Mono','Fira Code',monospace" font-size="11" fill="white" font-weight="600">5</text>
+    <text x="44"  y="117" text-anchor="middle" font-family="'JetBrains Mono','Fira Code',monospace" font-size="11" fill="white" font-weight="600">7</text>
+
+    <text x="82"  y="87" text-anchor="middle" font-family="'JetBrains Mono','Fira Code',monospace" font-size="10" fill="white" font-weight="600">12</text>
+    <text x="112" y="87" text-anchor="middle" font-family="'JetBrains Mono','Fira Code',monospace" font-size="10" fill="white" font-weight="600">14</text>
+    <text x="82"  y="117" text-anchor="middle" font-family="'JetBrains Mono','Fira Code',monospace" font-size="10" fill="white" font-weight="600">13</text>
+    <text x="112" y="117" text-anchor="middle" font-family="'JetBrains Mono','Fira Code',monospace" font-size="10" fill="white" font-weight="600">15</text>
+
+    <!-- Tile boundaries (dashed outlines around each 2x2 tile) -->
+    <rect x="-2" y="-2" width="62" height="62" rx="4" fill="none" stroke="#2C5F9E" stroke-width="1.5" stroke-dasharray="3,2"/>
+    <rect x="66" y="-2" width="62" height="62" rx="4" fill="none" stroke="#2C5F9E" stroke-width="1.5" stroke-dasharray="3,2"/>
+    <rect x="-2" y="66" width="62" height="62" rx="4" fill="none" stroke="#2C5F9E" stroke-width="1.5" stroke-dasharray="3,2"/>
+    <rect x="66" y="66" width="62" height="62" rx="4" fill="none" stroke="#2C5F9E" stroke-width="1.5" stroke-dasharray="3,2"/>
+  </g>
+
+  <!-- Arrow -->
+  <g transform="translate(150, 72)">
+    <line x1="0" y1="0" x2="24" y2="0" stroke="#4A90D9" stroke-width="2" stroke-linecap="round"/>
+    <polygon points="24,-5 34,0 24,5" fill="#4A90D9"/>
+  </g>
+
+  <!-- Project name -->
+  <text x="198" y="68" font-family="'Inter','Helvetica Neue','Segoe UI',sans-serif" font-size="42" font-weight="700" fill="#1A1A2E" letter-spacing="-1">
+    tensor
+  </text>
+  <text x="198" y="116" font-family="'Inter','Helvetica Neue','Segoe UI',sans-serif" font-size="42" font-weight="300" fill="#4A90D9" letter-spacing="-1" font-style="italic">
+    layouts
+  </text>
+
+  <!-- Annotation: the actual hierarchical layout -->
+  <text x="198" y="142" font-family="'JetBrains Mono','Fira Code',monospace" font-size="11" fill="#888">
+    ((2,2),(2,2)):((1,4),(2,8))
+  </text>
+</svg>
