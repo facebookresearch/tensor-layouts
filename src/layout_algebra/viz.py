@@ -412,7 +412,7 @@ def _draw_grid(ax, indices: np.ndarray,
                title: Optional[str] = None,
                colorize: bool = False,
                color_indices: Optional[np.ndarray] = None,
-               num_shades: int = 8,
+               num_colors: int = 8,
                label_color: str = 'blue',
                label_fontsize: float = 8):
     """Draw a grid of cells with indices on a matplotlib axis.
@@ -428,15 +428,15 @@ def _draw_grid(ax, indices: np.ndarray,
         title: Optional title for the plot
         colorize: If True, use rainbow colors; if False, use grayscale
         color_indices: 2D array of per-cell color indices aligned with `indices`.
-        num_shades: Number of colors/shades in palette (default 8)
+        num_colors: Number of colors in palette (default 8)
     """
     rows, cols = indices.shape
 
     # Build the appropriate palette
     if colorize:
-        colors = _make_rainbow_palette(num_shades)
+        colors = _make_rainbow_palette(num_colors)
     else:
-        colors = _make_grayscale_palette(num_shades)
+        colors = _make_grayscale_palette(num_colors)
 
     _setup_axes(ax, (-0.5, cols + 0.5), (-0.5, rows + 0.5), title=title)
 
@@ -603,7 +603,7 @@ def _build_composite_figure(panels: list,
         panel_colorize = opts.get('colorize', colorize)
         panel_tv_mode = opts.get('tv_mode', tv_mode)
         color_layout = opts.get('color_layout', None)
-        num_shades = opts.get('num_shades', 8)
+        num_colors = opts.get('num_colors', 8)
 
         # Get title
         title = titles[idx] if titles and idx < len(titles) else None
@@ -611,13 +611,13 @@ def _build_composite_figure(panels: list,
         # Draw the panel
         if panel_tv_mode:
             _draw_tv_grid(ax, layout, title=title,
-                          colorize=panel_colorize, num_threads=num_shades)
+                          colorize=panel_colorize, num_colors=num_colors)
         else:
             grid = _prepare_offset_grid(layout, color_layout=color_layout)
             _draw_grid(ax, grid.indices, title=title,
                        colorize=panel_colorize,
                        color_indices=grid.color_indices,
-                       num_shades=num_shades)
+                       num_colors=num_colors)
 
     # Hide unused axes
     for idx in range(len(panels), len(axes)):
@@ -1022,7 +1022,7 @@ def _draw_hierarchical_grid(ax, indices, rows, cols,
                             color_indices: Optional[np.ndarray] = None,
                             flatten_hierarchical: bool = True,
                             label_hierarchy_levels: bool = False,
-                            num_shades: int = 8):
+                            num_colors: int = 8):
     """Draw a hierarchical layout grid.
 
     Args:
@@ -1053,9 +1053,9 @@ def _draw_hierarchical_grid(ax, indices, rows, cols,
 
     # Build palette
     if colorize:
-        colors = _make_rainbow_palette(num_shades)
+        colors = _make_rainbow_palette(num_colors)
     else:
-        colors = _make_grayscale_palette(num_shades)
+        colors = _make_grayscale_palette(num_colors)
 
     row_label_band_spacing = 1.2
     col_label_band_spacing = 0.8
@@ -1180,7 +1180,7 @@ def _build_layout_figure(layout,
                          figsize: Optional[Tuple[float, float]] = None,
                          colorize: bool = False,
                          color_layout: Optional[Layout] = None,
-                         num_shades: int = 8,
+                         num_colors: int = 8,
                          flatten_hierarchical: bool = True,
                          label_hierarchy_levels: bool = False):
     """Build the layout figure used by draw_layout/show_layout."""
@@ -1216,11 +1216,11 @@ def _build_layout_figure(layout,
                                 color_indices=grid.color_indices,
                                 flatten_hierarchical=False,
                                 label_hierarchy_levels=label_hierarchy_levels,
-                                num_shades=num_shades)
+                                num_colors=num_colors)
     else:
         _draw_grid(ax, grid.indices, title=title or str(layout),
                    colorize=colorize,
-                   color_indices=grid.color_indices, num_shades=num_shades)
+                   color_indices=grid.color_indices, num_colors=num_colors)
 
     return fig
 
@@ -1231,7 +1231,7 @@ def draw_layout(layout, filename=None,
                 figsize: Optional[Tuple[float, float]] = None,
                 colorize: bool = False,
                 color_layout: Optional[Layout] = None,
-                num_shades: int = 8,
+                num_colors: int = 8,
                 flatten_hierarchical: bool = True,
                 label_hierarchy_levels: bool = False):
     """Draw a layout and save to file.
@@ -1251,7 +1251,7 @@ def draw_layout(layout, filename=None,
             - Layout((8,8), (0, 1)): color by column
             - Layout(1, 0): uniform color
             - None: color by cell value (default)
-        num_shades: Number of colors/shades in palette (default 8)
+        num_colors: Number of colors in palette (default 8)
         flatten_hierarchical: For hierarchical layouts, if True show flat grid with
             offset values. If False, show explicit cell labels:
               - row=... nested row coordinate
@@ -1263,7 +1263,7 @@ def draw_layout(layout, filename=None,
     """
     fig = _build_layout_figure(layout, title=title, figsize=figsize,
                                colorize=colorize, color_layout=color_layout,
-                               num_shades=num_shades,
+                               num_colors=num_colors,
                                flatten_hierarchical=flatten_hierarchical,
                                label_hierarchy_levels=label_hierarchy_levels)
     _save_figure(fig, filename, dpi)
@@ -1396,7 +1396,7 @@ def _draw_tv_grid(ax, layout,
                   cell_size: float = 1.0,
                   title: Optional[str] = None,
                   colorize: bool = False,
-                  num_threads: Optional[int] = None,
+                  num_colors: Optional[int] = None,
                   label_margin: float = 0.5,
                   title_position: str = "top",
                   grid_rows: Optional[int] = None,
@@ -1428,7 +1428,7 @@ def _draw_tv_grid(ax, layout,
                                  col_major=col_major)
 
     # Build color palette based on number of threads (cycle through 8 colors like cute-viz)
-    n_colors = num_threads if num_threads else min(num_t, 8)
+    n_colors = num_colors if num_colors else min(num_t, 8)
     if colorize:
         colors = _make_rainbow_palette(n_colors)
     else:
@@ -1451,7 +1451,7 @@ def _build_tv_figure(layout,
                      title: Optional[str] = None,
                      figsize: Optional[Tuple[float, float]] = None,
                      colorize: bool = False,
-                     num_threads: Optional[int] = None,
+                     num_colors: Optional[int] = None,
                      grid_shape: Optional[Tuple[int, int]] = None,
                      thr_id_layout=None,
                      col_major: bool = True):
@@ -1467,7 +1467,7 @@ def _build_tv_figure(layout,
 
     fig, ax = plt.subplots(figsize=figsize)
     _draw_tv_grid(ax, layout, title=title or f"TV: {layout}",
-                  colorize=colorize, num_threads=num_threads,
+                  colorize=colorize, num_colors=num_colors,
                   grid_rows=rows, grid_cols=cols,
                   thr_id_layout=thr_id_layout,
                   col_major=col_major)
@@ -1479,7 +1479,7 @@ def draw_tv_layout(layout, filename=None,
                    dpi: int = 150,
                    figsize: Optional[Tuple[float, float]] = None,
                    colorize: bool = False,
-                   num_threads: Optional[int] = None,
+                   num_colors: Optional[int] = None,
                    grid_shape: Optional[Tuple[int, int]] = None,
                    thr_id_layout=None,
                    col_major: bool = True):
@@ -1495,7 +1495,7 @@ def draw_tv_layout(layout, filename=None,
         dpi: Resolution for raster formats
         figsize: Figure size in inches (auto-calculated if None)
         colorize: If True, use rainbow colors; if False, use grayscale
-        num_threads: Override number of colors (defaults to T dimension)
+        num_colors: Override number of colors (defaults to T dimension)
         grid_shape: Optional (rows, cols) for the output grid. If None,
                     inferred from cosize. Required for proper visualization
                     of MMA-style layouts.
@@ -1509,7 +1509,7 @@ def draw_tv_layout(layout, filename=None,
         draw_tv_layout(mma_a, "mma_a.svg", grid_shape=(16, 8))
     """
     fig = _build_tv_figure(layout, title=title, figsize=figsize,
-                           colorize=colorize, num_threads=num_threads,
+                           colorize=colorize, num_colors=num_colors,
                            grid_shape=grid_shape, thr_id_layout=thr_id_layout,
                            col_major=col_major)
     _save_figure(fig, filename, dpi)
@@ -1858,7 +1858,7 @@ def draw_copy_layout(src_layout, dst_layout, filename=None,
 def _build_swizzle_figure(base_layout, swizzle,
                           figsize: Optional[Tuple[float, float]] = None,
                           colorize: bool = False,
-                          num_shades: int = 8):
+                          num_colors: int = 8):
     """Build the swizzle comparison figure used by draw_swizzle/show_swizzle."""
     sw_layout = compose(swizzle, base_layout)
 
@@ -1869,24 +1869,24 @@ def _build_swizzle_figure(base_layout, swizzle,
 
     if swizzle.base > 0 and cols > (1 << swizzle.base):
         blocks_per_row = cols // (1 << swizzle.base)
-        effective_shades = blocks_per_row
+        effective_colors = blocks_per_row
         bit_shift = swizzle.base
         if figsize is None:
             figsize = (cols * 0.6 + 3, rows * 0.5 + 1.5)
     elif swizzle.base == 0:
-        effective_shades = num_shades
+        effective_colors = num_colors
         bit_shift = 0
         if figsize is None:
             figsize = (cols * 1.0 + 3, rows * 0.5 + 1.5)
     else:
         bit_shift = swizzle.base
         distinct_groups = len(set(int(v) >> bit_shift for v in linear_idx.flat))
-        effective_shades = max(num_shades, distinct_groups)
+        effective_colors = max(num_colors, distinct_groups)
         if figsize is None:
             figsize = (cols * 1.0 + 3, rows * 0.5 + 1.5)
 
     def _swizzle_color_indices(idx_array):
-        return np.vectorize(lambda v: (int(v) >> bit_shift) % effective_shades)(idx_array)
+        return np.vectorize(lambda v: (int(v) >> bit_shift) % effective_colors)(idx_array)
 
     linear_ci = _swizzle_color_indices(linear_idx)
     swizzle_ci = _swizzle_color_indices(swizzle_idx)
@@ -1894,11 +1894,11 @@ def _build_swizzle_figure(base_layout, swizzle,
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=figsize)
     _draw_grid(ax1, linear_idx, title=f"Linear: {base_layout}",
                colorize=colorize, color_indices=linear_ci,
-               num_shades=effective_shades,
+               num_colors=effective_colors,
                label_color='gray', label_fontsize=7)
     _draw_grid(ax2, swizzle_idx, title=f"Swizzled: {swizzle}",
                colorize=colorize, color_indices=swizzle_ci,
-               num_shades=effective_shades,
+               num_colors=effective_colors,
                label_color='gray', label_fontsize=7)
 
     plt.tight_layout()
@@ -1909,10 +1909,10 @@ def draw_swizzle(base_layout, swizzle, filename=None,
                  dpi: int = 150,
                  figsize: Optional[Tuple[float, float]] = None,
                  colorize: bool = False,
-                 num_shades: int = 8):
+                 num_colors: int = 8):
     """Draw side-by-side comparison of linear vs swizzled layout.
 
-    For swizzles with base=0 (affecting low bits), colors by value % num_shades
+    For swizzles with base=0 (affecting low bits), colors by value % num_colors
     to show how values within rows get permuted at element granularity.
 
     For swizzles with base>0 (affecting higher bits), shows a block-level view
@@ -1928,12 +1928,12 @@ def draw_swizzle(base_layout, swizzle, filename=None,
         dpi: Resolution for raster formats
         figsize: Figure size in inches (auto-calculated if None)
         colorize: If True, use rainbow colors (makes swizzle movement clearer)
-        num_shades: Number of colors/shades in palette
+        num_colors: Number of colors in palette
     """
     fig = _build_swizzle_figure(base_layout, swizzle,
                                 figsize=figsize,
                                 colorize=colorize,
-                                num_shades=num_shades)
+                                num_colors=num_colors)
     _save_figure(fig, filename, dpi)
 
 
@@ -2074,7 +2074,7 @@ def _get_slice_highlight_mask_2d(layout, slice_spec) -> np.ndarray:
 def _build_slice_figure(layout, slice_spec,
                         title=None, figsize=None,
                         colorize=False, color_layout=None,
-                        num_shades=8):
+                        num_colors=8):
     """Build the slice figure used by draw_slice/show_slice."""
     grid = _prepare_offset_grid(layout, color_layout=color_layout,
                                 slice_spec=slice_spec)
@@ -2088,7 +2088,7 @@ def _build_slice_figure(layout, slice_spec,
     fig, ax = plt.subplots(figsize=figsize)
     _draw_grid(ax, grid.indices, highlight_mask=grid.highlight_mask,
                title=title, colorize=colorize,
-               color_indices=grid.color_indices, num_shades=num_shades)
+               color_indices=grid.color_indices, num_colors=num_colors)
     return fig
 
 
@@ -2098,7 +2098,7 @@ def draw_slice(layout, slice_spec, filename=None,
                figsize: Optional[Tuple[float, float]] = None,
                colorize: bool = False,
                color_layout: Optional[Layout] = None,
-               num_shades: int = 8):
+               num_colors: int = 8):
     """Draw layout with sliced elements highlighted.
 
     Args:
@@ -2115,11 +2115,11 @@ def draw_slice(layout, slice_spec, filename=None,
         colorize: If True, use rainbow colors for background cells
         color_layout: Optional layout controlling background-cell coloring in
             the same logical coordinate space as `layout` (None = color by value)
-        num_shades: Number of colors/shades in palette
+        num_colors: Number of colors in palette
     """
     fig = _build_slice_figure(layout, slice_spec, title=title, figsize=figsize,
                               colorize=colorize, color_layout=color_layout,
-                              num_shades=num_shades)
+                              num_colors=num_colors)
     _save_figure(fig, filename, dpi)
 
 
@@ -2127,7 +2127,7 @@ def show_layout(layout, title: Optional[str] = None,
                 figsize: Optional[Tuple[float, float]] = None,
                 colorize: bool = False,
                 color_layout: Optional[Layout] = None,
-                num_shades: int = 8,
+                num_colors: int = 8,
                 flatten_hierarchical: bool = True,
                 label_hierarchy_levels: bool = False):
     """Display a layout inline (for Jupyter notebooks).
@@ -2139,7 +2139,7 @@ def show_layout(layout, title: Optional[str] = None,
         colorize: If True, use rainbow colors for distinct cells
         color_layout: Optional layout controlling cell coloring in the same
             logical coordinate space as `layout` (None = color by value)
-        num_shades: Number of colors/shades in palette
+        num_colors: Number of colors in palette
         flatten_hierarchical: For hierarchical layouts, if True show flat grid with
             offset values. If False, show explicit cell labels.
         label_hierarchy_levels: For hierarchical nested views, if True annotate
@@ -2150,7 +2150,7 @@ def show_layout(layout, title: Optional[str] = None,
     """
     return _build_layout_figure(layout, title=title, figsize=figsize,
                                 colorize=colorize, color_layout=color_layout,
-                                num_shades=num_shades,
+                                num_colors=num_colors,
                                 flatten_hierarchical=flatten_hierarchical,
                                 label_hierarchy_levels=label_hierarchy_levels)
 
@@ -2158,17 +2158,17 @@ def show_layout(layout, title: Optional[str] = None,
 def show_swizzle(base_layout, swizzle,
                  figsize: Optional[Tuple[float, float]] = None,
                  colorize: bool = False,
-                 num_shades: int = 8):
+                 num_colors: int = 8):
     """Display swizzle comparison inline (for Jupyter notebooks).
 
-    Colors by the bits that the swizzle affects: (value >> swizzle.base) % num_shades.
+    Colors by the bits that the swizzle affects: (value >> swizzle.base) % num_colors.
 
     Args:
         base_layout: Base Layout object
         swizzle: Swizzle object
         figsize: Figure size in inches
         colorize: If True, use rainbow colors (makes swizzle movement clearer)
-        num_shades: Number of colors/shades in palette
+        num_colors: Number of colors in palette
 
     Returns:
         matplotlib Figure
@@ -2176,7 +2176,7 @@ def show_swizzle(base_layout, swizzle,
     return _build_swizzle_figure(base_layout, swizzle,
                                  figsize=figsize,
                                  colorize=colorize,
-                                 num_shades=num_shades)
+                                 num_colors=num_colors)
 
 
 def show_copy_layout(src_layout, dst_layout,
@@ -2209,7 +2209,7 @@ def show_copy_layout(src_layout, dst_layout,
 def show_tv_layout(layout, title: Optional[str] = None,
                    figsize: Optional[Tuple[float, float]] = None,
                    colorize: bool = False,
-                   num_threads: Optional[int] = None,
+                   num_colors: Optional[int] = None,
                    grid_shape: Optional[Tuple[int, int]] = None,
                    thr_id_layout=None,
                    col_major: bool = True):
@@ -2220,7 +2220,7 @@ def show_tv_layout(layout, title: Optional[str] = None,
         title: Optional title (defaults to "TV: {layout}")
         figsize: Figure size in inches (auto-calculated if None)
         colorize: If True, use rainbow colors; if False, use grayscale
-        num_threads: Override number of colors (defaults to T dimension)
+        num_colors: Override number of colors (defaults to T dimension)
         grid_shape: Optional (rows, cols) for the output grid
         thr_id_layout: Optional layout for thread ID mapping
         col_major: If True (default), use column-major decomposition
@@ -2232,7 +2232,7 @@ def show_tv_layout(layout, title: Optional[str] = None,
         matplotlib Figure
     """
     return _build_tv_figure(layout, title=title, figsize=figsize,
-                            colorize=colorize, num_threads=num_threads,
+                            colorize=colorize, num_colors=num_colors,
                             grid_shape=grid_shape, thr_id_layout=thr_id_layout,
                             col_major=col_major)
 
@@ -2297,7 +2297,7 @@ def show_slice(layout, slice_spec, title: Optional[str] = None,
                figsize: Optional[Tuple[float, float]] = None,
                colorize: bool = False,
                color_layout: Optional[Layout] = None,
-               num_shades: int = 8):
+               num_colors: int = 8):
     """Display a layout slice inline (for Jupyter notebooks).
 
     Args:
@@ -2307,14 +2307,14 @@ def show_slice(layout, slice_spec, title: Optional[str] = None,
         figsize: Figure size in inches (auto-calculated if None)
         colorize: If True, use rainbow colors for background cells
         color_layout: Optional layout controlling background-cell coloring
-        num_shades: Number of colors/shades in palette
+        num_colors: Number of colors in palette
 
     Returns:
         matplotlib Figure
     """
     return _build_slice_figure(layout, slice_spec, title=title, figsize=figsize,
                                colorize=colorize, color_layout=color_layout,
-                               num_shades=num_shades)
+                               num_colors=num_colors)
 
 
 def show_composite(panels: list,
