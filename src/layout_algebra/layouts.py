@@ -894,8 +894,19 @@ def fold_accumulate(t: Any, init: Any, f, update) -> Any:
         update: (element, state) -> new_state for the next element
 
     Examples:
+        # Prefix product (computing strides from shapes):
+        fold_accumulate((2, 3, 4), 1,
+                        f=lambda elem, state: state,
+                        update=lambda elem, state: state * elem)
+        # -> (1, 2, 6)  — each result is the product of all prior elements
+
         # shape_div uses this to divide a shape by a divisor:
-        fold_accumulate((2, 3, 4), 6, div_fn, remaining_fn) -> (1, 1, 4)
+        #   f: ceil(element / divisor)  — divide this mode
+        #   update: divisor / size(element)  — carry remainder to next mode
+        # shape_div((2, 3, 4), 6) -> (1, 1, 4)
+        #   mode 0: ceil(2/6)=1, remaining divisor=6/2=3
+        #   mode 1: ceil(3/3)=1, remaining divisor=3/3=1
+        #   mode 2: ceil(4/1)=4, done
     """
     if isinstance(t, int):
         return f(t, init)
