@@ -1,10 +1,10 @@
 <p align="center">
-  <img src="docs/images/logo.svg" alt="tensor-layouts" width="520">
+  <img src="https://raw.githubusercontent.com/facebookresearch/tensor-layouts/main/docs/images/logo.svg" alt="tensor-layouts" width="520">
 </p>
 
 [![CI](https://github.com/facebookresearch/tensor-layouts/actions/workflows/ci.yml/badge.svg)](https://github.com/facebookresearch/tensor-layouts/actions/workflows/ci.yml)
 [![PyPI](https://img.shields.io/pypi/v/tensor-layouts)](https://pypi.org/project/tensor-layouts/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/facebookresearch/tensor-layouts/blob/main/LICENSE)
 
 A pure-Python implementation of the [NVIDIA CuTe](https://github.com/NVIDIA/cutlass/blob/main/media/docs/cute/00_quickstart.md) layout algebra. **No GPU required.**
 
@@ -116,23 +116,23 @@ draw_swizzle(Layout((8, 8), (8, 1)), Swizzle(3, 0, 3), colorize=True)
 ```
 
 <p align="center">
-  <img src="docs/images/row_major_8x8.png" alt="Row-Major 8x8 layout" width="400">
+  <img src="https://raw.githubusercontent.com/facebookresearch/tensor-layouts/main/docs/images/row_major_8x8.png" alt="Row-Major 8x8 layout" width="400">
 </p>
 
 <p align="center">
-  <img src="docs/images/swizzle_8x8.png" alt="Swizzle(3, 0, 3) applied to row-major 8x8" width="800">
+  <img src="https://raw.githubusercontent.com/facebookresearch/tensor-layouts/main/docs/images/swizzle_8x8.png" alt="Swizzle(3, 0, 3) applied to row-major 8x8" width="800">
 </p>
 
-See [`examples/viz.ipynb`](examples/viz.ipynb) for a full
+See [`examples/viz.ipynb`](https://github.com/facebookresearch/tensor-layouts/blob/main/examples/viz.ipynb) for a full
 gallery of layout, swizzle, MMA atom, and tiled MMA visualizations.
 
 ## Documentation
 
-- [Layout Algebra API](docs/layout_api.md) — construction, querying, compose, complement, divide, product
-- [Visualization API](docs/viz_api.md) — draw_layout, draw_swizzle, draw_mma_layout, and more
-- [Layout Examples](examples/layouts.py) — runnable script covering the full algebra (run from source checkout with `PYTHONPATH=src python3 examples/layouts.py`)
-- [Visualization Examples](examples/viz.py) — runnable script generating all visualization types (run from source checkout with `PYTHONPATH=src python3 examples/viz.py`)
-- [Visualization Notebook](examples/viz.ipynb) — Jupyter gallery
+- [Layout Algebra API](https://github.com/facebookresearch/tensor-layouts/blob/main/docs/layout_api.md) — construction, querying, compose, complement, divide, product
+- [Visualization API](https://github.com/facebookresearch/tensor-layouts/blob/main/docs/viz_api.md) — draw_layout, draw_swizzle, draw_mma_layout, and more
+- [Layout Examples](https://github.com/facebookresearch/tensor-layouts/blob/main/examples/layouts.py) — runnable script covering the full algebra (run from source checkout with `PYTHONPATH=src python3 examples/layouts.py`)
+- [Visualization Examples](https://github.com/facebookresearch/tensor-layouts/blob/main/examples/viz.py) — runnable script generating all visualization types (run from source checkout with `PYTHONPATH=src python3 examples/viz.py`)
+- [Visualization Notebook](https://github.com/facebookresearch/tensor-layouts/blob/main/examples/viz.ipynb) — Jupyter gallery
 
 ## Testing
 
@@ -164,4 +164,4 @@ pytest tests/oracle_amd.py
 
 ## License
 
-MIT License. See [LICENSE](LICENSE) for details.
+MIT License. See [LICENSE](https://github.com/facebookresearch/tensor-layouts/blob/main/LICENSE) for details.
