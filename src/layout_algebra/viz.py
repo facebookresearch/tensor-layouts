@@ -262,7 +262,9 @@ def _draw_grid(ax, indices: np.ndarray,
                colorize: bool = False,
                color_layout: Optional[Layout] = None,
                color_indices: Optional[np.ndarray] = None,
-               num_shades: int = 8):
+               num_shades: int = 8,
+               label_color: str = 'blue',
+               label_fontsize: float = 8):
     """Draw a grid of cells with indices on a matplotlib axis.
 
     Args:
@@ -367,12 +369,12 @@ def _draw_grid(ax, indices: np.ndarray,
         # Row labels (left)
         for i in range(rows):
             ax.text(-0.3, i + 0.5, str(i), ha='center', va='center',
-                    fontsize=8, color='blue', zorder=8)
+                    fontsize=label_fontsize, color=label_color, zorder=8)
 
         # Column labels (top)
         for j in range(cols):
             ax.text(j + 0.5, -0.3, str(j), ha='center', va='center',
-                    fontsize=8, color='blue', zorder=8)
+                    fontsize=label_fontsize, color=label_color, zorder=8)
 
 
 def _save_figure(fig, filename, dpi: int = 150):
@@ -1588,40 +1590,38 @@ def _build_swizzle_figure(base_layout, swizzle,
     rows, cols = linear_idx.shape
 
     if swizzle.base > 0 and cols > (1 << swizzle.base):
-        block_size = 1 << swizzle.base
-        blocks_per_row = cols // block_size
-
+        blocks_per_row = cols // (1 << swizzle.base)
+        effective_shades = blocks_per_row
+        bit_shift = swizzle.base
         if figsize is None:
             figsize = (cols * 0.6 + 3, rows * 0.5 + 1.5)
-
-        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=figsize)
-        _draw_grid_by_bits(ax1, linear_idx, swizzle.base,
-                           title=f"Linear: {base_layout}",
-                           colorize=colorize, num_shades=blocks_per_row)
-        _draw_grid_by_bits(ax2, swizzle_idx, swizzle.base,
-                           title=f"Swizzled: {swizzle}",
-                           colorize=colorize, num_shades=blocks_per_row)
     elif swizzle.base == 0:
+        effective_shades = num_shades
+        bit_shift = 0
         if figsize is None:
             figsize = (cols * 1.0 + 3, rows * 0.5 + 1.5)
-
-        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=figsize)
-        _draw_grid_by_value_mod(ax1, linear_idx, title=f"Linear: {base_layout}",
-                                colorize=colorize, num_shades=num_shades)
-        _draw_grid_by_value_mod(ax2, swizzle_idx, title=f"Swizzled: {swizzle}",
-                                colorize=colorize, num_shades=num_shades)
     else:
-        if figsize is None:
-            figsize = (cols * 1.0 + 3, rows * 0.5 + 1.5)
-
-        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=figsize)
         bit_shift = swizzle.base
         distinct_groups = len(set(int(v) >> bit_shift for v in linear_idx.flat))
         effective_shades = max(num_shades, distinct_groups)
-        _draw_grid_by_bits(ax1, linear_idx, bit_shift, title=f"Linear: {base_layout}",
-                           colorize=colorize, num_shades=effective_shades)
-        _draw_grid_by_bits(ax2, swizzle_idx, bit_shift, title=f"Swizzled: {swizzle}",
-                           colorize=colorize, num_shades=effective_shades)
+        if figsize is None:
+            figsize = (cols * 1.0 + 3, rows * 0.5 + 1.5)
+
+    def _swizzle_color_indices(idx_array):
+        return np.vectorize(lambda v: (int(v) >> bit_shift) % effective_shades)(idx_array)
+
+    linear_ci = _swizzle_color_indices(linear_idx)
+    swizzle_ci = _swizzle_color_indices(swizzle_idx)
+
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=figsize)
+    _draw_grid(ax1, linear_idx, title=f"Linear: {base_layout}",
+               colorize=colorize, color_indices=linear_ci,
+               num_shades=effective_shades,
+               label_color='gray', label_fontsize=7)
+    _draw_grid(ax2, swizzle_idx, title=f"Swizzled: {swizzle}",
+               colorize=colorize, color_indices=swizzle_ci,
+               num_shades=effective_shades,
+               label_color='gray', label_fontsize=7)
 
     plt.tight_layout()
     return fig
@@ -1657,125 +1657,6 @@ def draw_swizzle(base_layout, swizzle, filename=None,
                                 colorize=colorize,
                                 num_shades=num_shades)
     _save_figure(fig, filename, dpi)
-
-
-def _draw_grid_by_bits(ax, indices: np.ndarray, bit_shift: int,
-                       cell_size: float = 1.0,
-                       title: Optional[str] = None,
-                       colorize: bool = False,
-                       num_shades: int = 8):
-    """Draw a grid with coloring based on shifted bits.
-
-    Colors cells by (value >> bit_shift) % num_shades, showing the bits
-    that a swizzle affects. This ensures the swizzle effect is visible
-    regardless of which bits are being XORed.
-    """
-    rows, cols = indices.shape
-
-    # Build color palette
-    if colorize:
-        colors = _make_rainbow_palette(num_shades)
-    else:
-        colors = _make_grayscale_palette(num_shades)
-
-    # Set up axes
-    ax.set_xlim(-0.5, cols + 0.5)
-    ax.set_ylim(-0.5, rows + 0.5)
-    ax.set_aspect('equal')
-    ax.invert_yaxis()
-    ax.axis('off')
-
-    if title:
-        ax.set_title(title, fontsize=10, fontweight='bold', pad=10)
-
-    # Draw cells
-    for i in range(rows):
-        for j in range(cols):
-            idx = int(indices[i, j])
-
-            # Color by shifted bits: (value >> bit_shift) % num_shades
-            color_idx = (idx >> bit_shift) % len(colors)
-            facecolor = colors[color_idx]
-
-            rect = patches.Rectangle(
-                (j, i), cell_size, cell_size,
-                facecolor=facecolor, edgecolor='black', linewidth=1
-            )
-            ax.add_patch(rect)
-
-            # Draw index text
-            text_color = 'white' if _is_dark(facecolor) else 'black'
-            ax.text(j + 0.5, i + 0.5, str(idx),
-                    ha='center', va='center', fontsize=8, color=text_color)
-
-    # Row labels (left)
-    for i in range(rows):
-        ax.text(-0.3, i + 0.5, str(i),
-                ha='right', va='center', fontsize=7, color='gray')
-
-    # Column labels (top)
-    for j in range(cols):
-        ax.text(j + 0.5, -0.3, str(j),
-                ha='center', va='bottom', fontsize=7, color='gray')
-
-
-def _draw_grid_by_value_mod(ax, indices: np.ndarray,
-                            cell_size: float = 1.0,
-                            title: Optional[str] = None,
-                            colorize: bool = False,
-                            num_shades: int = 8):
-    """Draw a grid with coloring based on value % num_shades.
-
-    This is the standard cute-viz coloring scheme. It works well for swizzles
-    with base=0 (affecting low bits) where the permutation is visible directly.
-    """
-    rows, cols = indices.shape
-
-    # Build color palette
-    if colorize:
-        colors = _make_rainbow_palette(num_shades)
-    else:
-        colors = _make_grayscale_palette(num_shades)
-
-    # Set up axes
-    ax.set_xlim(-0.5, cols + 0.5)
-    ax.set_ylim(-0.5, rows + 0.5)
-    ax.set_aspect('equal')
-    ax.invert_yaxis()
-    ax.axis('off')
-
-    if title:
-        ax.set_title(title, fontsize=10, fontweight='bold', pad=10)
-
-    # Draw cells
-    for i in range(rows):
-        for j in range(cols):
-            idx = int(indices[i, j])
-
-            # Color by value modulo num_shades
-            color_idx = idx % len(colors)
-            facecolor = colors[color_idx]
-
-            rect = patches.Rectangle(
-                (j, i), cell_size, cell_size,
-                facecolor=facecolor, edgecolor='black', linewidth=1
-            )
-            ax.add_patch(rect)
-
-            # Draw index text
-            text_color = 'white' if _is_dark(facecolor) else 'black'
-            ax.text(j + 0.5, i + 0.5, str(idx),
-                    ha='center', va='center', fontsize=8, color=text_color)
-
-    # Row labels (left)
-    for i in range(rows):
-        ax.text(-0.3, i + 0.5, str(i),
-                ha='right', va='center', fontsize=7, color='gray')
-
-    # Column labels (top)
-    for j in range(cols):
-        ax.text(j + 0.5, -0.3, str(j),
-                ha='center', va='bottom', fontsize=7, color='gray')
 
 
 def _expand_hier_slice(spec, shape):
