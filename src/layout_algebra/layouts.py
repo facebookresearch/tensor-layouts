@@ -2057,23 +2057,23 @@ def _composition_1d(layout_a: "Layout", b_shape: int, b_stride: int) -> "Layout"
 
     result_shape = []
     result_stride = []
-    rest_shape = b_shape
-    rest_stride = b_stride
+    remaining_shape = b_shape
+    remaining_stride = b_stride
 
     # Process all modes except the last
     for curr_shape, curr_stride in zip(flat_shapes[:-1], flat_strides[:-1]):
-        assert curr_shape % rest_stride == 0 or rest_stride % curr_shape == 0
-        new_shape = min(max(1, curr_shape // rest_stride), rest_shape)
+        assert curr_shape % remaining_stride == 0 or remaining_stride % curr_shape == 0
+        new_shape = min(max(1, curr_shape // remaining_stride), remaining_shape)
         if new_shape != 1:
             result_shape.append(new_shape)
-            result_stride.append(rest_stride * curr_stride)
-        rest_shape = rest_shape // new_shape
-        rest_stride = -(-rest_stride // curr_shape)  # ceil division
+            result_stride.append(remaining_stride * curr_stride)
+        remaining_shape = remaining_shape // new_shape
+        remaining_stride = -(-remaining_stride // curr_shape)  # ceil division
 
     # Last mode absorbs all remaining shape
-    if rest_shape != 1 or not result_shape:
-        result_shape.append(rest_shape)
-        result_stride.append(rest_stride * flat_strides[-1])
+    if remaining_shape != 1 or not result_shape:
+        result_shape.append(remaining_shape)
+        result_stride.append(remaining_stride * flat_strides[-1])
 
     return Layout(as_shape(result_shape), as_shape(result_stride))
 
