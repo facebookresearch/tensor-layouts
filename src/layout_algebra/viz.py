@@ -119,7 +119,10 @@ def _make_rainbow_palette(n: int) -> list:
     """Generate n distinct rainbow colors.
 
     Uses 8 base colors to match cute-viz palette for n <= 8.
-    For n > 8, generates distinct pastel colors via HSV interpolation.
+    For n > 8, generates HSV colors with saturation that increases with *n*
+    (small n → pastel, large n → more vivid so adjacent hues stay
+    distinguishable), then applies a bit-reversal reorder so consecutive
+    palette indices are maximally different in hue.
     """
     # 8 base colors matching cute-viz pastel palette
     base_colors = [
@@ -134,14 +137,19 @@ def _make_rainbow_palette(n: int) -> list:
     ]
     if n <= len(base_colors):
         return base_colors[:n]
-    # Generate truly distinct pastel colors via HSV
+    # Ramp saturation from pastel (0.35 near n=8) to vivid (0.60 at n>=32)
+    # so that the smaller hue steps at large n remain distinguishable.
     import colorsys
-    colors = []
+    t = min(1.0, (n - 8) / 24)  # 0 at n=8, 1 at n>=32
+    sat = 0.35 + t * 0.25       # 0.35 → 0.60
+    val = 0.95 - t * 0.03       # 0.95 → 0.92
+    monotonic = []
     for i in range(n):
         hue = i / n
-        r, g, b = colorsys.hsv_to_rgb(hue, 0.35, 0.95)
-        colors.append(f'#{int(r*255):02X}{int(g*255):02X}{int(b*255):02X}')
-    return colors
+        r, g, b = colorsys.hsv_to_rgb(hue, sat, val)
+        monotonic.append(f'#{int(r*255):02X}{int(g*255):02X}{int(b*255):02X}')
+    order = _max_contrast_order(n)
+    return [monotonic[k] for k in order]
 
 # Default palettes (8 shades/colors)
 GRAYSCALE_COLORS = _make_grayscale_palette(8)
