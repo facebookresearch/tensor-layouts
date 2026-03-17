@@ -1924,9 +1924,10 @@ def _ceil_div(a: int, b: int) -> int:
 def upcast(layout: "Layout", n: int) -> "Layout":
     """Reinterpret a layout from a finer to a coarser coordinate space.
 
-    Mirrors CuTe's upcast<N>(layout).  Typically used to convert a layout
-    in bit coordinates to element coordinates by dividing by the element
-    width in bits.
+    Mirrors CuTe's upcast<N>(layout).  Use case: GPU memory layouts are
+    often defined in bits (to handle mixed-precision types uniformly),
+    but you want to work with elements (fp16, int8, etc.).
+    upcast(L, 16) converts a bit-addressed layout to an fp16-element layout.
 
     For the stride-1 mode the shape shrinks by n (the elements are now n×
     bigger, so there are fewer of them).  All strides are divided by n.
@@ -1971,9 +1972,9 @@ def upcast(layout: "Layout", n: int) -> "Layout":
 def downcast(layout: "Layout", n: int) -> "Layout":
     """Reinterpret a layout from a coarser to a finer coordinate space.
 
-    Mirrors CuTe's downcast<N>(layout).  The inverse of upcast: for the
-    stride-1 mode the shape grows by n, and all other strides are
-    multiplied by n.
+    Mirrors CuTe's downcast<N>(layout).  The inverse of upcast: converts
+    element coordinates back to bit coordinates.  For the stride-1 mode
+    the shape grows by n, and all other strides are multiplied by n.
 
     Examples:
         # Element layout → bit coordinates (×16)
