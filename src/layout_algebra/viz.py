@@ -2047,7 +2047,9 @@ def show_layout(layout, title: Optional[str] = None,
                 figsize: Optional[Tuple[float, float]] = None,
                 colorize: bool = False,
                 color_layout: Optional[Layout] = None,
-                num_shades: int = 8):
+                num_shades: int = 8,
+                flatten_hierarchical: bool = True,
+                label_hierarchy_levels: bool = False):
     """Display a layout inline (for Jupyter notebooks).
 
     Args:
@@ -2058,13 +2060,19 @@ def show_layout(layout, title: Optional[str] = None,
         color_layout: Optional layout controlling cell coloring in the same
             logical coordinate space as `layout` (None = color by value)
         num_shades: Number of colors/shades in palette
+        flatten_hierarchical: For hierarchical layouts, if True show flat grid with
+            offset values. If False, show explicit cell labels.
+        label_hierarchy_levels: For hierarchical nested views, if True annotate
+            axes with each hierarchy level at block/tile granularity.
 
     Returns:
         matplotlib Figure
     """
     return _build_layout_figure(layout, title=title, figsize=figsize,
                                 colorize=colorize, color_layout=color_layout,
-                                num_shades=num_shades)
+                                num_shades=num_shades,
+                                flatten_hierarchical=flatten_hierarchical,
+                                label_hierarchy_levels=label_hierarchy_levels)
 
 
 def show_swizzle(base_layout, swizzle,
