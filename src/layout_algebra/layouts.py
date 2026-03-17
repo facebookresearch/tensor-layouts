@@ -1983,9 +1983,21 @@ def _composition_1d(layout_a: "Layout", b_shape: int, b_stride: int) -> "Layout"
     This is the core composition algorithm. It answers: "if B selects
     b_shape elements from A with stride b_stride, what layout results?"
 
-    The algorithm folds over A's coalesced modes, consuming B's shape
-    one mode at a time. The last mode absorbs any remaining shape
-    (CuTe's extensible-last-mode convention).
+    Algorithm:
+      1. Coalesce A to merge contiguous modes into a flat list.
+      2. Fold over A's modes (except the last):
+         - Compute how many of B's elements fit in this mode of A.
+         - Emit a result mode with shape = elements consumed,
+           stride = b_stride * a_mode_stride.
+         - Carry remaining B shape/stride to the next mode.
+      3. Last mode absorbs all remaining shape (CuTe's extensible-
+         last-mode convention: the outermost mode is implicitly
+         infinite).
+
+    Example:
+        A = Layout((4, 8), (1, 8))  # two modes with a stride gap
+        B has shape=8, stride=1     # select 8 contiguous elements
+        Result: Layout((4, 2), (1, 8))  # 4 from first mode, 2 from second
     """
     if b_stride == 0:
         return Layout(b_shape, 0)
