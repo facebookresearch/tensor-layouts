@@ -1507,6 +1507,19 @@ def draw_mma_layout(layout_a, layout_b, layout_c, filename=None,
     _save_figure(fig, filename, dpi)
 
 
+def _build_tiled_grid_figure(grid: dict, rows: int, cols: int,
+                             title: Optional[str] = None):
+    """Build the tiled-grid figure used by draw_tiled_grid/show_tiled_grid."""
+    colors = _make_rainbow_palette(8)
+    font = max(4, min(7, int(60 / max(rows, cols))))
+    fig, ax = plt.subplots(figsize=(cols * 0.45 + 1.5, rows * 0.4 + 1.0))
+    _setup_axes(ax, (-0.5, cols + 0.5), (-0.5, rows + 0.5),
+                title=title, title_fontsize=9)
+    _draw_tv_cells(ax, grid, rows, cols, colors, fontsize=font, linewidth=0.5)
+    plt.tight_layout()
+    return fig
+
+
 def draw_tiled_grid(grid: dict, rows: int, cols: int,
                     filename=None, dpi: int = 150,
                     title: Optional[str] = None):
@@ -1523,13 +1536,7 @@ def draw_tiled_grid(grid: dict, rows: int, cols: int,
         dpi:   output resolution
         title: plot title
     """
-    colors = _make_rainbow_palette(8)
-    font = max(4, min(7, int(60 / max(rows, cols))))
-    fig, ax = plt.subplots(figsize=(cols * 0.45 + 1.5, rows * 0.4 + 1.0))
-    _setup_axes(ax, (-0.5, cols + 0.5), (-0.5, rows + 0.5),
-                title=title, title_fontsize=9)
-    _draw_tv_cells(ax, grid, rows, cols, colors, fontsize=font, linewidth=0.5)
-    plt.tight_layout()
+    fig = _build_tiled_grid_figure(grid, rows, cols, title=title)
     _save_figure(fig, filename, dpi)
 
 
@@ -1892,6 +1899,22 @@ def show_mma_layout(layout_a, layout_b, layout_c,
     return _build_mma_figure(layout_a, layout_b, layout_c,
                              tile_mnk=tile_mnk, main_title=main_title,
                              colorize=colorize, thr_id_layout=thr_id_layout)
+
+
+def show_tiled_grid(grid: dict, rows: int, cols: int,
+                    title: Optional[str] = None):
+    """Display a tiled MMA grid inline (for Jupyter notebooks).
+
+    Args:
+        grid:  dict mapping (row, col) → (phys_thread, value, logical_thread)
+        rows:  number of rows in the grid
+        cols:  number of columns in the grid
+        title: plot title
+
+    Returns:
+        matplotlib Figure
+    """
+    return _build_tiled_grid_figure(grid, rows, cols, title=title)
 
 
 # =============================================================================
