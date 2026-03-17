@@ -66,6 +66,7 @@ try:
         draw_copy_atom,
         draw_layout,
         draw_mma_layout,
+        draw_combined_mma_grid,
         draw_slice,
         draw_swizzle,
         draw_tiled_grid,
@@ -75,6 +76,7 @@ try:
         show_composite,
         show_layout,
         show_mma_layout,
+        show_combined_mma_grid,
         show_slice,
         show_swizzle,
         show_tiled_grid,
@@ -1064,3 +1066,46 @@ def test_draw_swizzle_delegates_to_shared_builder(monkeypatch):
     draw_swizzle(layout, swizzle, filename="out.png")
     assert seen["fig"] is fig
     assert seen["filename"] == "out.png"
+
+
+# ── draw_combined_mma_grid / show_combined_mma_grid ──────────────────────
+
+
+@requires_viz
+def test_draw_combined_mma_grid_smoke():
+    atom = SM80_16x8x16_F16F16F16F16_TN
+    atom_layout = Layout((2, 2), (1, 2))
+    c_grid, _ = tile_mma_grid(atom, atom_layout, "C")
+    a_grid, _ = tile_mma_grid(atom, atom_layout, "A")
+    b_grid, _ = tile_mma_grid(atom, atom_layout, "B")
+
+    # Transpose B for display (N×K → K×N)
+    b_display = {(c, r): v for (r, c), v in b_grid.items()}
+
+    M_a, N_a, K_a = atom.shape_mnk
+    M, N, K = M_a * 2, N_a * 2, K_a
+
+    with tempfile.NamedTemporaryFile(suffix=".png") as f:
+        draw_combined_mma_grid(a_grid, b_display, c_grid, M, N, K,
+                               filename=f.name, title="test")
+
+
+@requires_viz
+def test_show_combined_mma_grid_returns_figure():
+    atom = SM80_16x8x16_F16F16F16F16_TN
+    atom_layout = Layout((2, 2), (1, 2))
+    c_grid, _ = tile_mma_grid(atom, atom_layout, "C")
+    a_grid, _ = tile_mma_grid(atom, atom_layout, "A")
+    b_grid, _ = tile_mma_grid(atom, atom_layout, "B")
+
+    b_display = {(c, r): v for (r, c), v in b_grid.items()}
+
+    M_a, N_a, K_a = atom.shape_mnk
+    M, N, K = M_a * 2, N_a * 2, K_a
+
+    fig = show_combined_mma_grid(a_grid, b_display, c_grid, M, N, K,
+                                 title="test")
+    try:
+        assert isinstance(fig, matplotlib.figure.Figure)
+    finally:
+        plt.close(fig)
