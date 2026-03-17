@@ -1236,7 +1236,7 @@ def complement(layout: Layout, cosize_bound: Any = None) -> Layout:
 
     # Fill remaining space up to cosize_bound (ceiling division).
     # Always append (even if shape-1) to match pycute; coalesce cleans up.
-    remaining = (cosize_bound + current_stride - 1) // current_stride
+    remaining = _ceil_div(cosize_bound, current_stride)
     result_shapes.append(remaining)
     result_strides.append(current_stride)
 
