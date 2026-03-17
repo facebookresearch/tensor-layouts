@@ -53,6 +53,7 @@ draw_layout(Layout((8, 8), (8, 1)), title="Row-Major 8x8", colorize=True)
 | `figsize` | `(w, h)` | auto | Figure size in inches |
 | `colorize` | `bool` | `False` | Use rainbow colors (by cell value) |
 | `color_layout` | `Layout` | `None` | Custom coloring (see below) |
+| `color_by` | `str` | `None` | Shorthand: `"row"`, `"column"`, or `"offset"`. Mutually exclusive with `color_layout` |
 | `num_shades` | `int` | `8` | Number of distinct grayscale shades |
 | `flatten_hierarchical` | `bool` | `True` | Flatten nested shapes to 2D grid |
 | `label_hierarchy_levels` | `bool` | `False` | In nested hierarchical mode, annotate hierarchy levels at tile/block granularity; label colors match boundary colors |
