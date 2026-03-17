@@ -1373,6 +1373,94 @@ def draw_tv_layout(layout, filename=None,
     _save_figure(fig, filename, dpi)
 
 
+def _build_mma_figure(layout_a, layout_b, layout_c,
+                      tile_mnk=None, main_title=None,
+                      colorize=True, thr_id_layout=None):
+    """Build the MMA figure used by draw_mma_layout/show_mma_layout."""
+    # Infer M, N, K from tile_mnk or layout dimensions
+    if tile_mnk:
+        M, N, K = tile_mnk
+    else:
+        cosize_a = cosize(layout_a)
+        cosize_c = cosize(layout_c)
+        M = int(np.sqrt(cosize_a))
+        while M > 0 and cosize_a % M != 0:
+            M -= 1
+        K = cosize_a // M if M > 0 else cosize_a
+        N = cosize_c // M if M > 0 else cosize_c
+
+    if colorize:
+        mma_colors = _make_rainbow_palette(8)
+    else:
+        mma_colors = _make_grayscale_palette(8)
+
+    cell_size = 1.0
+    gap = 2.0
+    label_margin = 1.5
+
+    total_width = K + gap + N + label_margin
+    total_height = K + gap + M + label_margin
+
+    scale = 0.35
+    fig_width = total_width * scale + 1.5
+    fig_height = total_height * scale + 1.0
+
+    fig, ax = plt.subplots(figsize=(fig_width, fig_height))
+
+    def draw_tv_matrix(layout, offset_x, offset_y, matrix_rows, matrix_cols,
+                       title, title_above=True, col_major=True):
+        try:
+            tv_map = _compute_tv_mapping(layout, grid_cols=matrix_cols,
+                                         grid_rows=matrix_rows,
+                                         thr_id_layout=thr_id_layout,
+                                         col_major=col_major)
+        except ValueError as exc:
+            raise ValueError(
+                f"{title} layout does not fit within panel shape "
+                f"({matrix_rows}, {matrix_cols}): {exc}"
+            ) from exc
+
+        if title:
+            if title_above:
+                ax.text(offset_x + matrix_cols / 2, offset_y - 0.6, title,
+                        ha='center', va='bottom', fontsize=10, fontweight='bold')
+            else:
+                ax.text(offset_x + matrix_cols / 2, offset_y + matrix_rows + 0.6, title,
+                        ha='center', va='top', fontsize=10, fontweight='bold')
+
+        _draw_tv_cells(ax, tv_map, matrix_rows, matrix_cols, mma_colors,
+                       offset_x=offset_x, offset_y=offset_y,
+                       fontsize=6, linewidth=0.5)
+
+    b_offset_x = K + gap
+    b_offset_y = 0
+    a_offset_x = 0
+    a_offset_y = K + gap
+    c_offset_x = K + gap
+    c_offset_y = K + gap
+
+    draw_tv_matrix(layout_b, b_offset_x, b_offset_y, K, N, f"B ({K}×{N})", title_above=True, col_major=False)
+    draw_tv_matrix(layout_a, a_offset_x, a_offset_y, M, K, f"A ({M}×{K})", title_above=False)
+    draw_tv_matrix(layout_c, c_offset_x, c_offset_y, M, N, f"C ({M}×{N})", title_above=False)
+
+    for k in range(K):
+        ax.text(b_offset_x - 0.4, k + 0.5, str(k), ha='right', va='center', fontsize=7, color='dimgray')
+    for n in range(N):
+        ax.text(b_offset_x + n + 0.5, -0.4, str(n), ha='center', va='bottom', fontsize=7, color='dimgray')
+    for m in range(M):
+        ax.text(a_offset_x - 0.4, a_offset_y + m + 0.5, str(m), ha='right', va='center', fontsize=7, color='dimgray')
+    for k in range(K):
+        ax.text(a_offset_x + k + 0.5, a_offset_y - 0.4, str(k), ha='center', va='bottom', fontsize=7, color='dimgray')
+
+    _setup_axes(ax, (-label_margin, total_width), (-label_margin, total_height))
+
+    if main_title:
+        fig.suptitle(main_title, fontsize=14, fontweight='bold', y=0.98)
+
+    plt.tight_layout()
+    return fig
+
+
 def draw_mma_layout(layout_a, layout_b, layout_c, filename=None,
                     tile_mnk: Optional[Tuple[int, int, int]] = None,
                     main_title: Optional[str] = None,
@@ -1413,112 +1501,9 @@ def draw_mma_layout(layout_a, layout_b, layout_c, filename=None,
         draw_mma_layout(mma_a, mma_b, mma_c, "mma_16x8x8.svg",
                         tile_mnk=(16, 8, 8), main_title="MMA 16×8×8")
     """
-    # Infer M, N, K from tile_mnk or layout dimensions
-    if tile_mnk:
-        M, N, K = tile_mnk
-    else:
-        # Fallback: try to infer from cosize
-        cosize_a = cosize(layout_a)
-        cosize_c = cosize(layout_c)
-        # Assume A is M×K and C is M×N
-        M = int(np.sqrt(cosize_a))
-        while M > 0 and cosize_a % M != 0:
-            M -= 1
-        K = cosize_a // M if M > 0 else cosize_a
-        N = cosize_c // M if M > 0 else cosize_c
-
-    # Color palette (matching cute-viz: 8 pastel colors)
-    if colorize:
-        mma_colors = _make_rainbow_palette(8)
-    else:
-        mma_colors = _make_grayscale_palette(8)
-
-    # Cell size and spacing (in figure units)
-    cell_size = 1.0
-    gap = 2.0  # Gap between matrices
-    label_margin = 1.5  # Space for labels
-
-    # Calculate total figure dimensions
-    # Layout: B is at top-right (aligned with C columns), A is bottom-left, C is bottom-right
-    total_width = K + gap + N + label_margin
-    total_height = K + gap + M + label_margin
-
-    # Scale for reasonable figure size
-    scale = 0.35
-    fig_width = total_width * scale + 1.5
-    fig_height = total_height * scale + 1.0
-
-    fig, ax = plt.subplots(figsize=(fig_width, fig_height))
-
-    def draw_tv_matrix(layout, offset_x, offset_y, matrix_rows, matrix_cols,
-                       title, title_above=True, col_major=True):
-        """Draw a TV matrix at the given offset with cute-viz style labeling."""
-        try:
-            tv_map = _compute_tv_mapping(layout, grid_cols=matrix_cols,
-                                         grid_rows=matrix_rows,
-                                         thr_id_layout=thr_id_layout,
-                                         col_major=col_major)
-        except ValueError as exc:
-            raise ValueError(
-                f"{title} layout does not fit within panel shape "
-                f"({matrix_rows}, {matrix_cols}): {exc}"
-            ) from exc
-
-        # Title
-        if title:
-            if title_above:
-                ax.text(offset_x + matrix_cols / 2, offset_y - 0.6, title,
-                        ha='center', va='bottom', fontsize=10, fontweight='bold')
-            else:
-                ax.text(offset_x + matrix_cols / 2, offset_y + matrix_rows + 0.6, title,
-                        ha='center', va='top', fontsize=10, fontweight='bold')
-
-        _draw_tv_cells(ax, tv_map, matrix_rows, matrix_cols, mma_colors,
-                       offset_x=offset_x, offset_y=offset_y,
-                       fontsize=6, linewidth=0.5)
-
-    # Position matrices
-    # B: top-right (aligned with C columns) - B matrix has K rows, N cols
-    b_offset_x = K + gap
-    b_offset_y = 0
-
-    # A: bottom-left - A matrix has M rows, K cols
-    a_offset_x = 0
-    a_offset_y = K + gap
-
-    # C: bottom-right (aligned with B columns and A rows) - C matrix has M rows, N cols
-    c_offset_x = K + gap
-    c_offset_y = K + gap
-
-    # Draw matrices
-    draw_tv_matrix(layout_b, b_offset_x, b_offset_y, K, N, f"B ({K}×{N})", title_above=True, col_major=False)
-    draw_tv_matrix(layout_a, a_offset_x, a_offset_y, M, K, f"A ({M}×{K})", title_above=False)
-    draw_tv_matrix(layout_c, c_offset_x, c_offset_y, M, N, f"C ({M}×{N})", title_above=False)
-
-    # Add dimension labels
-    # K dimension labels for B (left side of B, showing row indices)
-    for k in range(K):
-        ax.text(b_offset_x - 0.4, k + 0.5, str(k), ha='right', va='center', fontsize=7, color='dimgray')
-
-    # N dimension labels for B (top of B, showing column indices)
-    for n in range(N):
-        ax.text(b_offset_x + n + 0.5, -0.4, str(n), ha='center', va='bottom', fontsize=7, color='dimgray')
-
-    # M dimension labels for A (left side of A)
-    for m in range(M):
-        ax.text(a_offset_x - 0.4, a_offset_y + m + 0.5, str(m), ha='right', va='center', fontsize=7, color='dimgray')
-
-    # K dimension labels for A (top of A, showing column indices)
-    for k in range(K):
-        ax.text(a_offset_x + k + 0.5, a_offset_y - 0.4, str(k), ha='center', va='bottom', fontsize=7, color='dimgray')
-
-    # Set axes limits with some padding
-    _setup_axes(ax, (-label_margin, total_width), (-label_margin, total_height))
-
-    if main_title:
-        fig.suptitle(main_title, fontsize=14, fontweight='bold', y=0.98)
-
-    plt.tight_layout()
+    fig = _build_mma_figure(layout_a, layout_b, layout_c,
+                            tile_mnk=tile_mnk, main_title=main_title,
+                            colorize=colorize, thr_id_layout=thr_id_layout)
     _save_figure(fig, filename, dpi)
 
 
@@ -1885,6 +1870,28 @@ def show_tv_layout(layout, title: Optional[str] = None,
                             colorize=colorize, num_threads=num_threads,
                             grid_shape=grid_shape, thr_id_layout=thr_id_layout,
                             col_major=col_major)
+
+
+def show_mma_layout(layout_a, layout_b, layout_c,
+                    tile_mnk=None, main_title=None,
+                    colorize=True, thr_id_layout=None):
+    """Display an MMA layout inline (for Jupyter notebooks).
+
+    Args:
+        layout_a: TV layout for matrix A (M×K)
+        layout_b: TV layout for matrix B (K×N)
+        layout_c: TV layout for matrix C (M×N)
+        tile_mnk: Optional (M, N, K) dimensions
+        main_title: Optional title for the entire figure
+        colorize: If True, use rainbow colors by thread ID
+        thr_id_layout: Optional layout for thread ID mapping
+
+    Returns:
+        matplotlib Figure
+    """
+    return _build_mma_figure(layout_a, layout_b, layout_c,
+                             tile_mnk=tile_mnk, main_title=main_title,
+                             colorize=colorize, thr_id_layout=thr_id_layout)
 
 
 # =============================================================================
