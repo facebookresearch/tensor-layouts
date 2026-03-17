@@ -805,10 +805,8 @@ def _draw_combined(a_grid, b_grid, c_grid, M, N, K, filename, title):
     import matplotlib
     matplotlib.use('Agg')
     import matplotlib.pyplot as plt
-    import matplotlib.patches as patches
-    from layout_algebra.viz import _make_rainbow_palette, _is_dark
+    from layout_algebra.viz import _make_rainbow_palette, _draw_tv_cells, _setup_axes
 
-    # Use 8-color CuTe palette, cycle with phys_thread % 8
     colors = _make_rainbow_palette(8)
     gap = 1.5
     font = max(4, min(7, int(80 / max(M, N, K))))
@@ -819,40 +817,19 @@ def _draw_combined(a_grid, b_grid, c_grid, M, N, K, filename, title):
     scale = 0.4
     fig, ax = plt.subplots(figsize=(total_w * scale + 1.5, total_h * scale + 1.0))
 
-    def _draw_cells(grid, rows, cols, ox, oy):
-        for i in range(rows):
-            for j in range(cols):
-                x, y = ox + j, oy + i
-                if (i, j) in grid:
-                    phys_t, v, logical_t = grid[(i, j)]
-                    fc = colors[logical_t % len(colors)]
-                else:
-                    phys_t, v, fc = -1, -1, '#FFFFFF'
-
-                ax.add_patch(patches.Rectangle((x, y), 1, 1, facecolor=fc,
-                             edgecolor='black', linewidth=0.4))
-                if phys_t >= 0:
-                    tc = 'white' if _is_dark(fc) else 'black'
-                    ax.text(x+0.5, y+0.35, f"T{phys_t}", ha='center',
-                            va='center', fontsize=font, color=tc)
-                    ax.text(x+0.5, y+0.7, f"V{v}", ha='center',
-                            va='center', fontsize=font, color=tc)
-
     # Offsets: B top-right, A bottom-left, C bottom-right
     b_ox, b_oy = K + gap, 0
     a_ox, a_oy = 0, K + gap
     c_ox, c_oy = K + gap, K + gap
 
-    _draw_cells(c_grid, M, N, c_ox, c_oy)
-    _draw_cells(a_grid, M, K, a_ox, a_oy)
-    _draw_cells(b_grid, K, N, b_ox, b_oy)
+    _draw_tv_cells(ax, c_grid, M, N, colors, offset_x=c_ox, offset_y=c_oy,
+                   fontsize=font, linewidth=0.4)
+    _draw_tv_cells(ax, a_grid, M, K, colors, offset_x=a_ox, offset_y=a_oy,
+                   fontsize=font, linewidth=0.4)
+    _draw_tv_cells(ax, b_grid, K, N, colors, offset_x=b_ox, offset_y=b_oy,
+                   fontsize=font, linewidth=0.4)
 
-    ax.set_xlim(-1, total_w + 0.5)
-    ax.set_ylim(-1, total_h + 0.5)
-    ax.set_aspect('equal')
-    ax.invert_yaxis()
-    ax.axis('off')
-    ax.set_title(title, fontsize=10, fontweight='bold', pad=8)
+    _setup_axes(ax, (-1, total_w + 0.5), (-1, total_h + 0.5), title=title)
 
     plt.tight_layout()
     fig.savefig(str(filename), dpi=150, bbox_inches='tight')
@@ -894,63 +871,10 @@ def _draw_tiled_mma(atom, atom_layout, output: Path, tile_mnk=None):
     a_grid, _ = tile_mma_grid(atom, atom_layout, 'A', tile_mnk=tile_mnk)
     b_grid, _ = tile_mma_grid(atom, atom_layout, 'B', tile_mnk=tile_mnk)
 
-    def _draw_grid_from_map(grid_map, rows, cols, filename, title):
-        """Render a pre-computed grid map to SVG using matplotlib."""
-        import matplotlib
-        matplotlib.use('Agg')
-        import matplotlib.pyplot as plt
-        import matplotlib.patches as patches
-        from layout_algebra.viz import _make_rainbow_palette, _is_dark
-
-        # Use 8-color CuTe palette (TikzColor_TV), cycle with phys_thread % 8
-        colors = _make_rainbow_palette(8)
-
-        fig_w = cols * 0.45 + 1.5
-        fig_h = rows * 0.4 + 1.0
-        fig, ax = plt.subplots(figsize=(fig_w, fig_h))
-        ax.set_xlim(-0.5, cols + 0.5)
-        ax.set_ylim(-0.5, rows + 0.5)
-        ax.set_aspect('equal')
-        ax.invert_yaxis()
-        ax.axis('off')
-        ax.set_title(title, fontsize=9, fontweight='bold', pad=8)
-
-        font = max(4, min(7, int(60 / max(rows, cols))))
-
-        for i in range(rows):
-            for j in range(cols):
-                if (i, j) in grid_map:
-                    phys_t, v, logical_t = grid_map[(i, j)]
-                    fc = colors[logical_t % len(colors)]
-                else:
-                    phys_t, v, fc = -1, -1, '#FFFFFF'
-
-                rect = patches.Rectangle((j, i), 1, 1, facecolor=fc,
-                                         edgecolor='black', linewidth=0.5)
-                ax.add_patch(rect)
-
-                tc = 'white' if _is_dark(fc) else 'black'
-                if phys_t >= 0:
-                    ax.text(j+0.5, i+0.35, f"T{phys_t}", ha='center',
-                            va='center', fontsize=font, color=tc)
-                    ax.text(j+0.5, i+0.7, f"V{v}", ha='center',
-                            va='center', fontsize=font, color=tc)
-
-        for i in range(rows):
-            ax.text(-0.3, i+0.5, str(i), ha='right', va='center',
-                    fontsize=font, color='gray')
-        for j in range(cols):
-            ax.text(j+0.5, -0.3, str(j), ha='center', va='bottom',
-                    fontsize=font, color='gray')
-
-        plt.tight_layout()
-        fig.savefig(str(filename), dpi=150, bbox_inches='tight')
-        plt.close(fig)
-
-    _draw_grid_from_map(c_grid, M, N, output / f"{label}_C.svg",
-                        f"{label}  C ({M}×{N})")
-    _draw_grid_from_map(a_grid, M, K, output / f"{label}_A.svg",
-                        f"{label}  A ({M}×{K})")
+    draw_tiled_grid(c_grid, M, N, output / f"{label}_C.svg",
+                    title=f"{label}  C ({M}×{N})")
+    draw_tiled_grid(a_grid, M, K, output / f"{label}_A.svg",
+                    title=f"{label}  A ({M}×{K})")
     # B displayed as K×N (transposed)
     b_display = {}
     for (r, c), val in b_grid.items():
@@ -958,8 +882,8 @@ def _draw_tiled_mma(atom, atom_layout, output: Path, tile_mnk=None):
         n_coord = r
         k_coord = c
         b_display[(k_coord, n_coord)] = val
-    _draw_grid_from_map(b_display, K, N, output / f"{label}_B.svg",
-                        f"{label}  B ({K}×{N})")
+    draw_tiled_grid(b_display, K, N, output / f"{label}_B.svg",
+                    title=f"{label}  B ({K}×{N})")
 
     # Combined figure: A (left), B (top-right), C (bottom-right)
     _draw_combined(a_grid, b_display, c_grid, M, N, K,
