@@ -196,6 +196,44 @@ def test_draw_layout_smoke():
 
 
 @requires_viz
+def test_color_by_row_matches_color_layout():
+    """color_by='row' produces the same color indices as the manual color_layout."""
+    layout = Layout((4, 8), (8, 1))
+    fig_by = show_layout(layout, color_by="row")
+    fig_manual = show_layout(layout, color_layout=Layout((4, 8), (1, 0)),
+                             colorize=True)
+    try:
+        # Both should have the same cell background colors
+        patches_by = [p for p in fig_by.axes[0].patches]
+        patches_manual = [p for p in fig_manual.axes[0].patches]
+        colors_by = [p.get_facecolor() for p in patches_by]
+        colors_manual = [p.get_facecolor() for p in patches_manual]
+        assert colors_by == colors_manual
+    finally:
+        plt.close(fig_by)
+        plt.close(fig_manual)
+
+
+@requires_viz
+def test_color_by_column():
+    """color_by='column' renders without error."""
+    fig = show_layout(Layout((4, 8), (8, 1)), color_by="column")
+    try:
+        assert isinstance(fig, matplotlib.figure.Figure)
+    finally:
+        plt.close(fig)
+
+
+@requires_viz
+def test_color_by_and_color_layout_exclusive():
+    """Providing both color_by and color_layout raises ValueError."""
+    with pytest.raises(ValueError, match="mutually exclusive"):
+        show_layout(Layout((4, 4), (4, 1)),
+                    color_by="row",
+                    color_layout=Layout((4, 4), (1, 0)))
+
+
+@requires_viz
 def test_draw_swizzle_smoke():
     with tempfile.NamedTemporaryFile(suffix=".png") as f:
         draw_swizzle(Layout((8, 8), (8, 1)), Swizzle(3, 0, 3), filename=f.name)

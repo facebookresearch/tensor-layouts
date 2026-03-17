@@ -1206,6 +1206,7 @@ def _build_layout_figure(layout,
                          figsize: Optional[Tuple[float, float]] = None,
                          colorize: bool = False,
                          color_layout: Optional[Layout] = None,
+                         color_by: Optional[str] = None,
                          num_colors: int = 8,
                          flatten_hierarchical: bool = True,
                          label_hierarchy_levels: bool = False):
@@ -1222,6 +1223,22 @@ def _build_layout_figure(layout,
         layout = tensor.layout
         if title is None:
             title = repr(tensor)
+
+    # Resolve color_by shorthand to a color_layout
+    if color_by is not None:
+        if color_layout is not None:
+            raise ValueError("color_by and color_layout are mutually exclusive")
+        shape = layout.shape
+        if color_by == "row":
+            color_layout = Layout(shape, (1, 0)) if rank(layout) == 2 else None
+        elif color_by == "column":
+            color_layout = Layout(shape, (0, 1)) if rank(layout) == 2 else None
+        elif color_by == "offset":
+            color_layout = None  # default behavior
+        else:
+            raise ValueError(f"Unknown color_by value: {color_by!r} "
+                             f"(expected 'row', 'column', or 'offset')")
+        colorize = True
 
     # Check if this is a hierarchical layout (has nested tuple shapes)
     r = rank(layout)
@@ -1271,6 +1288,7 @@ def draw_layout(layout, filename=None,
                 figsize: Optional[Tuple[float, float]] = None,
                 colorize: bool = False,
                 color_layout: Optional[Layout] = None,
+                color_by: Optional[str] = None,
                 num_colors: int = 8,
                 flatten_hierarchical: bool = True,
                 label_hierarchy_levels: bool = False):
@@ -1292,6 +1310,11 @@ def draw_layout(layout, filename=None,
             - Layout((8,8), (0, 1)): color by column
             - Layout(1, 0): uniform color
             - None: color by cell value (default)
+        color_by: Shorthand for common color_layout patterns. Mutually exclusive
+            with color_layout. One of:
+            - "row": color by logical row (implies colorize=True)
+            - "column": color by logical column (implies colorize=True)
+            - "offset": color by cell value (default)
         num_colors: Number of colors in palette (default 8)
         flatten_hierarchical: For hierarchical layouts, if True show flat grid with
             offset values. If False, show explicit cell labels:
@@ -1304,7 +1327,7 @@ def draw_layout(layout, filename=None,
     """
     fig = _build_layout_figure(layout, title=title, figsize=figsize,
                                colorize=colorize, color_layout=color_layout,
-                               num_colors=num_colors,
+                               color_by=color_by, num_colors=num_colors,
                                flatten_hierarchical=flatten_hierarchical,
                                label_hierarchy_levels=label_hierarchy_levels)
     _save_figure(fig, filename, dpi)
@@ -2168,6 +2191,7 @@ def show_layout(layout, title: Optional[str] = None,
                 figsize: Optional[Tuple[float, float]] = None,
                 colorize: bool = False,
                 color_layout: Optional[Layout] = None,
+                color_by: Optional[str] = None,
                 num_colors: int = 8,
                 flatten_hierarchical: bool = True,
                 label_hierarchy_levels: bool = False):
@@ -2181,6 +2205,8 @@ def show_layout(layout, title: Optional[str] = None,
         colorize: If True, use rainbow colors for distinct cells
         color_layout: Optional layout controlling cell coloring in the same
             logical coordinate space as `layout` (None = color by value)
+        color_by: Shorthand for common color_layout patterns ("row", "column",
+            or "offset"). Mutually exclusive with color_layout.
         num_colors: Number of colors in palette
         flatten_hierarchical: For hierarchical layouts, if True show flat grid with
             offset values. If False, show explicit cell labels.
@@ -2192,7 +2218,7 @@ def show_layout(layout, title: Optional[str] = None,
     """
     return _build_layout_figure(layout, title=title, figsize=figsize,
                                 colorize=colorize, color_layout=color_layout,
-                                num_colors=num_colors,
+                                color_by=color_by, num_colors=num_colors,
                                 flatten_hierarchical=flatten_hierarchical,
                                 label_hierarchy_levels=label_hierarchy_levels)
 
