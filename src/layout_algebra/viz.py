@@ -598,11 +598,10 @@ def draw_composite(panels: list, filename: str,
             _draw_tv_grid(ax, layout, title=title,
                           colorize=panel_colorize, num_threads=num_shades)
         else:
-            indices = _get_indices_2d(layout)
-            color_indices = _get_color_indices_2d(layout, color_layout)
-            _draw_grid(ax, indices, title=title,
+            grid = _prepare_offset_grid(layout, color_layout=color_layout)
+            _draw_grid(ax, grid.indices, title=title,
                        colorize=panel_colorize, color_layout=color_layout,
-                       color_indices=color_indices,
+                       color_indices=grid.color_indices,
                        num_shades=num_shades)
 
     # Hide unused axes
@@ -1128,52 +1127,37 @@ def _build_layout_figure(layout,
                        (isinstance(mode(layout.shape, 0), tuple) or
                         isinstance(mode(layout.shape, 1), tuple)))
 
-    cell_coords = None
-    row_shape = None
-    col_shape = None
-
-    if is_hierarchical and not flatten_hierarchical:
-        # Use hierarchical grid rendering
-        try:
-            indices, rows, cols, _, _ = _get_hierarchical_indices_2d(layout)
-            cell_coords = _get_hierarchical_cell_coords_2d(layout)
-            row_shape = mode(layout.shape, 0)
-            col_shape = mode(layout.shape, 1)
-        except (ValueError, TypeError):
-            # Fall back to regular rendering if hierarchical extraction fails
-            indices = _get_indices_2d(layout)
-            rows, cols = indices.shape
-            is_hierarchical = False
-    else:
-        indices = _get_indices_2d(layout)
-        rows, cols = indices.shape
-
-    color_indices = _get_color_indices_2d(layout, color_layout)
+    want_hierarchical = is_hierarchical and not flatten_hierarchical
+    grid = _prepare_offset_grid(layout, color_layout=color_layout,
+                                hierarchical=want_hierarchical)
 
     if figsize is None:
-        if is_hierarchical and not flatten_hierarchical:
+        if grid.is_hierarchical:
             figsize = _auto_hierarchical_figsize(
-                layout, indices, rows, cols, label_hierarchy_levels
+                layout, grid.indices, grid.rows, grid.cols,
+                label_hierarchy_levels
             )
         else:
             cell_scale = 0.5
-            figsize = (cols * cell_scale + 1, rows * cell_scale + 1)
+            figsize = (grid.cols * cell_scale + 1, grid.rows * cell_scale + 1)
 
     fig, ax = plt.subplots(figsize=figsize)
 
-    if is_hierarchical and not flatten_hierarchical:
-        _draw_hierarchical_grid(ax, indices, rows, cols,
-                                cell_coords=cell_coords,
-                                row_shape=row_shape, col_shape=col_shape,
+    if grid.is_hierarchical:
+        _draw_hierarchical_grid(ax, grid.indices, grid.rows, grid.cols,
+                                cell_coords=grid.cell_coords,
+                                row_shape=grid.row_shape,
+                                col_shape=grid.col_shape,
                                 title=title or str(layout),
-                                colorize=colorize, color_indices=color_indices,
+                                colorize=colorize,
+                                color_indices=grid.color_indices,
                                 flatten_hierarchical=False,
                                 label_hierarchy_levels=label_hierarchy_levels,
                                 num_shades=num_shades)
     else:
-        _draw_grid(ax, indices, title=title or str(layout),
+        _draw_grid(ax, grid.indices, title=title or str(layout),
                    colorize=colorize, color_layout=color_layout,
-                   color_indices=color_indices, num_shades=num_shades)
+                   color_indices=grid.color_indices, num_shades=num_shades)
 
     return fig
 
@@ -1922,22 +1906,19 @@ def _build_slice_figure(layout, slice_spec,
                         colorize=False, color_layout=None,
                         num_shades=8):
     """Build the slice figure used by draw_slice/show_slice."""
-    indices = _get_indices_2d(layout)
-    rows, cols = indices.shape
-
-    highlight_mask = _get_slice_highlight_mask_2d(layout, slice_spec)
+    grid = _prepare_offset_grid(layout, color_layout=color_layout,
+                                slice_spec=slice_spec)
 
     if figsize is None:
-        figsize = (cols * 0.5 + 1, rows * 0.5 + 1)
+        figsize = (grid.cols * 0.5 + 1, grid.rows * 0.5 + 1)
 
     if title is None:
         title = f"{layout}[{slice_spec}]"
 
     fig, ax = plt.subplots(figsize=figsize)
-    color_indices = _get_color_indices_2d(layout, color_layout)
-    _draw_grid(ax, indices, highlight_mask=highlight_mask, title=title,
-               colorize=colorize, color_layout=color_layout,
-               color_indices=color_indices, num_shades=num_shades)
+    _draw_grid(ax, grid.indices, highlight_mask=grid.highlight_mask,
+               title=title, colorize=colorize, color_layout=color_layout,
+               color_indices=grid.color_indices, num_shades=num_shades)
     return fig
 
 
