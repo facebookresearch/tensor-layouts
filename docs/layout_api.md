@@ -72,6 +72,30 @@ All query functions work on layouts, tuples, and ints.
 | `depth(L)` | Maximum nesting depth | `depth(Layout(((2,3), 4))) == 2` |
 | `mode(L, i)` | Extract mode `i` as a Layout | `mode(Layout((4, 8), (1, 4)), 0) == Layout(4, 1)` |
 
+## Iteration
+
+`iter_layout(L)` yields `(coordinate, offset)` pairs for every element,
+iterating in colexicographic order (flat index 0, 1, 2, ...).
+
+`Layout` supports `__iter__` (yields coordinates) and `__len__`:
+
+```python
+layout = Layout((4, 8), (1, 4))
+
+len(layout)                        # 32
+list(layout)                       # [(0, 0), (1, 0), ..., (3, 7)]
+
+for coord in layout:
+    offset = layout(coord)         # map coordinate to offset
+
+# iter_layout yields (coord, offset) pairs
+for coord, offset in iter_layout(layout):
+    ...
+
+# Collect unique offsets
+{layout(c) for c in layout}
+```
+
 ## Layout Manipulation
 
 | Function | Description |

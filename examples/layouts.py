@@ -582,6 +582,47 @@ def example_tile():
 
 
 # =============================================================================
+# Section 14: Iteration
+# =============================================================================
+
+def example_iteration():
+    """Iterating over layouts.
+
+    iter_layout(L) yields (coordinate, offset) pairs for every element
+    in colexicographic order.  Layout also supports __iter__ (yields
+    coordinates) and __len__.
+    """
+    print("\n" + "=" * 60)
+    print("14. Iteration")
+    print("=" * 60)
+
+    # --- 1D layout ---
+    layout = Layout(4, 2)
+    print(f"  Layout: {layout}")
+    print(f"  len(layout) = {len(layout)}")
+    print(f"  list(layout) = {list(layout)}")
+
+    # --- 2D column-major: __iter__ yields coordinates ---
+    layout2d = Layout((3, 4), (1, 3))
+    print(f"\n  Layout: {layout2d}")
+    print(f"  Iteration (coord -> offset):")
+    for coord in layout2d:
+        print(f"    {coord} -> {layout2d(coord)}")
+
+    # --- iter_layout yields (coord, offset) pairs ---
+    print(f"\n  iter_layout gives (coord, offset) pairs:")
+    for coord, offset in iter_layout(layout2d):
+        print(f"    {coord} -> {offset}")
+
+    # --- Collect unique offsets with a set comprehension ---
+    broadcast = Layout((4, 2), (0, 1))
+    offsets = {broadcast(c) for c in broadcast}
+    print(f"\n  Broadcast layout {broadcast}")
+    print(f"  Unique offsets: {sorted(offsets)}")
+    print(f"  (only {len(offsets)} unique out of {len(broadcast)} elements)")
+
+
+# =============================================================================
 # Main
 # =============================================================================
 
@@ -604,6 +645,7 @@ def main():
     example_swizzle()
     example_tensor()
     example_tile()
+    example_iteration()
 
     print("\n" + "=" * 70)
     print("All examples completed.")

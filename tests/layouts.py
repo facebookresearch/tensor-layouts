@@ -1690,6 +1690,109 @@ def test_downcast_upcast_roundtrip():
         assert upcast(downcast(l, 4), 4) == l, f"Roundtrip failed for {l}"
 
 
+## iter_layout, __iter__, __len__
+
+
+def test_iter_layout_scalar():
+    """Scalar layout yields a single (coord, offset) pair."""
+    layout = Layout(1, 0)
+    result = list(iter_layout(layout))
+    assert result == [(0, 0)]
+
+
+def test_iter_layout_1d():
+    """1D contiguous layout yields coords 0..n-1."""
+    layout = Layout(4, 1)
+    result = list(iter_layout(layout))
+    assert result == [(0, 0), (1, 1), (2, 2), (3, 3)]
+
+
+def test_iter_layout_1d_strided():
+    """1D strided layout produces gapped offsets."""
+    layout = Layout(4, 2)
+    result = list(iter_layout(layout))
+    assert result == [(0, 0), (1, 2), (2, 4), (3, 6)]
+
+
+def test_iter_layout_2d_col_major():
+    """2D column-major layout iterates columns first."""
+    layout = Layout((2, 3), (1, 2))
+    result = list(iter_layout(layout))
+    expected = [
+        ((0, 0), 0), ((1, 0), 1),   # col 0
+        ((0, 1), 2), ((1, 1), 3),   # col 1
+        ((0, 2), 4), ((1, 2), 5),   # col 2
+    ]
+    assert result == expected
+
+
+def test_iter_layout_2d_row_major():
+    """2D row-major layout still iterates in colexicographic order."""
+    layout = Layout((2, 3), (3, 1))
+    result = list(iter_layout(layout))
+    # Flat index order: (0,0), (1,0), (0,1), (1,1), (0,2), (1,2)
+    expected_offsets = [0, 3, 1, 4, 2, 5]
+    assert [o for _, o in result] == expected_offsets
+
+
+def test_iter_layout_hierarchical():
+    """Hierarchical layout yields nested coordinates."""
+    layout = Layout(((2, 2), 2), ((1, 4), 2))
+    result = list(iter_layout(layout))
+    assert len(result) == size(layout)
+    # Verify all offsets match direct calls
+    for i, (coord, offset) in enumerate(result):
+        assert layout(i) == offset
+
+
+def test_iter_layout_broadcast():
+    """Broadcast (stride-0) layout produces duplicate offsets."""
+    layout = Layout((4, 2), (0, 1))
+    result = list(iter_layout(layout))
+    # All rows map to offsets 0 or 1
+    offsets = [o for _, o in result]
+    assert offsets == [0, 0, 0, 0, 1, 1, 1, 1]
+
+
+def test_iter_layout_swizzled():
+    """Swizzled layout applies the XOR during iteration."""
+    sw = compose(Swizzle(2, 0, 2), Layout((4, 4), (4, 1)))
+    result = list(iter_layout(sw))
+    assert len(result) == 16
+    for i, (coord, offset) in enumerate(result):
+        assert offset == sw(i)
+
+
+def test_layout_len():
+    """__len__ returns size."""
+    assert len(Layout(8, 1)) == 8
+    assert len(Layout((4, 8), (1, 4))) == 32
+    assert len(Layout(1, 0)) == 1
+
+
+def test_layout_iter_protocol():
+    """Layout supports standard Python iteration protocols."""
+    layout = Layout((2, 3), (1, 2))
+
+    # list() yields coordinates
+    coords = list(layout)
+    assert len(coords) == 6
+    assert coords[0] == (0, 0)
+    assert coords[-1] == (1, 2)
+
+    # Each coordinate maps to the expected offset
+    for coord in layout:
+        assert layout(coord) == layout(crd2flat(coord, layout.shape))
+
+    # Set comprehension on offsets via layout call
+    offsets = {layout(c) for c in layout}
+    assert offsets == {0, 1, 2, 3, 4, 5}
+
+    # iter_layout still yields (coord, offset) pairs
+    pairs = list(iter_layout(layout))
+    assert all(layout(c) == o for c, o in pairs)
+
+
 if __name__ == "__main__":
     import subprocess
     import sys

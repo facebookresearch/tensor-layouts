@@ -107,6 +107,8 @@ __all__ = [
     "safe_div", "shape_div", "shape_mod",
     # Upcast / downcast
     "upcast", "downcast",
+    # Iteration
+    "iter_layout",
 ]
 
 
@@ -480,6 +482,15 @@ class Layout:
                 d_out.append(d)
         return as_shape(s_out) if s_out else (), as_shape(d_out) if d_out else ()
 
+    def __len__(self):
+        """Number of elements in the layout's domain."""
+        return size(self)
+
+    def __iter__(self):
+        """Yield coordinates in colexicographic order (flat index 0, 1, 2, ...)."""
+        for i in range(size(self)):
+            yield idx2crd(i, self._shape)
+
 
 def compute_col_major_strides(shape: IntOrIntTuple) -> IntOrIntTuple:
     """Compute column-major (leftmost-fastest) strides for a shape.
@@ -672,6 +683,32 @@ def _can_group_a_into_b(a_modes: list, b) -> bool:
         return all(_can_group_a_into_b(a_modes, sub_b) for sub_b in b) and len(a_modes) == 0
 
     return False
+
+
+# =============================================================================
+# Iteration
+# =============================================================================
+#
+# iter_layout yields (coordinate, offset) pairs for every element in a
+# layout's domain, in colexicographic (column-major) order.  This is the
+# most natural traversal: the flat index runs from 0 to size(layout) - 1,
+# and coordinates are computed via idx2crd.
+#
+
+def iter_layout(layout: Layout):
+    """Yield (coordinate, offset) pairs for every element in the layout.
+
+    Iterates in colexicographic order (flat index 0, 1, 2, ...).
+
+    Examples:
+        list(iter_layout(Layout(4, 1)))
+        # [(0, 0), (1, 1), (2, 2), (3, 3)]
+
+        list(iter_layout(Layout((2, 3), (1, 2))))
+        # [((0, 0), 0), ((1, 0), 1), ((0, 1), 2), ((1, 1), 3), ((0, 2), 4), ((1, 2), 5)]
+    """
+    for i in range(size(layout)):
+        yield (idx2crd(i, layout.shape), layout(i))
 
 
 # =============================================================================
