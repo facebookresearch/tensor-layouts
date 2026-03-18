@@ -96,6 +96,28 @@ for coord, offset in iter_layout(layout):
 {layout(c) for c in layout}
 ```
 
+## Image and Injectivity
+
+These functions analyze a layout viewed as a function from coordinates to
+memory offsets.
+
+| Function | Description |
+|----------|-------------|
+| `image(L)` | Sorted list of distinct offsets produced |
+| `is_injective(L)` | True if no two coordinates share an offset |
+| `is_surjective(L, codomain_size=None)` | True if every offset in `[0, codomain)` is hit |
+| `is_bijective(L)` | True if both injective and surjective (a permutation) |
+
+```python
+layout = Layout((4, 8), (1, 4))
+image(layout)           # [0, 1, 2, ..., 31]
+is_bijective(layout)    # True
+
+broadcast = Layout((4, 8), (0, 1))
+image(broadcast)        # [0, 1, 2, 3, 4, 5, 6, 7]
+is_injective(broadcast) # False (stride-0 causes aliasing)
+```
+
 ## Layout Manipulation
 
 | Function | Description |

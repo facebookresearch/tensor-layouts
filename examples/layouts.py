@@ -623,6 +623,47 @@ def example_iteration():
 
 
 # =============================================================================
+# Section 15: Image and Injectivity
+# =============================================================================
+
+def example_image_injectivity():
+    """Analyzing a layout as a function.
+
+    image(L) returns the sorted list of distinct offsets the layout
+    produces.  is_injective, is_surjective, and is_bijective answer
+    basic questions about the layout viewed as a function from
+    coordinates to offsets.
+    """
+    print("\n" + "=" * 60)
+    print("15. Image and Injectivity")
+    print("=" * 60)
+
+    # --- Bijective: contiguous col-major ---
+    col = Layout((4, 8), (1, 4))
+    print(f"  Layout: {col}")
+    print(f"  image size: {len(image(col))}, domain size: {size(col)}")
+    print(f"  injective: {is_injective(col)}, surjective: {is_surjective(col)}")
+    print(f"  bijective: {is_bijective(col)}")
+
+    # --- Not injective: broadcast ---
+    bcast = Layout((4, 8), (0, 1))
+    print(f"\n  Broadcast: {bcast}")
+    print(f"  image: {image(bcast)}")
+    print(f"  injective: {is_injective(bcast)} (stride-0 causes aliasing)")
+
+    # --- Not surjective: strided ---
+    strided = Layout(4, 2)
+    print(f"\n  Strided: {strided}")
+    print(f"  image: {image(strided)}")
+    print(f"  surjective: {is_surjective(strided)} (gaps in codomain)")
+
+    # --- Swizzle: bijective permutation ---
+    sw = compose(Swizzle(3, 0, 3), Layout((8, 8), (8, 1)))
+    print(f"\n  Swizzled: {sw}")
+    print(f"  bijective: {is_bijective(sw)}")
+
+
+# =============================================================================
 # Main
 # =============================================================================
 
@@ -646,6 +687,7 @@ def main():
     example_tensor()
     example_tile()
     example_iteration()
+    example_image_injectivity()
 
     print("\n" + "=" * 70)
     print("All examples completed.")

@@ -109,6 +109,8 @@ __all__ = [
     "upcast", "downcast",
     # Iteration
     "iter_layout",
+    # Image and injectivity
+    "image", "is_injective", "is_surjective", "is_bijective",
 ]
 
 
@@ -709,6 +711,84 @@ def iter_layout(layout: Layout):
     """
     for i in range(size(layout)):
         yield (idx2crd(i, layout.shape), layout(i))
+
+
+# =============================================================================
+# Image and injectivity
+# =============================================================================
+#
+# These functions answer basic questions about a layout viewed as a function
+# from coordinates to offsets:
+#   image         -- the set of offsets actually produced
+#   is_injective  -- no two coordinates map to the same offset
+#   is_surjective -- every offset in the codomain is hit
+#   is_bijective  -- both (the layout is a permutation)
+#
+
+def image(layout: Layout) -> list:
+    """Return the sorted list of distinct offsets produced by the layout.
+
+    The image (or range) of a layout is the subset of offsets that are
+    actually hit --- as opposed to the codomain [0, cosize), which is the
+    full interval the layout *could* map into.  A surjective layout is
+    one whose image equals its codomain.
+
+    Examples:
+        image(Layout(4, 1))              # [0, 1, 2, 3]
+        image(Layout(4, 2))              # [0, 2, 4, 6]
+        image(Layout((4, 2), (0, 1)))    # [0, 1]  (broadcast)
+    """
+    return sorted({layout(i) for i in range(size(layout))})
+
+
+def is_injective(layout: Layout) -> bool:
+    """True if every coordinate maps to a distinct offset.
+
+    An injective layout has no aliasing --- no two logical positions
+    share the same memory location.  Equivalently, the size of the
+    image equals the size of the domain.
+
+    Examples:
+        is_injective(Layout(4, 1))            # True
+        is_injective(Layout((4, 2), (0, 1)))  # False (broadcast)
+    """
+    return len(image(layout)) == size(layout)
+
+
+def is_surjective(layout: Layout, codomain_size: int = None) -> bool:
+    """True if every offset in [0, codomain_size) is produced.
+
+    A surjective layout has no gaps --- the image covers the entire
+    codomain.  The codomain defaults to [0, cosize(layout)), which is
+    the smallest interval containing all offsets.
+
+    Args:
+        layout: The layout to check.
+        codomain_size: Size of the codomain.  Defaults to cosize(layout).
+
+    Examples:
+        is_surjective(Layout(4, 1))    # True  (image == codomain)
+        is_surjective(Layout(4, 2))    # False (image has gaps)
+    """
+    if codomain_size is None:
+        codomain_size = cosize(layout)
+    return len(image(layout)) == codomain_size
+
+
+def is_bijective(layout: Layout) -> bool:
+    """True if the layout is a bijection on [0, cosize).
+
+    A bijective layout is both injective (no aliasing) and surjective
+    (no gaps).  It defines a permutation of the codomain.
+
+    Examples:
+        is_bijective(Layout(4, 1))              # True
+        is_bijective(Layout((2, 2), (2, 1)))    # True (row-major 2x2)
+        is_bijective(Layout(4, 2))              # False (has gaps)
+        is_bijective(Layout((4, 2), (0, 1)))    # False (has aliasing)
+    """
+    img = image(layout)
+    return len(img) == size(layout) and len(img) == cosize(layout)
 
 
 # =============================================================================
