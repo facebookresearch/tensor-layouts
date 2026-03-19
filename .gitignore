@@ -28,3 +28,8 @@ Thumbs.db
 
 # Example output
 examples_output/
+
+# Agents
+.claude/
+.codex/
+.gemini/
