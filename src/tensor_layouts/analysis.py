@@ -334,7 +334,7 @@ def contiguity(layout: Layout) -> int:
     Examples:
         contiguity(Layout(8, 1))              # 8  (fully contiguous)
         contiguity(Layout(8, 2))              # 1  (strided, no contiguity)
-        contiguity(Layout((4, 8), (1, 4)))    # 4  (contiguous within columns)
+        contiguity(Layout((4, 8), (1, 4)))    # 32 (column-major = contiguous in flat order)
         contiguity(Layout((4, 8), (1, 8)))    # 4  (contiguous within mode 0)
     """
     layout = as_layout(layout)
