@@ -136,8 +136,8 @@ def footprint(layout: Layout) -> dict:
 # Bank conflict analysis
 # =============================================================================
 
-def bank_conflicts(layout: Layout, *, num_banks: int = 32,
-                   element_bytes: int = 2, bank_width_bytes: int = 4,
+def bank_conflicts(layout: Layout, *, element_bytes: int,
+                   num_banks: int = 32, bank_width_bytes: int = 4,
                    group_size: int = 32):
     """Analyze shared memory bank conflicts for a thread-to-offset layout.
 
@@ -174,12 +174,12 @@ def bank_conflicts(layout: Layout, *, num_banks: int = 32,
             bank_to_threads: {bank_id: [thread_ids...]} for all accessed banks
 
     Examples:
-        # Linear layout: threads access consecutive elements
-        bank_conflicts(Layout(32, 1))
+        # Linear layout: threads access consecutive fp16 elements
+        bank_conflicts(Layout(32, 1), element_bytes=2)
         # {'conflict_free': True, 'max_ways': 1, ...}
 
         # All threads hit the same address
-        bank_conflicts(Layout(32, 0))
+        bank_conflicts(Layout(32, 0), element_bytes=2)
         # {'conflict_free': True, 'max_ways': 1, ...}  (broadcast, not a conflict)
     """
     layout = as_layout(layout)
@@ -231,8 +231,8 @@ def bank_conflicts(layout: Layout, *, num_banks: int = 32,
 # Coalescing analysis
 # =============================================================================
 
-def coalescing_efficiency(layout: Layout, *, warp_size: int = 32,
-                          element_bytes: int = 2,
+def coalescing_efficiency(layout: Layout, *, element_bytes: int,
+                          warp_size: int = 32,
                           cache_line_bytes: int = 128):
     """Analyze global memory coalescing for a thread-to-offset layout.
 
@@ -265,7 +265,7 @@ def coalescing_efficiency(layout: Layout, *, warp_size: int = 32,
 
     Examples:
         # Perfectly coalesced: 32 threads, stride 1, fp16
-        coalescing_efficiency(Layout(32, 1))
+        coalescing_efficiency(Layout(32, 1), element_bytes=2)
         # {'transactions': 1, 'efficiency': 0.5, ...}  -- 64B used of 128B line
 
         # Strided access: each thread 2 elements apart
@@ -300,8 +300,8 @@ def coalescing_efficiency(layout: Layout, *, warp_size: int = 32,
     }
 
 
-def segment_analysis(layout: Layout, *, warp_size: int = 32,
-                      element_bytes: int = 2,
+def segment_analysis(layout: Layout, *, element_bytes: int,
+                      warp_size: int = 32,
                       segment_bytes: int = 32,
                       cache_line_bytes: int = 128):
     """Segment- and alignment-aware global memory transaction analysis.
@@ -389,8 +389,9 @@ def _tv_dimensions(layout: Layout):
     return size(mode(layout, 0)), size(layout) // size(mode(layout, 0))
 
 
-def per_group_bank_conflicts(layout: Layout, *, group_size: int = 32,
-                              num_banks: int = 32, element_bytes: int = 2,
+def per_group_bank_conflicts(layout: Layout, *, element_bytes: int,
+                              group_size: int = 32,
+                              num_banks: int = 32,
                               bank_width_bytes: int = 4) -> dict:
     """Analyze bank conflicts per warp/wavefront group across a full layout.
 
@@ -467,8 +468,8 @@ def per_group_bank_conflicts(layout: Layout, *, group_size: int = 32,
     }
 
 
-def per_group_coalescing(layout: Layout, *, group_size: int = 32,
-                          element_bytes: int = 2,
+def per_group_coalescing(layout: Layout, *, element_bytes: int,
+                          group_size: int = 32,
                           cache_line_bytes: int = 128) -> dict:
     """Analyze coalescing efficiency per warp/wavefront group across a full layout.
 

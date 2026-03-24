@@ -44,7 +44,7 @@ offset_table(Layout((4, 2), (0, 1)))
 #  1: [(0,1), (1,1), (2,1), (3,1)]}
 ```
 
-## bank_conflicts(layout, *, num_banks=32, element_bytes=2, bank_width_bytes=4, group_size=32)
+## bank_conflicts(layout, *, element_bytes, num_banks=32, bank_width_bytes=4, group_size=32)
 
 Analyze shared memory bank conflicts for a thread-to-offset layout.
 
@@ -95,7 +95,7 @@ Returns a dict:
 | `max_ways` | int | Worst-case serialization factor across all banks |
 | `bank_to_threads` | dict | `{bank_id: [thread_ids...]}` for all accessed banks |
 
-## coalescing_efficiency(layout, *, warp_size=32, element_bytes=2, cache_line_bytes=128)
+## coalescing_efficiency(layout, *, element_bytes, warp_size=32, cache_line_bytes=128)
 
 Analyze global memory coalescing for a thread-to-offset layout.
 
@@ -110,7 +110,7 @@ result['transactions']  # 1
 result['efficiency']    # 1.0  (128 unique useful bytes / 128 transferred)
 
 # Worst case: each thread hits a separate cache line
-result = coalescing_efficiency(Layout(32, 64))
+result = coalescing_efficiency(Layout(32, 64), element_bytes=2)
 result['transactions']  # 32
 result['efficiency']    # 0.016  (64 unique useful bytes / 4096 transferred)
 ```
