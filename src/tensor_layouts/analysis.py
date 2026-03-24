@@ -153,8 +153,11 @@ def bank_conflicts(layout: Layout, *, num_banks: int = 32,
     Only the first ``group_size`` threads are analyzed, matching the
     hardware issue granularity (warp on NVIDIA, wavefront on AMD).
     This avoids overstating conflicts when the layout spans multiple
-    warps.  The model assigns each access to its starting bank word;
-    accesses wider than one bank word are not tracked across banks.
+    warps.
+
+    For multi-mode (TV) layouts, mode 0 is the thread dimension and all
+    remaining modes are value dimensions.  Each thread's accesses across
+    all values are included in the analysis, modeling vectorized loads.
 
     Args:
         layout: Maps thread_id -> memory offset (in elements).
@@ -182,18 +185,21 @@ def bank_conflicts(layout: Layout, *, num_banks: int = 32,
     layout = as_layout(layout)
     if group_size <= 0:
         raise ValueError(f"group_size must be positive, got {group_size}")
-    n = min(size(layout), group_size)
+    thread_count, value_count = _tv_dimensions(layout)
+    n = min(thread_count, group_size)
 
     # Map each thread to (bank, word_address)
     # A bank conflict occurs when threads access different 4-byte words in the
     # same bank.  Two threads accessing the same word get a broadcast (no conflict).
     thread_banks = {}  # bank -> [(thread_id, word_address), ...]
     for t in range(n):
-        offset = layout(t)
-        byte_addr = offset * element_bytes
-        word_addr = byte_addr // bank_width_bytes
-        bank = word_addr % num_banks
-        thread_banks.setdefault(bank, []).append((t, word_addr))
+        for v in range(value_count):
+            flat_idx = v * thread_count + t
+            offset = layout(flat_idx)
+            byte_addr = offset * element_bytes
+            word_addr = byte_addr // bank_width_bytes
+            bank = word_addr % num_banks
+            thread_banks.setdefault(bank, []).append((t, word_addr))
 
     # Compute conflicts per bank
     # Two threads conflict if they hit the same bank but different addresses.
@@ -239,6 +245,10 @@ def coalescing_efficiency(layout: Layout, *, warp_size: int = 32,
     transaction.  In the worst case, each thread triggers a separate
     transaction.
 
+    For multi-mode (TV) layouts, mode 0 is the thread dimension and all
+    remaining modes are value dimensions.  Each thread's accesses across
+    all values are included in the analysis, modeling vectorized loads.
+
     Args:
         layout: Maps thread_id -> memory offset (in elements).
         warp_size: Threads per warp (32 on NVIDIA/AMD GPUs).
@@ -263,17 +273,20 @@ def coalescing_efficiency(layout: Layout, *, warp_size: int = 32,
         # {'transactions': 2, 'efficiency': 0.5, ...}
     """
     layout = as_layout(layout)
-    n = min(size(layout), warp_size)
+    thread_count, value_count = _tv_dimensions(layout)
+    n = min(thread_count, warp_size)
 
     # Find which cache lines are touched and count unique offsets
     cache_lines = set()
     unique_offsets = set()
     for t in range(n):
-        offset = layout(t)
-        unique_offsets.add(offset)
-        byte_addr = offset * element_bytes
-        cache_line = byte_addr // cache_line_bytes
-        cache_lines.add(cache_line)
+        for v in range(value_count):
+            flat_idx = v * thread_count + t
+            offset = layout(flat_idx)
+            unique_offsets.add(offset)
+            byte_addr = offset * element_bytes
+            cache_line = byte_addr // cache_line_bytes
+            cache_lines.add(cache_line)
 
     transactions = len(cache_lines)
     useful_bytes = len(unique_offsets) * element_bytes
@@ -298,6 +311,10 @@ def segment_analysis(layout: Layout, *, warp_size: int = 32,
     warp access may touch fewer cache lines than segments when accesses
     cluster within a line but span multiple segments.
 
+    For multi-mode (TV) layouts, mode 0 is the thread dimension and all
+    remaining modes are value dimensions.  Each thread's accesses across
+    all values are included in the analysis, modeling vectorized loads.
+
     Args:
         layout: Maps thread_id -> memory offset (in elements).
         warp_size: Threads per warp.
@@ -317,7 +334,8 @@ def segment_analysis(layout: Layout, *, warp_size: int = 32,
             first_alignment: alignment of first_byte_addr to segment_bytes
     """
     layout = as_layout(layout)
-    n = min(size(layout), warp_size)
+    thread_count, value_count = _tv_dimensions(layout)
+    n = min(thread_count, warp_size)
 
     segments = set()
     lines = set()
@@ -325,19 +343,21 @@ def segment_analysis(layout: Layout, *, warp_size: int = 32,
     first_byte = None
 
     for t in range(n):
-        offset = layout(t)
-        unique_offsets.add(offset)
-        byte_addr = offset * element_bytes
-        if first_byte is None:
-            first_byte = byte_addr
-        segments.add(byte_addr // segment_bytes)
-        lines.add(byte_addr // cache_line_bytes)
+        for v in range(value_count):
+            flat_idx = v * thread_count + t
+            offset = layout(flat_idx)
+            unique_offsets.add(offset)
+            byte_addr = offset * element_bytes
+            if first_byte is None:
+                first_byte = byte_addr
+            segments.add(byte_addr // segment_bytes)
+            lines.add(byte_addr // cache_line_bytes)
 
     first_byte = first_byte if first_byte is not None else 0
     n_segments = len(segments)
     n_lines = len(lines)
     unique_bytes = len(unique_offsets) * element_bytes
-    requested_bytes = n * element_bytes
+    requested_bytes = n * value_count * element_bytes
     transferred_bytes = n_segments * segment_bytes
 
     return {

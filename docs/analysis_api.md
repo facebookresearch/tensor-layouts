@@ -75,6 +75,18 @@ The `max_ways` value is the worst-case serialization factor: 1 means no
 conflicts, N means N-way serialization.  Two threads accessing the
 *same* word get a broadcast (no conflict on NVIDIA hardware).
 
+For multi-mode (TV) layouts where mode 0 is the thread dimension and
+mode 1+ are value dimensions, all values per thread are included in the
+analysis.  This models vectorized loads where each thread accesses
+multiple elements:
+
+```python
+# TV layout: 32 threads, each loading 2 fp16 elements
+tv = Layout((32, 2), (1, 32))
+result = bank_conflicts(tv, element_bytes=2)
+result['conflict_free']  # True: values land in distinct banks
+```
+
 Returns a dict:
 
 | Key | Type | Description |
@@ -110,6 +122,17 @@ Returns a dict:
 | `transactions` | int | Number of cache line fetches needed |
 | `efficiency` | float | Unique useful bytes / transferred bytes (1.0 = perfect) |
 | `cache_lines` | list | Sorted cache line indices touched |
+
+For multi-mode (TV) layouts, all values per thread are included,
+modeling vectorized loads:
+
+```python
+# TV layout: 32 threads, 4 values each, contiguous within each thread
+tv = Layout((32, 4), (4, 1))
+result = coalescing_efficiency(tv, element_bytes=2)
+result['transactions']  # 2  (256 bytes spans 2 cache lines)
+result['efficiency']    # 1.0  (256 unique bytes / 256 transferred)
+```
 
 ## Permutation Analysis
 
