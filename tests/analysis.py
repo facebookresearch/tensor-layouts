@@ -172,6 +172,15 @@ def test_bank_conflicts_group_size_validation():
         bank_conflicts(Layout(32, 1), group_size=-1)
 
 
+def test_bank_conflicts_tv_layout():
+    """TV layout analyzes all values per thread, not just value 0."""
+    # 32 threads, 2 values: stride-1 threads, stride-32 values
+    tv = Layout((32, 2), (1, 32))
+    r = bank_conflicts(tv, element_bytes=2)
+    assert r['conflict_free']
+    assert len(r['bank_to_threads']) == 32  # all banks accessed
+
+
 ## coalescing_efficiency
 
 
@@ -214,6 +223,16 @@ def test_coalescing_broadcast():
     assert result['efficiency'] == pytest.approx(2.0 / 128)
 
 
+def test_coalescing_tv_layout():
+    """TV layout counts all values in cache line computation."""
+    # 32 threads, 4 values each, stride-4 between threads
+    tv = Layout((32, 4), (4, 1))
+    result = coalescing_efficiency(tv, element_bytes=2)
+    # 128 unique offsets * 2B = 256B -> cache lines 0, 1
+    assert result['transactions'] == 2
+    assert result['efficiency'] == pytest.approx(1.0)
+
+
 ## segment_analysis
 
 
@@ -244,6 +263,16 @@ def test_segment_analysis_broadcast():
     assert result['segments'] == 1
     assert result['unique_bytes'] == 2
     assert result['requested_bytes'] == 64
+
+
+def test_segment_analysis_tv_layout():
+    """TV layout includes all values in segment computation."""
+    tv = Layout((32, 4), (4, 1))
+    result = segment_analysis(tv, element_bytes=2)
+    # 128 elements * 2B = 256B -> 8 segments, 2 cache lines
+    assert result['segments'] == 8
+    assert result['cache_lines'] == 2
+    assert result['requested_bytes'] == 256  # 32 * 4 * 2
 
 
 ## per-group analysis
