@@ -763,7 +763,7 @@ def example_analysis():
           f"efficiency {r1['efficiency']:.0%}")
 
     scattered = Layout(32, 64)
-    r2 = coalescing_efficiency(scattered)
+    r2 = coalescing_efficiency(scattered, element_bytes=2)
     print(f"  Stride-64 (fp16): {r2['transactions']} transactions, "
           f"efficiency {r2['efficiency']:.1%}")
 

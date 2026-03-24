@@ -98,14 +98,14 @@ def test_footprint_broadcast():
 
 def test_bank_conflicts_linear():
     """Linear stride-1 access: no conflicts."""
-    result = bank_conflicts(Layout(32, 1))
+    result = bank_conflicts(Layout(32, 1), element_bytes=2)
     assert result['conflict_free']
     assert result['max_ways'] == 1
 
 
 def test_bank_conflicts_broadcast():
     """All threads access same address: broadcast, not a conflict."""
-    result = bank_conflicts(Layout(32, 0))
+    result = bank_conflicts(Layout(32, 0), element_bytes=2)
     assert result['conflict_free']
 
 
@@ -167,9 +167,9 @@ def test_bank_conflicts_group_size():
 def test_bank_conflicts_group_size_validation():
     """group_size <= 0 must raise ValueError."""
     with pytest.raises(ValueError, match="group_size must be positive"):
-        bank_conflicts(Layout(32, 1), group_size=0)
+        bank_conflicts(Layout(32, 1), element_bytes=2, group_size=0)
     with pytest.raises(ValueError, match="group_size must be positive"):
-        bank_conflicts(Layout(32, 1), group_size=-1)
+        bank_conflicts(Layout(32, 1), element_bytes=2, group_size=-1)
 
 
 def test_bank_conflicts_tv_layout():
@@ -186,7 +186,7 @@ def test_bank_conflicts_tv_layout():
 
 def test_coalescing_contiguous_fp16():
     """32 threads, stride 1, fp16: one cache line (64B of 128B)."""
-    result = coalescing_efficiency(Layout(32, 1))
+    result = coalescing_efficiency(Layout(32, 1), element_bytes=2)
     assert result['transactions'] == 1
     assert result['efficiency'] == pytest.approx(0.5)
 
@@ -200,7 +200,7 @@ def test_coalescing_contiguous_fp32():
 
 def test_coalescing_strided():
     """Stride-2 access doubles the cache lines touched."""
-    result = coalescing_efficiency(Layout(32, 2))
+    result = coalescing_efficiency(Layout(32, 2), element_bytes=2)
     assert result['transactions'] == 1  # 32*2*2=128 bytes, still fits in 1 line
     # Actually: offsets 0,2,4,...,62. byte addrs 0,4,8,...,124. All in line 0.
     assert result['efficiency'] == pytest.approx(0.5)
@@ -209,7 +209,7 @@ def test_coalescing_strided():
 def test_coalescing_large_stride():
     """Large stride: each thread touches a different cache line."""
     # stride 64 elements * 2 bytes = 128 bytes = 1 cache line apart
-    result = coalescing_efficiency(Layout(32, 64))
+    result = coalescing_efficiency(Layout(32, 64), element_bytes=2)
     assert result['transactions'] == 32
     # 32 threads * 2 bytes = 64 useful bytes, 32 * 128 = 4096 transferred
     assert result['efficiency'] == pytest.approx(64.0 / (32 * 128))
@@ -217,7 +217,7 @@ def test_coalescing_large_stride():
 
 def test_coalescing_broadcast():
     """All threads access same element: single transaction, minimal useful bytes."""
-    result = coalescing_efficiency(Layout(32, 0))
+    result = coalescing_efficiency(Layout(32, 0), element_bytes=2)
     assert result['transactions'] == 1
     # Only 1 unique offset: 1 * 2 bytes useful out of 128 transferred
     assert result['efficiency'] == pytest.approx(2.0 / 128)
@@ -238,7 +238,7 @@ def test_coalescing_tv_layout():
 
 def test_segment_analysis_contiguous_fp16():
     """32 threads, stride 1, fp16: 2 segments, 1 cache line."""
-    result = segment_analysis(Layout(32, 1))
+    result = segment_analysis(Layout(32, 1), element_bytes=2)
     # 32 * 2B = 64B -> 2 segments of 32B, 1 cache line of 128B
     assert result['segments'] == 2
     assert result['cache_lines'] == 1
@@ -293,7 +293,7 @@ def test_per_group_bank_conflicts_tv_layout():
     """TV layout groups by thread dimension, not flat index."""
     # 32 threads, 4 values each: should be 1 group (not 4)
     tv = Layout((32, 4), (1, 32))
-    result = per_group_bank_conflicts(tv, group_size=32)
+    result = per_group_bank_conflicts(tv, element_bytes=2, group_size=32)
     assert len(result['groups']) == 1
 
 
@@ -310,7 +310,7 @@ def test_per_group_coalescing_tv_layout():
     """TV layout groups by thread dimension, not flat index."""
     # 32 threads, 4 values each (contiguous within each thread's block)
     tv = Layout((32, 4), (4, 1))
-    result = per_group_coalescing(tv, group_size=32)
+    result = per_group_coalescing(tv, element_bytes=2, group_size=32)
     assert len(result['groups']) == 1
     # 32 threads * 4 values = 128 elements * 2B = 256B -> 2 cache lines
     assert result['groups'][0]['transactions'] == 2
