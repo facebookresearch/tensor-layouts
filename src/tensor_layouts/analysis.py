@@ -189,7 +189,9 @@ def coalescing_efficiency(layout: Layout, *, warp_size: int = 32,
     Returns:
         dict with:
             transactions: number of cache line transactions needed
-            efficiency: ratio of useful bytes to transferred bytes (1.0 = perfect)
+            efficiency: ratio of unique useful bytes to transferred bytes
+                (unique = deduplicated across threads; broadcast accesses
+                count only once, not once per thread)
             cache_lines: sorted list of cache line indices touched
 
     Examples:
