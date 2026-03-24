@@ -693,6 +693,15 @@ def _build_composite_figure(
         axes = [axes_array[i, j] for i in range(nrows) for j in range(ncols)]
 
     # Process each panel
+    if len(panels) > nrows * ncols:
+        import warnings
+
+        warnings.warn(
+            f"{len(panels)} panels provided but grid has only "
+            f"{nrows * ncols} cells ({nrows}x{ncols}); "
+            f"extra panels will be dropped",
+            stacklevel=3,
+        )
     for idx, panel in enumerate(panels):
         if idx >= len(axes):
             break
