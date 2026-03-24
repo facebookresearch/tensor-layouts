@@ -401,6 +401,40 @@ def test_draw_composite_mixed_tv_and_offset():
 
 
 @requires_viz
+def test_draw_composite_hierarchical_panel():
+    """Composite figure with flatten_hierarchical=False renders hierarchy lines."""
+    hier = Layout(((2, 2), (2, 2)), ((1, 4), (2, 8)))
+    flat = Layout((4, 4), (4, 1))
+    panels = [
+        (hier, {'flatten_hierarchical': False}),
+        flat,
+    ]
+    fig = show_composite(panels, titles=["Hierarchical", "Flat"])
+    try:
+        assert isinstance(fig, matplotlib.figure.Figure)
+        # The hierarchical panel should have hierarchy boundary lines
+        hier_ax = fig.axes[0]
+        assert len(hier_ax.lines) > 0
+        # The flat panel should have no hierarchy lines
+        flat_ax = fig.axes[1]
+        assert len(flat_ax.lines) == 0
+    finally:
+        plt.close(fig)
+
+
+@requires_viz
+def test_draw_composite_hierarchical_top_level_default():
+    """flatten_hierarchical=False as top-level default applies to all panels."""
+    hier = Layout(((2, 2), (2, 2)), ((1, 4), (2, 8)))
+    fig = show_composite([hier], flatten_hierarchical=False)
+    try:
+        ax = fig.axes[0]
+        assert len(ax.lines) > 0
+    finally:
+        plt.close(fig)
+
+
+@requires_viz
 def test_draw_copy_layout_smoke():
     src = Layout((4, 2), (2, 1))
     dst = Layout((4, 2), (1, 4))

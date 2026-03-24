@@ -308,6 +308,13 @@ draw_composite(panels, "comparison.png",
 | `panel_size` | `(w, h)` | `(4, 4)` | Size per panel |
 | `colorize` | `bool` | `False` | Rainbow colors |
 | `tv_mode` | `bool` | `False` | Use TV-layout rendering |
+| `flatten_hierarchical` | `bool` | `True` | Flatten nested shapes to 2D grid |
+| `label_hierarchy_levels` | `bool` | `False` | In nested hierarchical mode, annotate hierarchy levels |
+
+Per-panel options (`(Layout, opts_dict)` tuples) override the top-level
+defaults: `colorize`, `color_layout`, `num_colors`, `tv_mode`,
+`flatten_hierarchical`, `label_hierarchy_levels`, and the TV-specific
+`grid_rows`, `grid_cols`, `thr_id_layout`, `col_major`.
 
 ## draw_tiled_grid
 
