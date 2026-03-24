@@ -260,6 +260,14 @@ def test_per_group_bank_conflicts():
     assert r_per['worst_max_ways'] == r_single['max_ways']
 
 
+def test_per_group_bank_conflicts_tv_layout():
+    """TV layout groups by thread dimension, not flat index."""
+    # 32 threads, 4 values each: should be 1 group (not 4)
+    tv = Layout((32, 4), (1, 32))
+    result = per_group_bank_conflicts(tv, group_size=32)
+    assert len(result['groups']) == 1
+
+
 def test_per_group_coalescing():
     """Per-group coalescing for a uniform layout gives identical per-warp results."""
     r_per = per_group_coalescing(Layout(64, 1), element_bytes=2)
@@ -267,6 +275,16 @@ def test_per_group_coalescing():
     for g in r_per['groups']:
         assert g['efficiency'] == pytest.approx(0.5)
         assert g['transactions'] == 1
+
+
+def test_per_group_coalescing_tv_layout():
+    """TV layout groups by thread dimension, not flat index."""
+    # 32 threads, 4 values each (contiguous within each thread's block)
+    tv = Layout((32, 4), (4, 1))
+    result = per_group_coalescing(tv, group_size=32)
+    assert len(result['groups']) == 1
+    # 32 threads * 4 values = 128 elements * 2B = 256B -> 2 cache lines
+    assert result['groups'][0]['transactions'] == 2
 
 
 ## cycles

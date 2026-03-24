@@ -356,6 +356,19 @@ def segment_analysis(layout: Layout, *, warp_size: int = 32,
 # Per-group analysis
 # =============================================================================
 
+
+def _tv_dimensions(layout: Layout):
+    """Extract (thread_count, value_count) from a layout.
+
+    For rank-1 (scalar shape) layouts: thread_count = size, value_count = 1.
+    For rank>1 (TV) layouts: thread_count = size(mode 0), value_count =
+    product of remaining modes.
+    """
+    if is_int(layout.shape):
+        return size(layout), 1
+    return size(mode(layout, 0)), size(layout) // size(mode(layout, 0))
+
+
 def per_group_bank_conflicts(layout: Layout, *, group_size: int = 32,
                               num_banks: int = 32, element_bytes: int = 2,
                               bank_width_bytes: int = 4) -> dict:
@@ -363,6 +376,10 @@ def per_group_bank_conflicts(layout: Layout, *, group_size: int = 32,
 
     Splits the layout into groups of ``group_size`` threads and analyzes
     bank conflicts for each group independently.
+
+    For multi-mode (TV) layouts, groups are formed along mode 0 (the thread
+    dimension).  Each thread's accesses across all value modes (mode 1+) are
+    included in its group's analysis.
 
     Args:
         layout: Maps thread_id -> memory offset (in elements).
@@ -381,8 +398,8 @@ def per_group_bank_conflicts(layout: Layout, *, group_size: int = 32,
     layout = as_layout(layout)
     if group_size <= 0:
         raise ValueError(f"group_size must be positive, got {group_size}")
-    n = size(layout)
-    num_groups = (n + group_size - 1) // group_size
+    thread_count, value_count = _tv_dimensions(layout)
+    num_groups = (thread_count + group_size - 1) // group_size
 
     groups = []
     worst_idx = 0
@@ -390,15 +407,17 @@ def per_group_bank_conflicts(layout: Layout, *, group_size: int = 32,
 
     for g in range(num_groups):
         start = g * group_size
-        end = min(start + group_size, n)
+        end = min(start + group_size, thread_count)
 
         thread_banks = {}
         for t in range(start, end):
-            offset = layout(t)
-            byte_addr = offset * element_bytes
-            word_addr = byte_addr // bank_width_bytes
-            bank = word_addr % num_banks
-            thread_banks.setdefault(bank, []).append((t, word_addr))
+            for v in range(value_count):
+                flat_idx = v * thread_count + t
+                offset = layout(flat_idx)
+                byte_addr = offset * element_bytes
+                word_addr = byte_addr // bank_width_bytes
+                bank = word_addr % num_banks
+                thread_banks.setdefault(bank, []).append((t, word_addr))
 
         max_ways = 1
         bank_to_threads = {}
@@ -436,6 +455,10 @@ def per_group_coalescing(layout: Layout, *, group_size: int = 32,
     Splits the layout into groups of ``group_size`` threads and analyzes
     coalescing for each group independently.
 
+    For multi-mode (TV) layouts, groups are formed along mode 0 (the thread
+    dimension).  Each thread's accesses across all value modes (mode 1+) are
+    included in its group's analysis.
+
     Args:
         layout: Maps thread_id -> memory offset (in elements).
         group_size: Threads per group (32 = NVIDIA warp, 64 = AMD wave).
@@ -451,8 +474,8 @@ def per_group_coalescing(layout: Layout, *, group_size: int = 32,
     layout = as_layout(layout)
     if group_size <= 0:
         raise ValueError(f"group_size must be positive, got {group_size}")
-    n = size(layout)
-    num_groups = (n + group_size - 1) // group_size
+    thread_count, value_count = _tv_dimensions(layout)
+    num_groups = (thread_count + group_size - 1) // group_size
 
     groups = []
     worst_idx = 0
@@ -460,16 +483,18 @@ def per_group_coalescing(layout: Layout, *, group_size: int = 32,
 
     for g in range(num_groups):
         start = g * group_size
-        end = min(start + group_size, n)
+        end = min(start + group_size, thread_count)
 
         cache_lines = set()
         unique_offsets = set()
         for t in range(start, end):
-            offset = layout(t)
-            unique_offsets.add(offset)
-            byte_addr = offset * element_bytes
-            cache_line = byte_addr // cache_line_bytes
-            cache_lines.add(cache_line)
+            for v in range(value_count):
+                flat_idx = v * thread_count + t
+                offset = layout(flat_idx)
+                unique_offsets.add(offset)
+                byte_addr = offset * element_bytes
+                cache_line = byte_addr // cache_line_bytes
+                cache_lines.add(cache_line)
 
         transactions = len(cache_lines)
         useful_bytes = len(unique_offsets) * element_bytes
