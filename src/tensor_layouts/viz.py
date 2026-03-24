@@ -2775,6 +2775,22 @@ def _get_slice_highlight_mask_2d(layout, slice_spec) -> np.ndarray:
                 if col_match:
                     mask[i, j] = True
 
+    elif isinstance(slice_spec, tuple) and r < 2:
+        if len(slice_spec) != 1:
+            raise ValueError(
+                f"Rank-{r} layout requires a 1-element tuple slice_spec, "
+                f"got {len(slice_spec)}"
+            )
+        (col_spec,) = slice_spec
+        col_flat = _is_flat_slice_component(col_spec)
+        for j in range(cols):
+            col_coord = idx2crd(j, layout.shape)
+            mask[0, j] = (
+                _match_flat_slice_component(j, col_spec, cols)
+                if col_flat
+                else _match_nested_slice_component(col_coord, col_spec, layout.shape)
+            )
+
     return mask
 
 

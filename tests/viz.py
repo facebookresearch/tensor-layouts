@@ -1016,6 +1016,49 @@ def test_slice_highlight_mask_tracks_logical_cells_not_offsets():
 
 
 @requires_viz
+def test_slice_highlight_mask_1d_tuple_spec():
+    """1D layout with tuple slice_spec should highlight the correct elements."""
+    layout = Layout(8, 1)
+    mask = _get_slice_highlight_mask_2d(layout, (slice(2, 5),))
+    assert mask.shape == (1, 8)
+    assert mask.tolist() == [[False, False, True, True, True, False, False, False]]
+
+
+@requires_viz
+def test_slice_highlight_mask_1d_tuple_spec_rank1():
+    """Rank-1 layout with tuple slice_spec should highlight the correct elements."""
+    layout = Layout((8,), (1,))
+    mask = _get_slice_highlight_mask_2d(layout, (slice(2, 5),))
+    assert mask.shape == (1, 8)
+    assert mask.tolist() == [[False, False, True, True, True, False, False, False]]
+
+
+@requires_viz
+def test_slice_highlight_mask_1d_tuple_int_spec():
+    """1D layout with tuple (int,) slice_spec highlights a single element."""
+    layout = Layout(8, 1)
+    mask = _get_slice_highlight_mask_2d(layout, (3,))
+    assert mask.shape == (1, 8)
+    assert mask.tolist() == [[False, False, False, True, False, False, False, False]]
+
+
+@requires_viz
+def test_slice_highlight_mask_1d_tuple_none_spec():
+    """1D layout with tuple (None,) selects all elements."""
+    layout = Layout(4, 1)
+    mask = _get_slice_highlight_mask_2d(layout, (None,))
+    assert mask.tolist() == [[True, True, True, True]]
+
+
+@requires_viz
+def test_slice_highlight_mask_1d_wrong_tuple_length_raises():
+    """1D layout with 2-element tuple slice_spec raises ValueError."""
+    layout = Layout(4, 1)
+    with pytest.raises(ValueError, match="1-element tuple"):
+        _get_slice_highlight_mask_2d(layout, (1, 2))
+
+
+@requires_viz
 def test_compute_tv_mapping_uses_first_wins_for_duplicate_cells():
     layout = Layout((2, 2), (0, 0))
     tv_map = _compute_tv_mapping(layout, grid_rows=1, grid_cols=1)

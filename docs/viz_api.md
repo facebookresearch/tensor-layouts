@@ -257,6 +257,12 @@ layout = Layout(((3, 2), ((2, 3), 2)), ((4, 1), ((2, 15), 100)))
 draw_slice(layout, ((1, None), ((None, 0), None)), title="((1,:),((:,0),:))")
 ```
 
+For 1D layouts, wrap the slice in a single-element tuple:
+
+```python
+draw_slice(Layout(8, 1), (slice(2, 5),), title="1D slice [2:5]")
+```
+
 ![draw_slice](images/draw_slice.png)
 
 **Parameters:**
