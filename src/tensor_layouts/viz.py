@@ -660,6 +660,8 @@ def _build_composite_figure(
     panel_size: Tuple[float, float] = (4, 4),
     colorize: bool = False,
     tv_mode: bool = False,
+    flatten_hierarchical: bool = True,
+    label_hierarchy_levels: bool = False,
 ):
     """Build the composite figure used by draw_composite/show_composite."""
     n = len(panels)
@@ -715,6 +717,10 @@ def _build_composite_figure(
         panel_tv_mode = opts.get("tv_mode", tv_mode)
         color_layout = opts.get("color_layout", None)
         num_colors = opts.get("num_colors", 8)
+        panel_flatten = opts.get("flatten_hierarchical", flatten_hierarchical)
+        panel_label_levels = opts.get(
+            "label_hierarchy_levels", label_hierarchy_levels
+        )
 
         # Get title
         title = titles[idx] if titles and idx < len(titles) else None
@@ -733,17 +739,41 @@ def _build_composite_figure(
                 col_major=opts.get("col_major", True),
             )
         else:
+            # Check if this panel should use hierarchical rendering
+            r = rank(layout)
+            is_hier = r == 2 and not panel_flatten and (
+                isinstance(mode(layout.shape, 0), tuple)
+                or isinstance(mode(layout.shape, 1), tuple)
+            )
             grid = _prepare_offset_grid(
-                layout, color_layout=color_layout, eval_fn=eval_fn
+                layout, color_layout=color_layout, eval_fn=eval_fn,
+                hierarchical=is_hier,
             )
-            _draw_grid(
-                ax,
-                grid.indices,
-                title=title,
-                colorize=panel_colorize,
-                color_indices=grid.color_indices,
-                num_colors=num_colors,
-            )
+            if grid.is_hierarchical:
+                _draw_hierarchical_grid(
+                    ax,
+                    grid.indices,
+                    grid.rows,
+                    grid.cols,
+                    cell_coords=grid.cell_coords,
+                    row_shape=grid.row_shape,
+                    col_shape=grid.col_shape,
+                    title=title,
+                    colorize=panel_colorize,
+                    color_indices=grid.color_indices,
+                    flatten_hierarchical=False,
+                    label_hierarchy_levels=panel_label_levels,
+                    num_colors=num_colors,
+                )
+            else:
+                _draw_grid(
+                    ax,
+                    grid.indices,
+                    title=title,
+                    colorize=panel_colorize,
+                    color_indices=grid.color_indices,
+                    num_colors=num_colors,
+                )
 
     # Hide unused axes
     for idx in range(len(panels), len(axes)):
@@ -766,6 +796,8 @@ def draw_composite(
     panel_size: Tuple[float, float] = (4, 4),
     colorize: bool = False,
     tv_mode: bool = False,
+    flatten_hierarchical: bool = True,
+    label_hierarchy_levels: bool = False,
 ):
     """Draw multiple layouts in a single composite figure.
 
@@ -782,6 +814,7 @@ def draw_composite(
                   colorize, color_layout, num_colors -- offset-grid options
                   tv_mode -- if True, render this panel as a TV grid
                   grid_rows, grid_cols, thr_id_layout, col_major -- TV options
+                  flatten_hierarchical, label_hierarchy_levels -- hierarchy options
         filename: Output path (.svg, .png, or .pdf)
         arrangement: How to arrange panels:
             - "horizontal": side by side (1 row)
@@ -793,6 +826,10 @@ def draw_composite(
         panel_size: Size of each panel in inches (width, height)
         colorize: Default colorize setting for all panels
         tv_mode: If True, render panels as TV layouts with T/V labels
+        flatten_hierarchical: Default for all panels. If False, show explicit
+            nested coordinate labels for hierarchical layouts
+        label_hierarchy_levels: Default for all panels. If True, annotate axes
+            with hierarchy level labels
 
     Example:
         # Side-by-side comparison
@@ -811,6 +848,8 @@ def draw_composite(
         panel_size=panel_size,
         colorize=colorize,
         tv_mode=tv_mode,
+        flatten_hierarchical=flatten_hierarchical,
+        label_hierarchy_levels=label_hierarchy_levels,
     )
     _save_figure(fig, filename, dpi)
 
@@ -3200,6 +3239,8 @@ def show_composite(
     panel_size: Tuple[float, float] = (4, 4),
     colorize: bool = False,
     tv_mode: bool = False,
+    flatten_hierarchical: bool = True,
+    label_hierarchy_levels: bool = False,
 ):
     """Display a composite figure inline (for Jupyter notebooks).
 
@@ -3211,6 +3252,10 @@ def show_composite(
         panel_size: Size of each panel in inches (width, height)
         colorize: Default colorize setting for all panels
         tv_mode: If True, render panels as TV layouts with T/V labels
+        flatten_hierarchical: Default for all panels. If False, show explicit
+            nested coordinate labels for hierarchical layouts
+        label_hierarchy_levels: Default for all panels. If True, annotate axes
+            with hierarchy level labels
 
     Returns:
         matplotlib Figure
@@ -3223,6 +3268,8 @@ def show_composite(
         panel_size=panel_size,
         colorize=colorize,
         tv_mode=tv_mode,
+        flatten_hierarchical=flatten_hierarchical,
+        label_hierarchy_levels=label_hierarchy_levels,
     )
 
 
