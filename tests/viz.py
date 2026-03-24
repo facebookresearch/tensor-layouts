@@ -435,6 +435,15 @@ def test_draw_composite_hierarchical_top_level_default():
 
 
 @requires_viz
+def test_draw_composite_warns_on_panel_truncation():
+    """Warning emitted when panels exceed grid capacity."""
+    panels = [Layout((2, 2), (2, 1)) for _ in range(5)]
+    with pytest.warns(UserWarning, match="5 panels.*4 cells"):
+        fig = show_composite(panels, arrangement="grid:2x2")
+        plt.close(fig)
+
+
+@requires_viz
 def test_draw_copy_layout_smoke():
     src = Layout((4, 2), (2, 1))
     dst = Layout((4, 2), (1, 4))
