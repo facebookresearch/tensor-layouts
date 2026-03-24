@@ -50,6 +50,7 @@ __all__ = [
     "mode_contiguity",
     "slice_contiguity",
     "atom_summary",
+    "operand_analysis",
     "explain",
 ]
 
@@ -752,6 +753,64 @@ def atom_summary(atom: MMAAtom) -> dict:
     print(text)
     result['text'] = text
     return result
+
+
+def _operand_coverage(layout: Layout, domain_size: int) -> dict:
+    """Analyze a single operand layout's coverage of its logical domain."""
+    num_t = size(mode(layout, 0))
+    num_v = size(mode(layout, 1))
+    total_accesses = num_t * num_v
+
+    offsets = []
+    for t in range(num_t):
+        for v in range(num_v):
+            offsets.append(layout(t, v))
+
+    unique = set(offsets)
+    expected = set(range(domain_size))
+    missing = expected - unique
+    extra = unique - expected
+    duplicates = total_accesses - len(unique)
+
+    return {
+        'domain_size': domain_size,
+        'unique_offsets': len(unique),
+        'total_accesses': total_accesses,
+        'duplicates': duplicates,
+        'coverage_ok': unique == expected,
+        'missing': sorted(missing) if missing else [],
+        'extra': sorted(extra) if extra else [],
+        'thread_utilization': len(unique) / total_accesses if total_accesses > 0 else 0.0,
+    }
+
+
+def operand_analysis(atom: MMAAtom) -> dict:
+    """Detailed per-operand analysis of an MMA atom.
+
+    Extends ``atom_summary()`` with exact coverage checks, duplicate
+    load counts, and utilization metrics for each operand (A, B, C).
+
+    Args:
+        atom: An MMAAtom (NVIDIA or AMD).
+
+    Returns:
+        dict with keys 'a', 'b', 'c', each containing:
+            domain_size: expected number of unique offsets (M*K, N*K, M*N)
+            unique_offsets: actual number of unique offsets produced
+            total_accesses: threads * values (total layout evaluations)
+            duplicates: total_accesses - unique_offsets
+            coverage_ok: True if offsets exactly cover range(domain_size)
+            missing: sorted list of missing offsets (empty if coverage_ok)
+            extra: sorted list of out-of-range offsets (empty if coverage_ok)
+            thread_utilization: unique_offsets / total_accesses (1.0 = no waste)
+    """
+    M, N, K = atom.shape_mnk
+
+    return {
+        'a': _operand_coverage(atom.a_layout, M * K),
+        'b': _operand_coverage(atom.b_layout, N * K),
+        'c': _operand_coverage(atom.c_layout, M * N),
+    }
 
 
 # =============================================================================

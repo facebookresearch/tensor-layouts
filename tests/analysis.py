@@ -510,6 +510,38 @@ def test_atom_summary_rejects_duplicate_c_coverage():
     assert not result['c_coverage_ok']
 
 
+def test_operand_analysis_sm80():
+    """operand_analysis on a well-formed atom reports full coverage."""
+    from tensor_layouts.atoms_nv import SM80_16x8x16_F16F16F16F16_TN
+    result = operand_analysis(SM80_16x8x16_F16F16F16F16_TN)
+    for op in ['a', 'b', 'c']:
+        assert result[op]['coverage_ok']
+        assert result[op]['duplicates'] == 0
+        assert result[op]['thread_utilization'] == pytest.approx(1.0)
+    assert result['a']['domain_size'] == 16 * 16  # M * K
+    assert result['b']['domain_size'] == 8 * 16   # N * K
+    assert result['c']['domain_size'] == 16 * 8   # M * N
+
+
+def test_operand_analysis_bad_coverage():
+    """operand_analysis detects malformed operand coverage."""
+    from tensor_layouts.atoms import MMAAtom
+    import dataclasses
+    base = MMAAtom(
+        name="test_bad_operand",
+        ptx="test",
+        shape_mnk=(2, 2, 1),
+        thr_id=Layout(4),
+        a_layout=Layout((4, 1), (1, 0)),
+        b_layout=Layout((4, 1), (1, 0)),
+        c_layout=Layout(((2, 2), 1), ((1, 4), 0)),  # offsets {0,1,4,5}, not {0,1,2,3}
+    )
+    result = operand_analysis(base)
+    assert not result['c']['coverage_ok']
+    assert len(result['c']['missing']) > 0
+    assert len(result['c']['extra']) > 0
+
+
 ## explain
 
 
