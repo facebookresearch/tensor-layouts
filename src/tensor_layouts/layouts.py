@@ -394,6 +394,8 @@ class Layout:
             )
 
     def __eq__(self, other):
+        if self is other:
+            return True
         if not isinstance(other, Layout):
             return False
         return (
@@ -3259,6 +3261,8 @@ class Swizzle:
         return f"Swizzle({self.bits}, {self.base}, {self.shift})"
 
     def __eq__(self, other: object) -> bool:
+        if self is other:
+            return True
         if not isinstance(other, Swizzle):
             return False
         return self.bits == other.bits and self.base == other.base and self.shift == other.shift

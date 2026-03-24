@@ -1110,6 +1110,52 @@ def test_layout_hash():
     assert len(s) == 2
 
 
+## Layout.__eq__ identity short-circuit
+
+
+def test_layout_eq_identity_shortcircuit():
+    """Same object identity returns True immediately."""
+    L = Layout((4, 8), (1, 4))
+    assert L == L
+    assert L is L
+
+    sw = Swizzle(3, 0, 3)
+    L_sw = compose(sw, L)
+    assert L_sw == L_sw
+
+
+def test_layout_eq_structural():
+    """Distinct objects with equal shape/stride/swizzle are equal."""
+    L1 = Layout((4, 8), (1, 4))
+    L2 = Layout((4, 8), (1, 4))
+    assert L1 is not L2
+    assert L1 == L2
+
+
+def test_layout_eq_non_layout():
+    """Comparing Layout with non-Layout returns False, not an error."""
+    L = Layout((4, 8), (1, 4))
+    assert L != 42
+    assert L != "not a layout"
+    assert L != (4, 8)
+    assert L != None  # noqa: E711
+
+
+def test_swizzle_eq_identity_shortcircuit():
+    """Same Swizzle identity returns True immediately."""
+    sw = Swizzle(3, 0, 3)
+    assert sw == sw
+    assert sw is sw
+
+
+def test_swizzle_eq_structural():
+    """Distinct Swizzle objects with equal fields are equal."""
+    sw1 = Swizzle(3, 0, 3)
+    sw2 = Swizzle(3, 0, 3)
+    assert sw1 is not sw2
+    assert sw1 == sw2
+
+
 ## compose() functional property
 
 
