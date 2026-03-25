@@ -45,6 +45,7 @@ class MMAAtom:
         b_layout:  (T, V) -> col-major offset in (N, K)
         c_layout:  (T, V) -> col-major offset in (M, N)
     """
+
     name: str
     ptx: str
     shape_mnk: Tuple[int, int, int]
@@ -71,6 +72,7 @@ class CopyAtom:
         src_layout_bits: (thr, val) -> bit offset for source
         dst_layout_bits: (thr, val) -> bit offset for destination
     """
+
     name: str
     ptx: str
     thr_id: Layout

@@ -20,6 +20,8 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+# ruff: noqa: F403, F405
+
 """Layout visualization with PNG/SVG/PDF output.
 
 Visualize layouts, swizzled layouts, and tensor slices in cute-viz style.
@@ -179,7 +181,7 @@ def _make_rainbow_palette(n: int) -> list:
     for i in range(n):
         hue = i / n
         r, g, b = colorsys.hsv_to_rgb(hue, sat, val)
-        monotonic.append(f"#{int(r*255):02X}{int(g*255):02X}{int(b*255):02X}")
+        monotonic.append(f"#{int(r * 255):02X}{int(g * 255):02X}{int(b * 255):02X}")
     order = _max_contrast_order(n)
     return [monotonic[k] for k in order]
 
@@ -413,14 +415,10 @@ def _get_color_indices_2d(layout, color_layout) -> Optional[np.ndarray]:
             row_coord = idx2crd(i, row_shape)
             for j in range(cols):
                 col_coord = idx2crd(j, col_shape)
-                color_indices[i, j] = _color_result_to_index(
-                    color_layout(row_coord, col_coord)
-                )
+                color_indices[i, j] = _color_result_to_index(color_layout(row_coord, col_coord))
         return color_indices
 
-    raise ValueError(
-        f"Unsupported color_layout rank {color_rank} for layout rank {layout_rank}"
-    )
+    raise ValueError(f"Unsupported color_layout rank {color_rank} for layout rank {layout_rank}")
 
 
 # =============================================================================
@@ -727,9 +725,7 @@ def _build_composite_figure(
         color_layout = opts.get("color_layout", None)
         num_colors = opts.get("num_colors", 8)
         panel_flatten = opts.get("flatten_hierarchical", flatten_hierarchical)
-        panel_label_levels = opts.get(
-            "label_hierarchy_levels", label_hierarchy_levels
-        )
+        panel_label_levels = opts.get("label_hierarchy_levels", label_hierarchy_levels)
 
         # Get title
         title = titles[idx] if titles and idx < len(titles) else None
@@ -750,12 +746,18 @@ def _build_composite_figure(
         else:
             # Check if this panel should use hierarchical rendering
             r = rank(layout)
-            is_hier = r == 2 and not panel_flatten and (
-                isinstance(mode(layout.shape, 0), tuple)
-                or isinstance(mode(layout.shape, 1), tuple)
+            is_hier = (
+                r == 2
+                and not panel_flatten
+                and (
+                    isinstance(mode(layout.shape, 0), tuple)
+                    or isinstance(mode(layout.shape, 1), tuple)
+                )
             )
             grid = _prepare_offset_grid(
-                layout, color_layout=color_layout, eval_fn=eval_fn,
+                layout,
+                color_layout=color_layout,
+                eval_fn=eval_fn,
                 hierarchical=is_hier,
             )
             if grid.is_hierarchical:
@@ -974,9 +976,7 @@ def _draw_hierarchy_boundary_lines(
     n_row_levels = len(row_block_sizes)
     n_col_levels = len(col_block_sizes)
 
-    def _is_shadowed_by_coarser(
-        level: int, pos: int, block_sizes: tuple[int, ...]
-    ) -> bool:
+    def _is_shadowed_by_coarser(level: int, pos: int, block_sizes: tuple[int, ...]) -> bool:
         """Return True if a same-orientation coarser hierarchy line also sits at pos."""
         for coarser_level in range(level + 1, len(block_sizes)):
             coarser_block = block_sizes[coarser_level]
@@ -1032,9 +1032,7 @@ def _draw_hierarchy_boundary_lines(
                 _draw_boundary_line(j, 0, j, rows, color, linewidth, zorder)
 
 
-def _format_hierarchical_cell_lines(
-    row_coord, col_coord, offset: int
-) -> tuple[str, str, str]:
+def _format_hierarchical_cell_lines(row_coord, col_coord, offset: int) -> tuple[str, str, str]:
     """Format pedagogical hierarchical cell labels.
 
     Returns three explicit lines:
@@ -1153,12 +1151,10 @@ def _auto_hierarchical_figsize(
 
     scale_pts = max(required_cell_width_pts, required_cell_height_pts)
     subplot_width_frac = (
-        matplotlib.rcParams["figure.subplot.right"]
-        - matplotlib.rcParams["figure.subplot.left"]
+        matplotlib.rcParams["figure.subplot.right"] - matplotlib.rcParams["figure.subplot.left"]
     )
     subplot_height_frac = (
-        matplotlib.rcParams["figure.subplot.top"]
-        - matplotlib.rcParams["figure.subplot.bottom"]
+        matplotlib.rcParams["figure.subplot.top"] - matplotlib.rcParams["figure.subplot.bottom"]
     )
     total_x_range = cols + 0.5 + left_margin
     total_y_range = rows + 0.5 + top_margin
@@ -1196,11 +1192,7 @@ def _draw_colored_coord_line(
         pieces.append(
             (
                 str(value),
-                (
-                    _hierarchy_level_color(level, for_dark_bg)
-                    if use_level_colors
-                    else base_color
-                ),
+                (_hierarchy_level_color(level, for_dark_bg) if use_level_colors else base_color),
             )
         )
         if level != len(levels) - 1:
@@ -1521,8 +1513,7 @@ def _build_layout_figure(
             color_layout = None  # default behavior
         else:
             raise ValueError(
-                f"Unknown color_by value: {color_by!r} "
-                f"(expected 'row', 'column', or 'offset')"
+                f"Unknown color_by value: {color_by!r} (expected 'row', 'column', or 'offset')"
             )
         colorize = True
 
@@ -1625,8 +1616,7 @@ def _build_layout_figure(
 
     # Check if this is a hierarchical layout (has nested tuple shapes)
     is_hierarchical = r == 2 and (
-        isinstance(mode(layout.shape, 0), tuple)
-        or isinstance(mode(layout.shape, 1), tuple)
+        isinstance(mode(layout.shape, 0), tuple) or isinstance(mode(layout.shape, 1), tuple)
     )
 
     want_hierarchical = is_hierarchical and not flatten_hierarchical
@@ -2169,12 +2159,8 @@ def _build_mma_figure(
         title_above=True,
         col_major=False,
     )
-    draw_tv_matrix(
-        layout_a, a_offset_x, a_offset_y, M, K, f"A ({M}×{K})", title_above=False
-    )
-    draw_tv_matrix(
-        layout_c, c_offset_x, c_offset_y, M, N, f"C ({M}×{N})", title_above=False
-    )
+    draw_tv_matrix(layout_a, a_offset_x, a_offset_y, M, K, f"A ({M}×{K})", title_above=False)
+    draw_tv_matrix(layout_c, c_offset_x, c_offset_y, M, N, f"C ({M}×{N})", title_above=False)
 
     for k in range(K):
         ax.text(
@@ -2283,16 +2269,12 @@ def draw_mma_layout(
     _save_figure(fig, filename, dpi)
 
 
-def _build_tiled_grid_figure(
-    grid: dict, rows: int, cols: int, title: Optional[str] = None
-):
+def _build_tiled_grid_figure(grid: dict, rows: int, cols: int, title: Optional[str] = None):
     """Build the tiled-grid figure used by draw_tiled_grid/show_tiled_grid."""
     colors = _make_rainbow_palette(8)
     font = max(4, min(7, int(60 / max(rows, cols))))
     fig, ax = plt.subplots(figsize=(cols * 0.45 + 1.5, rows * 0.4 + 1.0))
-    _setup_axes(
-        ax, (-0.5, cols + 0.5), (-0.5, rows + 0.5), title=title, title_fontsize=9
-    )
+    _setup_axes(ax, (-0.5, cols + 0.5), (-0.5, rows + 0.5), title=title, title_fontsize=9)
     _draw_tv_cells(ax, grid, rows, cols, colors, fontsize=font, linewidth=0.5)
     plt.tight_layout()
     return fig
@@ -2389,9 +2371,7 @@ def _build_combined_grid_figure(a_grid, b_grid, c_grid, M, N, K, title=None):
     return fig
 
 
-def draw_combined_mma_grid(
-    a_grid, b_grid, c_grid, M, N, K, filename=None, dpi=150, title=None
-):
+def draw_combined_mma_grid(a_grid, b_grid, c_grid, M, N, K, filename=None, dpi=150, title=None):
     """Draw combined A/B/C grid-dict panels in the standard MMA arrangement.
 
     This is the grid-dict counterpart of draw_mma_layout.  Use it when
@@ -2473,9 +2453,7 @@ def _build_copy_figure(
         fontsize=6,
         linewidth=0.5,
     )
-    ax.text(
-        cols / 2, -0.6, "Src", ha="center", va="bottom", fontsize=10, fontweight="bold"
-    )
+    ax.text(cols / 2, -0.6, "Src", ha="center", va="bottom", fontsize=10, fontweight="bold")
 
     # Destination grid (right)
     dst_ox = cols + gap
@@ -2619,9 +2597,7 @@ def _build_swizzle_figure(
             figsize = _swizzle_figsize(linear_idx, swizzle_idx, rows, cols)
 
     def _swizzle_color_indices(idx_array):
-        return np.vectorize(lambda v: (int(v) >> bit_shift) % effective_colors)(
-            idx_array
-        )
+        return np.vectorize(lambda v: (int(v) >> bit_shift) % effective_colors)(idx_array)
 
     linear_ci = _swizzle_color_indices(linear_idx)
     swizzle_ci = _swizzle_color_indices(swizzle_idx)
@@ -2712,7 +2688,9 @@ def _expand_hier_slice(spec, shape):
     elif is_tuple(spec):
         if is_tuple(shape):
             if len(spec) != len(shape):
-                raise ValueError(f"Rank mismatch: spec has {len(spec)} elements, shape has {len(shape)}")
+                raise ValueError(
+                    f"Rank mismatch: spec has {len(spec)} elements, shape has {len(shape)}"
+                )
             sub_iters = [_expand_hier_slice(s, sh) for s, sh in zip(spec, shape)]
             for combo in itertools.product(*sub_iters):
                 yield combo
@@ -2745,24 +2723,17 @@ def _match_nested_slice_component(coord, spec, shape) -> bool:
         return coord == spec
     if isinstance(spec, slice):
         if is_tuple(coord):
-            raise TypeError(
-                f"Slice spec {spec} requires a scalar coordinate, got {coord!r}"
-            )
+            raise TypeError(f"Slice spec {spec} requires a scalar coordinate, got {coord!r}")
         return coord in range(*spec.indices(shape))
     if is_tuple(spec):
         if not is_tuple(coord) or not is_tuple(shape):
-            raise TypeError(
-                f"Tuple spec {spec!r} is incompatible with coordinate {coord!r}"
-            )
+            raise TypeError(f"Tuple spec {spec!r} is incompatible with coordinate {coord!r}")
         if len(spec) != len(coord) or len(spec) != len(shape):
             raise ValueError(
                 f"Tuple spec length {len(spec)} does not match coordinate/shape lengths "
                 f"{len(coord)} / {len(shape)}"
             )
-        return all(
-            _match_nested_slice_component(c, s, sh)
-            for c, s, sh in zip(coord, spec, shape)
-        )
+        return all(_match_nested_slice_component(c, s, sh) for c, s, sh in zip(coord, spec, shape))
     raise TypeError(f"Unsupported slice component {spec!r}")
 
 
@@ -2826,8 +2797,7 @@ def _get_slice_highlight_mask_2d(layout, slice_spec) -> np.ndarray:
     elif isinstance(slice_spec, tuple) and r < 2:
         if len(slice_spec) != 1:
             raise ValueError(
-                f"Rank-{r} layout requires a 1-element tuple slice_spec, "
-                f"got {len(slice_spec)}"
+                f"Rank-{r} layout requires a 1-element tuple slice_spec, got {len(slice_spec)}"
             )
         (col_spec,) = slice_spec
         col_flat = _is_flat_slice_component(col_spec)
@@ -2852,9 +2822,7 @@ def _build_slice_figure(
     num_colors=8,
 ):
     """Build the slice figure used by draw_slice/show_slice."""
-    grid = _prepare_offset_grid(
-        layout, color_layout=color_layout, slice_spec=slice_spec
-    )
+    grid = _prepare_offset_grid(layout, color_layout=color_layout, slice_spec=slice_spec)
 
     if figsize is None:
         figsize = (grid.cols * 0.5 + 1, grid.rows * 0.5 + 1)
@@ -3290,7 +3258,6 @@ def show_composite(
 def demo(output_dir: str = "."):
     """Generate example visualizations in all formats."""
     from pathlib import Path
-
 
     output = Path(output_dir)
     output.mkdir(parents=True, exist_ok=True)
