@@ -622,7 +622,7 @@ def rank(obj: Any) -> int:
         return len(obj)
     if isinstance(obj, Layout):
         if is_int(obj.shape):
-            return 0
+            return 1
         return len(obj.shape)
     if is_int(obj):
         return 0
@@ -658,6 +658,10 @@ def mode(obj: Any, idx):
                 raise IndexError(f"Index {idx} out of range for scalar layout")
             return obj
         return Layout(obj.shape[idx], obj.stride[idx])
+    if is_int(obj):
+        if idx != 0:
+            raise IndexError(f"Index {idx} out of range for scalar")
+        return obj
     raise TypeError(f"Cannot get mode of {type(obj).__name__}")
 
 

@@ -227,6 +227,12 @@ def test_layout_type_validation():
 
 
 def test_layout_rank_size_cosize():
+    # Single-mode layout is rank 1 (one mode), not rank 0
+    L_vec = Layout(31, 1)
+    assert rank(L_vec) == 1
+    assert size(L_vec) == 31
+    assert mode(L_vec, 0) == L_vec
+
     L5 = Layout((64, 32), (1, 128))
     assert rank(L5) == 2
     assert size(L5) == 2048
