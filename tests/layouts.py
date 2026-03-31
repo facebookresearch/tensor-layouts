@@ -64,7 +64,7 @@ def test_tuple_single_element():
 
 
 def test_tuple_nested_single_element():
-    t = (((2,)))
+    t = (2,)
     assert len(t) == 1
     assert size(t) == 2
     assert rank(t) == 1
@@ -170,6 +170,42 @@ def test_congruent():
     assert not congruent((3, 128), (1, 256, 64))
     assert congruent((2, (3, 4)), (5, (6, 7)))
     assert not congruent((2, (3, 4)), (5, 6))
+
+
+def test_weakly_congruent():
+    # Both scalars → True (same as congruent)
+    assert weakly_congruent(3, 5)
+    # Scalar A matches any B (the key relaxation over congruent)
+    assert weakly_congruent(6, (2, 3))
+    assert weakly_congruent(1, ((2, 3), (4, 5)))
+    # Tuple A vs scalar B → False (A is more structured)
+    assert not weakly_congruent((2, 3), 6)
+    assert not weakly_congruent(((2, 3), 4), 24)
+    # Scalar A vs 1-tuple B → True
+    assert weakly_congruent(6, (6,))
+    # 1-tuple A vs scalar B → False
+    assert not weakly_congruent((6,), 6)
+    # Same flat rank → True
+    assert weakly_congruent((2, 3), (4, 5))
+    assert weakly_congruent((3, 128, 128), (1, 256, 64))
+    # Different flat rank → False
+    assert not weakly_congruent((3, 128), (1, 256, 64))
+    assert not weakly_congruent((1, 256, 64), (3, 128))
+    # Same nested structure → True
+    assert weakly_congruent((2, (3, 4)), (5, (6, 7)))
+    # A deeper than B in a sub-mode → False
+    assert not weakly_congruent((2, (3, 4)), (5, 6))
+    # A flatter than B in a sub-mode → True (scalar sub-mode matches nested B)
+    assert weakly_congruent((2, 3), (5, (6, 7)))
+    # Deeply nested: A flat sub-mode vs B's deep nesting
+    assert weakly_congruent((2, 3), ((4, 5), ((6, 7), 8)))
+    # Asymmetry: congruent ↔ weakly_congruent in both directions,
+    # but weakly_congruent only in one direction when profiles differ
+    assert congruent((2, 3), (4, 5))
+    assert weakly_congruent((2, 3), (4, 5))
+    assert weakly_congruent((4, 5), (2, 3))
+    assert weakly_congruent(6, (2, 3))
+    assert not weakly_congruent((2, 3), 6)
 
 
 def test_compatible():
@@ -441,9 +477,9 @@ def test_coordinate_validation():
         L([1, 2])
 
     # Valid cases still work
-    assert L(1) == 1          # flat index
-    assert L(1, 2) == 9       # tuple coord via *args
-    assert L((1, 2)) == 9     # tuple coord via single arg
+    assert L(1) == 1  # flat index
+    assert L(1, 2) == 9  # tuple coord via *args
+    assert L((1, 2)) == 9  # tuple coord via single arg
 
 
 def test_idx2crd_crd2flat_crd2offset():
@@ -497,16 +533,16 @@ def test_shape_div_non_divisible():
     (e.g., shape_div/mod won't be complementary), so we assert.
     """
     # Valid cases where divisibility holds
-    assert shape_div(12, 4) == 3     # 12%4==0
-    assert shape_div(4, 12) == 1     # 12%4==0
-    assert shape_div(8, 2) == 4      # 8%2==0
-    assert shape_div(2, 8) == 1      # 8%2==0
+    assert shape_div(12, 4) == 3  # 12%4==0
+    assert shape_div(4, 12) == 1  # 12%4==0
+    assert shape_div(8, 2) == 4  # 8%2==0
+    assert shape_div(2, 8) == 1  # 8%2==0
 
     # Invalid cases should raise ValueError
     with pytest.raises(ValueError):
-        shape_div(6, 4)   # 6%4≠0, 4%6≠0
+        shape_div(6, 4)  # 6%4≠0, 4%6≠0
     with pytest.raises(ValueError):
-        shape_div(4, 6)   # 4%6≠0, 6%4≠0
+        shape_div(4, 6)  # 4%6≠0, 6%4≠0
 
 
 def test_shape_mod_non_divisible():
@@ -520,9 +556,9 @@ def test_shape_mod_non_divisible():
     #   shape_mod(2, 2) = gcd(2,2) = 2
     assert shape_mod((6, 2), 4) == (2, 2)
     # Scalar shape_mod: when modulus < shape, returns gcd
-    assert shape_mod(6, 4) == 2      # gcd(6,4) = 2
+    assert shape_mod(6, 4) == 2  # gcd(6,4) = 2
     # Scalar shape_mod: when modulus >= shape, returns shape
-    assert shape_mod(4, 6) == 4      # 6 >= 4, returns 4
+    assert shape_mod(4, 6) == 4  # 6 >= 4, returns 4
 
 
 def test_shape_div_mod_complementary():
@@ -531,11 +567,15 @@ def test_shape_div_mod_complementary():
     This holds when the divisor evenly divides each mode it consumes.
     """
     test_cases = [
-        ((6, 2), 2), ((6, 2), 3),
-        ((6, 2), 6), ((6, 2), 12),
-        ((4, 3), 2), ((4, 3), 4),
+        ((6, 2), 2),
+        ((6, 2), 3),
+        ((6, 2), 6),
+        ((6, 2), 12),
+        ((4, 3), 2),
+        ((4, 3), 4),
         ((4, 3), 12),
-        ((3, 6, 2, 8), 3), ((3, 6, 2, 8), 9),
+        ((3, 6, 2, 8), 3),
+        ((3, 6, 2, 8), 9),
         ((3, 6, 2, 8), 72),
     ]
     for shape, div in test_cases:
@@ -1061,7 +1101,9 @@ def test_core_matrix_operations():
     # For a 2-byte dtype such as f16, core matrix is 8x8
     tile1 = Layout((8, 1), (1, 0))  # (8,1):(1,0)
     mul1 = Layout((1, 8), (0, 1))
-    tile2 = coalesce(blocked_product(tile1, mul1), profile=(None, None))  # (8,8):(1,8) -> One core Matrix
+    tile2 = coalesce(
+        blocked_product(tile1, mul1), profile=(None, None)
+    )  # (8,8):(1,8) -> One core Matrix
     assert tile2 == Layout((8, 8), (1, 8))
     # Now organize core matrices into 8x8 pattern, so that we have a 64x64 Tile, say in SMem
     mul2 = Layout((8, 8), (1, 8))
@@ -1286,11 +1328,12 @@ def test_swizzled_layout_eq_hash():
 
 def test_offset_swizzled_layout_basic():
     from tensor_layouts import Tensor
+
     sw_layout = compose(Swizzle(3, 0, 3), Layout((8, 8), (8, 1)))
     tensor = Tensor(sw_layout)
     # Slicing a Tensor produces a Tensor with offset
     row_slice = tensor[3, :]
-    assert hasattr(row_slice, 'offset')
+    assert hasattr(row_slice, "offset")
     assert row_slice.offset == Layout((8, 8), (8, 1))(3, 0)  # = 24
 
     # Check functional correctness: tensor[3, :](j) == tensor(3, j)
@@ -1300,6 +1343,7 @@ def test_offset_swizzled_layout_basic():
 
 def test_offset_swizzled_layout_repr():
     from tensor_layouts import Tensor
+
     sw_layout = compose(Swizzle(3, 0, 3), Layout((8, 8), (8, 1)))
     tensor = Tensor(sw_layout)
     row_slice = tensor[2, :]
@@ -1310,6 +1354,7 @@ def test_offset_swizzled_layout_repr():
 
 def test_offset_swizzled_layout_eq():
     from tensor_layouts import Tensor
+
     sw_layout = compose(Swizzle(3, 0, 3), Layout((8, 8), (8, 1)))
     tensor = Tensor(sw_layout)
     slice1 = tensor[3, :]
@@ -1455,6 +1500,7 @@ def test_tile_to_shape_nested_block():
 
 ## is_layout
 
+
 def test_is_layout():
     assert is_layout(Layout(4, 1)) is True
     assert is_layout(Layout((2, 3), (1, 2))) is True
@@ -1465,6 +1511,7 @@ def test_is_layout():
 
 
 ## unflatten
+
 
 def test_unflatten_tuple():
     # Flat tuple -> nested tuple
@@ -1563,6 +1610,7 @@ def test_make_ordered_layout_scalar():
 
 ## dice_modes
 
+
 def test_dice_modes_scalar_coord():
     # Scalar coord: identity (keep everything)
     layout = Layout((3, 4), (1, 4))
@@ -1619,6 +1667,7 @@ def test_dice_modes_complement_of_slice_modes():
 
 
 ## nullspace
+
 
 def test_nullspace_all_zero_strides():
     # All stride-0: everything is in the kernel
@@ -1687,6 +1736,7 @@ def test_nullspace_scalar_zero_stride():
 
 ## max_common_vector and max_common_layout
 
+
 def test_max_common_vector_identical():
     # Same layout: all elements are common
     a = Layout(8, 1)
@@ -1730,6 +1780,7 @@ def test_max_common_layout_partial():
 
 ## flat_product
 
+
 def test_flat_product_basic():
     # flat_product = zipped_product then unpack both modes
     block = Layout(4, 1)
@@ -1755,6 +1806,7 @@ def test_flat_product_2d():
 
 
 ## raked_product
+
 
 def test_raked_product_basic():
     # raked_product vs blocked_product: reversed zip order
@@ -1870,8 +1922,11 @@ def test_upcast_known_copy_atoms():
     derived from the CUTLASS C++ copy_traits_sm75.hpp source.
     """
     from tensor_layouts.atoms_nv import (
-        SM75_U32x1_LDSM_N, SM75_U32x4_LDSM_N,
-        SM75_U16x2_LDSM_T, SM75_U16x4_LDSM_T, SM75_U16x8_LDSM_T,
+        SM75_U32x1_LDSM_N,
+        SM75_U32x4_LDSM_N,
+        SM75_U16x2_LDSM_T,
+        SM75_U16x4_LDSM_T,
+        SM75_U16x8_LDSM_T,
     )
 
     cases = [
@@ -1951,9 +2006,12 @@ def test_iter_layout_2d_col_major():
     layout = Layout((2, 3), (1, 2))
     result = list(iter_layout(layout))
     expected = [
-        ((0, 0), 0), ((1, 0), 1),   # col 0
-        ((0, 1), 2), ((1, 1), 3),   # col 1
-        ((0, 2), 4), ((1, 2), 5),   # col 2
+        ((0, 0), 0),
+        ((1, 0), 1),  # col 0
+        ((0, 1), 2),
+        ((1, 1), 3),  # col 1
+        ((0, 2), 4),
+        ((1, 2), 5),  # col 2
     ]
     assert result == expected
 
