@@ -81,8 +81,8 @@ class TestTensorConstruction:
         layout = Layout(32, 1)
         tensor = Tensor(layout)
 
-        # Scalar shape has rank 0 in CuTe convention
-        assert rank(tensor.layout) == 0
+        # Single-mode layout has rank 1 (one mode)
+        assert rank(tensor.layout) == 1
         assert size(tensor.layout) == 32
         for i in range(32):
             assert tensor(i) == i
