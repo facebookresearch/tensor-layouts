@@ -83,6 +83,7 @@ draw_layout(Layout((8, 8), (8, 1)), title="Row-Major 8x8", colorize=True)
 | `flatten_hierarchical` | `bool` | `True` | Flatten nested shapes to 2D grid |
 | `label_hierarchy_levels` | `bool` | `False` | In nested hierarchical mode, annotate hierarchy levels at tile/block granularity; label colors match boundary colors |
 | `cell_labels` | `bool`, `str`, or `list` | `True` | Controls cell text: `True` = full detail, `"offset"` = offset number only, `False` = no text, list/tuple = custom labels indexed by offset |
+| `interleave_colors` | `bool` | `False` | Reorder rainbow palette so consecutive indices share hues (blue, lt blue, green, lt green, ...). |
 
 ### Coloring
 

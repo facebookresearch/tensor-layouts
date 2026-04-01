@@ -146,7 +146,7 @@ def _make_grayscale_palette(n: int) -> list:
     return [f"#{grays[k]:02X}{grays[k]:02X}{grays[k]:02X}" for k in order]
 
 
-def _make_rainbow_palette(n: int) -> list:
+def _make_rainbow_palette(n: int, interleave: bool = False) -> list:
     """Generate n distinct rainbow colors.
 
     Uses 8 base colors to match cute-viz palette for n <= 8.
@@ -154,6 +154,10 @@ def _make_rainbow_palette(n: int) -> list:
     (small n → pastel, large n → more vivid so adjacent hues stay
     distinguishable), then applies a bit-reversal reorder so consecutive
     palette indices are maximally different in hue.
+
+    When interleave=True, same-hue shades are placed consecutively
+    (blue, lt blue, green, lt green, ...) so that consecutive indices
+    share hues. This matches the CuTe paper's coloring convention.
     """
     # 8 base colors matching cute-viz pastel palette
     base_colors = [
@@ -166,6 +170,14 @@ def _make_rainbow_palette(n: int) -> list:
         "#FFFFD2",  # Lighter yellow
         "#FFD2D2",  # Lighter red
     ]
+    if interleave:
+        # Reorder so same-hue shades are adjacent: (blue, lt blue, green, lt green, ...)
+        half = len(base_colors) // 2
+        interleaved = []
+        for i in range(half):
+            interleaved.append(base_colors[i])
+            interleaved.append(base_colors[i + half])
+        base_colors = interleaved
     if n <= len(base_colors):
         return base_colors[:n]
     # Ramp saturation from pastel (0.35 near n=8) to vivid (0.60 at n>=32)
@@ -460,6 +472,7 @@ def _draw_grid(
     label_fontsize: float = 8,
     cell_fontsize: Optional[float] = None,
     cell_labels=True,
+    interleave_colors: bool = False,
 ):
     """Draw a grid of cells with indices on a matplotlib axis.
 
@@ -502,7 +515,7 @@ def _draw_grid(
 
     # Build the appropriate palette
     if colorize:
-        colors = _make_rainbow_palette(num_colors)
+        colors = _make_rainbow_palette(num_colors, interleave=interleave_colors)
     else:
         colors = _make_grayscale_palette(num_colors)
 
@@ -1272,6 +1285,7 @@ def _draw_hierarchical_grid(
     label_hierarchy_levels: bool = False,
     cell_labels: bool = True,
     num_colors: int = 8,
+    interleave_colors: bool = False,
 ):
     """Draw a hierarchical layout grid.
 
@@ -1303,7 +1317,7 @@ def _draw_hierarchical_grid(
 
     # Build palette
     if colorize:
-        colors = _make_rainbow_palette(num_colors)
+        colors = _make_rainbow_palette(num_colors, interleave=interleave_colors)
     else:
         colors = _make_grayscale_palette(num_colors)
 
@@ -1519,6 +1533,7 @@ def _build_layout_figure(
     flatten_hierarchical: bool = True,
     label_hierarchy_levels: bool = False,
     cell_labels: bool = True,
+    interleave_colors: bool = False,
 ):
     """Build the layout figure used by draw_layout/show_layout.
 
@@ -1640,6 +1655,7 @@ def _build_layout_figure(
                 color_indices=grid.color_indices,
                 num_colors=num_colors,
                 cell_labels=cell_labels,
+                interleave_colors=interleave_colors,
             )
 
         for idx in range(n_panels, len(axes)):
@@ -1689,6 +1705,7 @@ def _build_layout_figure(
             flatten_hierarchical=False,
             label_hierarchy_levels=label_hierarchy_levels,
             cell_labels=cell_labels,
+            interleave_colors=interleave_colors,
             num_colors=num_colors,
         )
     else:
@@ -1700,6 +1717,7 @@ def _build_layout_figure(
             color_indices=grid.color_indices,
             num_colors=num_colors,
             cell_labels=cell_labels,
+            interleave_colors=interleave_colors,
         )
 
     return fig
@@ -1718,6 +1736,7 @@ def draw_layout(
     flatten_hierarchical: bool = True,
     label_hierarchy_levels: bool = False,
     cell_labels: bool = True,
+    interleave_colors: bool = False,
 ):
     """Draw a layout or tensor and save to file.
 
@@ -1756,6 +1775,9 @@ def draw_layout(
             "offset" shows only the offset number. False suppresses all text.
             A list/tuple of strings labels cells by offset (e.g.,
             list("ABCDEFGHIJ...") to show letters).
+        interleave_colors: If True, reorder the rainbow palette so that
+            consecutive indices share hues (blue, lt blue, green, lt green, ...).
+            Matches the CuTe paper's coloring convention.
     """
     fig = _build_layout_figure(
         layout,
@@ -1768,6 +1790,7 @@ def draw_layout(
         flatten_hierarchical=flatten_hierarchical,
         label_hierarchy_levels=label_hierarchy_levels,
         cell_labels=cell_labels,
+        interleave_colors=interleave_colors,
     )
     _save_figure(fig, filename, dpi)
 
@@ -2962,6 +2985,7 @@ def show_layout(
     flatten_hierarchical: bool = True,
     label_hierarchy_levels: bool = False,
     cell_labels: bool = True,
+    interleave_colors: bool = False,
 ):
     """Display a layout or tensor inline (for Jupyter notebooks).
 
@@ -2981,6 +3005,7 @@ def show_layout(
         label_hierarchy_levels: For hierarchical nested views, if True annotate
             axes with each hierarchy level at block/tile granularity.
         cell_labels: True for full detail, "offset" for offset only, False for none.
+        interleave_colors: If True, consecutive palette indices share hues.
 
     Returns:
         matplotlib Figure
@@ -2996,6 +3021,7 @@ def show_layout(
         flatten_hierarchical=flatten_hierarchical,
         label_hierarchy_levels=label_hierarchy_levels,
         cell_labels=cell_labels,
+        interleave_colors=interleave_colors,
     )
 
 
