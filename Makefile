@@ -1,4 +1,4 @@
-.PHONY: build clean test docs lint
+.PHONY: build clean test check docs lint examples
 
 build:
 	pip install -e .
@@ -13,8 +13,13 @@ clean:
 test:
 	python -m pytest tests/ -v
 
+check: test
+
 docs:
 	python3 docs/generate_figures.py
 
 lint:
 	ruff check src/ tests/ examples/
+
+examples:
+	python3 examples/viz.py
