@@ -247,9 +247,9 @@ def test_rank3_layout_produces_multi_panel():
     assert rank(divided) == 3
     fig = show_layout(divided)
     try:
-        # shape=(2, 4, 8) → 2 panels of 4×8
+        # shape=(2, 4, 8) → modes 0,1 are 2×4 grid, mode 2 = 8 panels
         with_content = [ax for ax in fig.axes if len(ax.patches) > 0]
-        assert len(with_content) == 2
+        assert len(with_content) == 8
     finally:
         plt.close(fig)
 
@@ -272,10 +272,10 @@ def test_rank3_panel_values_match_layout():
                         pass
             return None
 
-        # Panel 0: divided(0, 0, 0)
+        # Panel 0: divided(0, 0, 0) — mode[2]=0
         assert _cell_val(fig.axes[0], 0.5, 0.5) == divided(0, 0, 0)
-        # Panel 1: divided(1, 0, 0)
-        assert _cell_val(fig.axes[1], 0.5, 0.5) == divided(1, 0, 0)
+        # Panel 1: divided(0, 0, 1) — mode[2]=1
+        assert _cell_val(fig.axes[1], 0.5, 0.5) == divided(0, 0, 1)
     finally:
         plt.close(fig)
 
@@ -290,9 +290,9 @@ def test_rank4_layout_renders():
     assert rank(L) == 4
     fig = show_layout(L)
     try:
-        # 2*3=6 panels of 4×5
+        # modes 0,1 = 2×3 grid, modes 2,3 = 4×5 = 20 panels
         with_content = [ax for ax in fig.axes if len(ax.patches) > 0]
-        assert len(with_content) == 6
+        assert len(with_content) == 20
     finally:
         plt.close(fig)
 
