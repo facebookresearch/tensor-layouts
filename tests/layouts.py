@@ -503,6 +503,37 @@ def test_idx2crd_crd2flat_crd2offset():
     assert crd2idx(16, layout.shape, layout.stride) == 17  # 3-arg -> crd2offset
 
 
+def test_idx2crd_accepts_layout():
+    """idx2crd and crd2flat accept Layout objects as the shape argument."""
+    L = Layout((3, (2, 4)))
+    for i in range(size(L)):
+        assert idx2crd(i, L) == idx2crd(i, L.shape)
+        crd = idx2crd(i, L.shape)
+        assert crd2flat(crd, L) == crd2flat(crd, L.shape)
+
+
+def test_crd2crd_hierarchical_to_flat():
+    """crd2crd converts hierarchical coords to flat coords with src_shape."""
+    S = Layout(((2, 3), 2))
+    src = S.shape               # ((2, 3), 2)
+    dst = tuple(size(s) for s in src)  # (6, 2)
+
+    # Verify all coordinates round-trip correctly
+    for i in range(size(S)):
+        crd_hier = idx2crd(i, src)
+        crd_flat = crd2crd(crd_hier, dst, src)
+        assert crd_flat == idx2crd(i, dst)
+
+    # Spot-check specific values
+    assert crd2crd(((0, 1), 0), (6, 2), ((2, 3), 2)) == (2, 0)
+    assert crd2crd(((1, 2), 1), (6, 2), ((2, 3), 2)) == (5, 1)
+
+    # Existing behavior: expand int -> tuple, flatten tuple -> int
+    assert crd2crd(3, (2, 4)) == (1, 1)
+    assert crd2crd((1, 0), 8, (2, 4)) == 1
+    assert crd2crd((1, 2), (3, 4)) == (1, 2)
+
+
 def test_shape_division():
     ## Shape division and modulo, from Cute Layout Algebra docs
     assert shape_div((6, 2), 2) == (3, 2)

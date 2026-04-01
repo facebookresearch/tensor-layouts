@@ -2016,9 +2016,10 @@ def crd2crd(crd: Any, dst_shape: Any, src_shape: Any = None) -> Any:
         src_shape: The source shape (required when crd is tuple and dst_shape is scalar)
 
     Examples:
-        crd2crd(3, (2, 4)) -> (1, 0)        # expand index 3 into (2,4)
+        crd2crd(3, (2, 4)) -> (1, 1)        # expand index 3 into (2,4)
         crd2crd((1, 0), 8, (2, 4)) -> 1     # flatten (1,0) from (2,4) space
         crd2crd((1, 2), (3, 4)) -> (1, 2)   # identity transform
+        crd2crd(((0, 1), 0), (6, 2), ((2, 3), 2)) -> (2, 0)  # flatten per-mode
     """
     if is_tuple(crd):
         if is_tuple(dst_shape):
@@ -2026,6 +2027,8 @@ def crd2crd(crd: Any, dst_shape: Any, src_shape: Any = None) -> Any:
                 raise ValueError(
                     f"Rank mismatch: crd has {len(crd)} elements, dst_shape has {len(dst_shape)}"
                 )
+            if src_shape is not None and is_tuple(src_shape):
+                return tuple(crd2crd(c, d, s) for c, d, s in zip(crd, dst_shape, src_shape))
             return zip_transform(crd, dst_shape, crd2crd)
         else:
             # crd is tuple, dst_shape is scalar: flatten using src_shape
