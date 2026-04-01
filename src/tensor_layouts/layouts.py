@@ -1867,6 +1867,9 @@ def slice_and_offset(crd, layout: Layout):
 def idx2crd(coord: Any, shape: Any) -> Any:
     """Convert index into a hierarchical coordinate."""
 
+    if isinstance(shape, Layout):
+        shape = shape.shape
+
     if isinstance(shape, int):
         if isinstance(coord, int):
             return coord % shape
@@ -1899,6 +1902,9 @@ def crd2flat(coord: Any, shape: Any = None) -> int:
 
     Example: crd2flat((1, 1), (4, 4)) -> 5
     """
+
+    if isinstance(shape, Layout):
+        shape = shape.shape
 
     if isinstance(shape, int):
         if is_tuple(coord):
