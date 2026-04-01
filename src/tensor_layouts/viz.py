@@ -1552,17 +1552,16 @@ def _build_layout_figure(
             )
         colorize = True
 
-    # Rank >= 3: decompose into multiple 2D panels along the leading mode(s)
+    # Rank >= 3: decompose into multiple 2D panels along the trailing mode(s)
     r = rank(layout)
     if r >= 3:
-        # Group all leading modes (0..r-3) into a flat slice index,
-        # keeping the last two modes as the 2D grid per panel.
-        outer_sizes = [size(mode(layout.shape, i)) for i in range(r - 2)]
+        # Modes 0,1 form the 2D grid per panel; modes 2..r are the panel axes.
+        outer_sizes = [size(mode(layout.shape, i)) for i in range(2, r)]
         n_panels = 1
         for s in outer_sizes:
             n_panels *= s
-        inner_shape = as_shape(tuple(mode(layout.shape, i) for i in range(r - 2, r)))
-        inner_stride = as_shape(tuple(mode(layout.stride, i) for i in range(r - 2, r)))
+        inner_shape = as_shape(tuple(mode(layout.shape, i) for i in range(2)))
+        inner_stride = as_shape(tuple(mode(layout.stride, i) for i in range(2)))
 
         # Build per-panel sub-layouts and eval functions
         sub_layouts = []
@@ -1576,7 +1575,7 @@ def _build_layout_figure(
             # Offset contribution from fixed outer modes
             offset = 0
             for dim_idx, coord_val in enumerate(outer_coord):
-                m = mode(layout, dim_idx)
+                m = mode(layout, 2 + dim_idx)
                 offset += crd2offset(coord_val, m.shape, m.stride)
 
             sub = Layout(inner_shape, inner_stride, swizzle=layout.swizzle)
@@ -1609,7 +1608,7 @@ def _build_layout_figure(
                 sub_evals.append(_make_eval_plain(_off, _sub))
 
             if len(outer_sizes) == 1:
-                panel_titles.append(f"mode[0]={outer_coord[0]}")
+                panel_titles.append(f"mode[2]={outer_coord[0]}")
             else:
                 coord_str = ", ".join(str(c) for c in outer_coord)
                 panel_titles.append(f"outer=({coord_str})")
