@@ -1485,12 +1485,12 @@ def _draw_hierarchical_grid(
                         fontweight="bold",
                     )
         else:
-            # Single-level labels
+            # Single-level labels — plain integers, matching flat mode
             for i in range(rows):
                 ax.text(
                     -0.3,
                     i + 0.5,
-                    f"R{i}",
+                    str(i),
                     ha="center",
                     va="center",
                     fontsize=8,
@@ -1500,7 +1500,7 @@ def _draw_hierarchical_grid(
                 ax.text(
                     j + 0.5,
                     -0.3,
-                    f"C{j}",
+                    str(j),
                     ha="center",
                     va="center",
                     fontsize=8,
