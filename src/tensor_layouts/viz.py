@@ -459,6 +459,7 @@ def _draw_grid(
     label_color: str = "blue",
     label_fontsize: float = 8,
     cell_fontsize: Optional[float] = None,
+    cell_labels=True,
 ):
     """Draw a grid of cells with indices on a matplotlib axis.
 
@@ -575,10 +576,16 @@ def _draw_grid(
             idx = int(indices[i, j])
             facecolor = final_facecolors[i, j]
             text_color = "white" if _is_dark(facecolor) else "black"
+            if cell_labels is False:
+                continue
+            if isinstance(cell_labels, (list, tuple)):
+                label = str(cell_labels[idx]) if idx < len(cell_labels) else str(idx)
+            else:
+                label = str(idx)
             ax.text(
                 j + 0.5,
                 i + 0.5,
-                str(idx),
+                label,
                 ha="center",
                 va="center",
                 fontsize=cell_fontsize,
@@ -730,6 +737,7 @@ def _build_composite_figure(
         panel_label_levels = opts.get(
             "label_hierarchy_levels", label_hierarchy_levels
         )
+        panel_cell_labels = opts.get("cell_labels", True)
 
         # Get title
         title = titles[idx] if titles and idx < len(titles) else None
@@ -772,6 +780,7 @@ def _build_composite_figure(
                     color_indices=grid.color_indices,
                     flatten_hierarchical=False,
                     label_hierarchy_levels=panel_label_levels,
+                    cell_labels=panel_cell_labels,
                     num_colors=num_colors,
                 )
             else:
@@ -782,6 +791,7 @@ def _build_composite_figure(
                     colorize=panel_colorize,
                     color_indices=grid.color_indices,
                     num_colors=num_colors,
+                    cell_labels=panel_cell_labels,
                 )
 
     # Hide unused axes
@@ -1260,6 +1270,7 @@ def _draw_hierarchical_grid(
     color_indices: Optional[np.ndarray] = None,
     flatten_hierarchical: bool = True,
     label_hierarchy_levels: bool = False,
+    cell_labels: bool = True,
     num_colors: int = 8,
 ):
     """Draw a hierarchical layout grid.
@@ -1343,7 +1354,21 @@ def _draw_hierarchical_grid(
 
             is_dark_bg = _is_dark(facecolor)
             text_color = "white" if is_dark_bg else "black"
-            if flatten_hierarchical:
+            if cell_labels is False:
+                pass
+            elif isinstance(cell_labels, (list, tuple)):
+                # User-provided labels indexed by offset
+                label = str(cell_labels[idx]) if idx < len(cell_labels) else str(idx)
+                ax.text(
+                    j + 0.5,
+                    i + 0.5,
+                    label,
+                    ha="center",
+                    va="center",
+                    fontsize=8,
+                    color=text_color,
+                )
+            elif flatten_hierarchical or cell_labels == "offset":
                 # Draw flat offset value in cell
                 ax.text(
                     j + 0.5,
@@ -1493,6 +1518,7 @@ def _build_layout_figure(
     num_colors: int = 8,
     flatten_hierarchical: bool = True,
     label_hierarchy_levels: bool = False,
+    cell_labels: bool = True,
 ):
     """Build the layout figure used by draw_layout/show_layout.
 
@@ -1614,6 +1640,7 @@ def _build_layout_figure(
                 colorize=colorize,
                 color_indices=grid.color_indices,
                 num_colors=num_colors,
+                cell_labels=cell_labels,
             )
 
         for idx in range(n_panels, len(axes)):
@@ -1638,7 +1665,7 @@ def _build_layout_figure(
     )
 
     if figsize is None:
-        if grid.is_hierarchical:
+        if grid.is_hierarchical and cell_labels is True:
             figsize = _auto_hierarchical_figsize(
                 layout, grid.indices, grid.rows, grid.cols, label_hierarchy_levels
             )
@@ -1662,6 +1689,7 @@ def _build_layout_figure(
             color_indices=grid.color_indices,
             flatten_hierarchical=False,
             label_hierarchy_levels=label_hierarchy_levels,
+            cell_labels=cell_labels,
             num_colors=num_colors,
         )
     else:
@@ -1672,6 +1700,7 @@ def _build_layout_figure(
             colorize=colorize,
             color_indices=grid.color_indices,
             num_colors=num_colors,
+            cell_labels=cell_labels,
         )
 
     return fig
@@ -1689,6 +1718,7 @@ def draw_layout(
     num_colors: int = 8,
     flatten_hierarchical: bool = True,
     label_hierarchy_levels: bool = False,
+    cell_labels: bool = True,
 ):
     """Draw a layout or tensor and save to file.
 
@@ -1722,6 +1752,11 @@ def draw_layout(
         label_hierarchy_levels: For hierarchical nested views, if True annotate
             axes with each hierarchy level at block/tile granularity. Label
             colors match the corresponding hierarchy boundary lines.
+        cell_labels: Controls text inside cells. True (default) shows full
+            detail (row/col/offset in hierarchical mode, offset in flat mode).
+            "offset" shows only the offset number. False suppresses all text.
+            A list/tuple of strings labels cells by offset (e.g.,
+            list("ABCDEFGHIJ...") to show letters).
     """
     fig = _build_layout_figure(
         layout,
@@ -1733,6 +1768,7 @@ def draw_layout(
         num_colors=num_colors,
         flatten_hierarchical=flatten_hierarchical,
         label_hierarchy_levels=label_hierarchy_levels,
+        cell_labels=cell_labels,
     )
     _save_figure(fig, filename, dpi)
 
@@ -2926,6 +2962,7 @@ def show_layout(
     num_colors: int = 8,
     flatten_hierarchical: bool = True,
     label_hierarchy_levels: bool = False,
+    cell_labels: bool = True,
 ):
     """Display a layout or tensor inline (for Jupyter notebooks).
 
@@ -2944,6 +2981,7 @@ def show_layout(
             offset values. If False, show explicit cell labels.
         label_hierarchy_levels: For hierarchical nested views, if True annotate
             axes with each hierarchy level at block/tile granularity.
+        cell_labels: True for full detail, "offset" for offset only, False for none.
 
     Returns:
         matplotlib Figure
@@ -2958,6 +2996,7 @@ def show_layout(
         num_colors=num_colors,
         flatten_hierarchical=flatten_hierarchical,
         label_hierarchy_levels=label_hierarchy_levels,
+        cell_labels=cell_labels,
     )
 
 

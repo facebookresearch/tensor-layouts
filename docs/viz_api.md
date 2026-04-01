@@ -82,6 +82,7 @@ draw_layout(Layout((8, 8), (8, 1)), title="Row-Major 8x8", colorize=True)
 | `num_shades` | `int` | `8` | Number of distinct grayscale shades |
 | `flatten_hierarchical` | `bool` | `True` | Flatten nested shapes to 2D grid |
 | `label_hierarchy_levels` | `bool` | `False` | In nested hierarchical mode, annotate hierarchy levels at tile/block granularity; label colors match boundary colors |
+| `cell_labels` | `bool`, `str`, or `list` | `True` | Controls cell text: `True` = full detail, `"offset"` = offset number only, `False` = no text, list/tuple = custom labels indexed by offset |
 
 ### Coloring
 
@@ -162,6 +163,31 @@ coordinates, e.g. `row[0]=...`, `row[1]=...`, `col[0]=...`, `col[1]=...`.
 
 For examples where the hierarchy itself is central to the lesson, enabling
 `label_hierarchy_levels=True` is recommended.
+
+#### Cell Label Modes
+
+The verbose row/col/offset labels can be distracting on larger grids. Use
+`cell_labels` to control what text appears inside cells:
+
+```python
+hier = Layout(((2, 2), (2, 2)), ((1, 4), (2, 8)))
+
+# Offset number only — hierarchy boundaries and axis labels are preserved
+draw_layout(hier, flatten_hierarchical=False, label_hierarchy_levels=True,
+            cell_labels="offset")
+
+# No text at all — just colored grid with hierarchy boundaries
+draw_layout(hier, flatten_hierarchical=False, label_hierarchy_levels=True,
+            cell_labels=False, colorize=True)
+
+# Custom labels indexed by offset value
+import string
+draw_layout(hier, cell_labels=list(string.ascii_uppercase[:size(hier)]),
+            colorize=True)
+```
+
+`cell_labels` also works in flat mode (`flatten_hierarchical=True`), where
+`False` suppresses offset numbers and a list provides custom labels.
 
 You can push this further with deeper asymmetric hierarchies to test how the
 level labels behave when cells become small:

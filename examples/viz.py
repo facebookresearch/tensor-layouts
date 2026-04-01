@@ -384,6 +384,62 @@ def example_hierarchical_layouts(output: Path):
     print(f"✓ Coalesced: {coal_layout}")
 
     # =========================================================================
+    # Cell Label Modes
+    #
+    # cell_labels controls what text appears inside each cell:
+    #   True        — default (offset in flat mode, row/col/offset in nested)
+    #   "offset"    — just the offset number (useful with hierarchy boundaries)
+    #   False       — no text (colored grid + boundaries only)
+    #   list/tuple  — custom labels indexed by offset value
+    # =========================================================================
+    print("\n  --- Cell Label Modes ---")
+
+    demo = Layout(((2, 2), (2, 2)), ((1, 4), (2, 8)))
+
+    # Flat mode: default labels (offset numbers) vs no labels
+    draw_layout(demo, output / "cell_labels_flat_default.svg",
+                title="Flat: cell_labels=True (default)",
+                colorize=True, flatten_hierarchical=True)
+    draw_layout(demo, output / "cell_labels_flat_none.svg",
+                title="Flat: cell_labels=False",
+                colorize=True, flatten_hierarchical=True, cell_labels=False)
+    print(f"✓ Flat mode: default vs cell_labels=False")
+
+    # Flat mode: custom labels (alphabet)
+    import string
+    labels = list(string.ascii_uppercase[:size(demo)])
+    draw_layout(demo, output / "cell_labels_flat_custom.svg",
+                title="Flat: cell_labels=['A','B',...]",
+                colorize=True, flatten_hierarchical=True, cell_labels=labels)
+    print(f"✓ Flat mode: cell_labels={labels}")
+
+    # Hierarchical mode: full detail (default)
+    draw_layout(demo, output / "cell_labels_hier_default.svg",
+                title="Nested: cell_labels=True (default)",
+                colorize=True, flatten_hierarchical=False,
+                label_hierarchy_levels=True)
+
+    # Hierarchical mode: offset only — keeps boundaries + axis labels,
+    # replaces verbose row/col/offset with a single number
+    draw_layout(demo, output / "cell_labels_hier_offset.svg",
+                title='Nested: cell_labels="offset"',
+                colorize=True, flatten_hierarchical=False,
+                label_hierarchy_levels=True, cell_labels="offset")
+
+    # Hierarchical mode: no text at all
+    draw_layout(demo, output / "cell_labels_hier_none.svg",
+                title="Nested: cell_labels=False",
+                colorize=True, flatten_hierarchical=False,
+                label_hierarchy_levels=True, cell_labels=False)
+
+    # Hierarchical mode: custom labels
+    draw_layout(demo, output / "cell_labels_hier_custom.svg",
+                title="Nested: cell_labels=['A','B',...]",
+                colorize=True, flatten_hierarchical=False,
+                label_hierarchy_levels=True, cell_labels=labels)
+    print(f'✓ Nested mode: default / "offset" / False / custom labels')
+
+    # =========================================================================
     # Examples from "Cute Layout Representation and Algebra" by Cris Cecka
     # =========================================================================
     print("\n  --- From Cecka, 'CuTe Layout Representation and Algebra' ---")
