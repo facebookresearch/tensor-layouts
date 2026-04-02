@@ -156,11 +156,23 @@ class Tensor:
             raise TypeError(f"Invalid slice key: {key}")
 
     def _slice_multi(self, keys: tuple) -> "Tensor | int":
-        """Handle multi-dimensional slicing like tensor[i, :]."""
+        """Handle multi-dimensional slicing like tensor[i, :] or tensor[i, ((0, None), None)].
+
+        Supports three kinds of per-mode keys:
+          - int or tuple of ints: fix the mode to that coordinate
+          - None or slice(None): keep the entire mode free
+          - tuple containing None(s): partial hierarchical slice
+        """
         if len(keys) != rank(self._layout):
             raise IndexError(
                 f"Expected {rank(self._layout)} indices, got {len(keys)}"
             )
+
+        # Check if any key is a partial hierarchical slice (tuple with Nones).
+        # If so, delegate to slice_and_offset which handles this correctly.
+        if any(self._has_nested_none(k) for k in keys):
+            sub, offset = slice_and_offset(keys, self._layout)
+            return Tensor(sub, self._offset + offset)
 
         fixed_modes = []
         sliced_modes = []
@@ -181,6 +193,18 @@ class Tensor:
 
         new_layout = self._build_remaining_layout(sliced_modes)
         return Tensor(new_layout, self._offset + fixed_offset)
+
+    @staticmethod
+    def _has_nested_none(key) -> bool:
+        """Check if a key contains None inside a nested tuple."""
+        if not isinstance(key, tuple):
+            return False
+        for item in key:
+            if item is None:
+                return True
+            if isinstance(item, tuple) and Tensor._has_nested_none(item):
+                return True
+        return False
 
     def _build_remaining_layout(self, mode_indices) -> Layout:
         """Build a Layout from selected modes."""
