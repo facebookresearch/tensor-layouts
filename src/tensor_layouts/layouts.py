@@ -168,6 +168,7 @@ __all__ = [
     "is_injective",
     "is_surjective",
     "is_bijective",
+    "is_contiguous",
     # Functional equivalence
     "functionally_equal",
 ]
@@ -849,6 +850,7 @@ def iter_layout(layout: Layout):
 #   is_injective  -- no two coordinates map to the same offset
 #   is_surjective -- every offset in the codomain is hit
 #   is_bijective  -- both (the layout is a permutation)
+#   is_contiguous -- maps to [0, size) with no gaps or aliasing (== bijective)
 #
 
 
@@ -916,6 +918,26 @@ def is_bijective(layout: Layout) -> bool:
     """
     img = image(layout)
     return len(img) == size(layout) and len(img) == cosize(layout)
+
+
+def is_contiguous(layout: Layout) -> bool:
+    """True if the layout maps to the dense range [0, size).
+
+    A contiguous layout visits every offset in ``{0, 1, ..., size-1}``
+    exactly once.  Equivalently, ``size == cosize`` and the layout is
+    injective — there are no gaps and no aliasing.
+
+    This is the same as :func:`is_bijective` but named for readability
+    when the question is "does this layout occupy a contiguous block of
+    memory starting at offset 0?"
+
+    Examples:
+        is_contiguous(Layout(4, 1))              # True
+        is_contiguous(Layout((2, 2), (2, 1)))    # True (row-major 2x2)
+        is_contiguous(Layout(4, 2))              # False (gaps)
+        is_contiguous(Layout((4, 2), (0, 1)))    # False (aliasing)
+    """
+    return is_bijective(layout)
 
 
 # =============================================================================

@@ -686,16 +686,6 @@ def _is_injective(layout):
     return True
 
 
-def _is_contiguous(layout):
-    """Check if a layout maps to a contiguous range [0, size-1].
-
-    A contiguous layout has cosize == size, meaning there are no gaps.
-    """
-    s = size(layout)
-    if s == 0:
-        return True
-    vals = set(layout(i) for i in range(s))
-    return vals == set(range(s))
 
 
 def test_exhaustive_left_inverse_identity():
@@ -707,7 +697,7 @@ def test_exhaustive_left_inverse_identity():
     for layout in _generate_small_layouts():
         if not _is_injective(layout):
             continue
-        if not _is_contiguous(layout):
+        if not is_contiguous(layout):
             continue
         linv = left_inverse(layout)
         for i in range(size(layout)):
@@ -828,8 +818,8 @@ def test_exhaustive_inverse_roundtrip():
                 f"right_inverse({layout}): L(R({i})) != {i}"
             )
 
-        # left_inverse property: R(L(i)) == i (only for injective + contiguous layouts)
-        if _is_injective(layout) and _is_contiguous(layout):
+        # left_inverse property: R(L(i)) == i (only for contiguous layouts)
+        if is_contiguous(layout):
             linv = left_inverse(layout)
             for i in range(size(layout)):
                 assert linv(layout(i)) == i, (

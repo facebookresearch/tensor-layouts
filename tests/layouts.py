@@ -2218,6 +2218,41 @@ def test_image_injectivity_consistency():
         assert is_injective(l) == (len(img) == size(l))
 
 
+## is_contiguous
+
+
+def test_is_contiguous_basic():
+    """Contiguous layouts map to [0, size)."""
+    assert is_contiguous(Layout(4, 1))
+    assert is_contiguous(Layout((2, 3), (1, 2)))
+    assert is_contiguous(Layout((2, 3), (3, 1)))
+
+
+def test_is_contiguous_strided():
+    """Strided layout has gaps -- not contiguous."""
+    assert not is_contiguous(Layout(4, 2))
+
+
+def test_is_contiguous_broadcast():
+    """Broadcast layout has aliasing -- not contiguous."""
+    assert not is_contiguous(Layout((4, 2), (0, 1)))
+
+
+def test_is_contiguous_agrees_with_bijective():
+    """is_contiguous and is_bijective agree on all test layouts."""
+    layouts = [
+        Layout(4, 1),
+        Layout(4, 2),
+        Layout((4, 2), (0, 1)),
+        Layout((3, 3), (1, 3)),
+        Layout((2, 4), (4, 1)),
+        Layout((8, 8), (8, 1)),
+        Layout(1, 0),
+    ]
+    for l in layouts:
+        assert is_contiguous(l) == is_bijective(l)
+
+
 ## functionally_equal
 
 

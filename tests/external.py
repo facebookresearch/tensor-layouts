@@ -1287,10 +1287,7 @@ def _test_left_inverse_cpp(layout):
         return
 
     # No broadcast modes — check injectivity and contiguity via enumeration
-    vals = set(layout(i) for i in range(size(layout)))
-    is_inj = len(vals) == size(layout)
-    is_contiguous = vals == set(range(size(layout)))
-    if is_inj and is_contiguous:
+    if is_contiguous(layout):
         for i in range(size(layout)):
             li = layout(i)
             ili = inv_layout(li)
