@@ -89,6 +89,9 @@ class Tensor:
             return f"Tensor({self._layout}, offset={self._offset})"
         return f"Tensor({self._layout})"
 
+    def __str__(self) -> str:
+        return f"{{{self._offset}}} ∘ {self._layout}"
+
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, Tensor):
             return False

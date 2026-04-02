@@ -2918,7 +2918,10 @@ def _build_slice_figure(
         figsize = (grid.cols * 0.5 + 1, grid.rows * 0.5 + 1)
 
     if title is None:
-        title = f"{layout}[{slice_spec}]"
+        sub, offset = slice_and_offset(slice_spec, as_layout(layout))
+        # Unwrap single-mode results for cleaner display
+        display_sub = Layout(unwrap(sub.shape), unwrap(sub.stride))
+        title = f"{{{offset}}}∘{display_sub}"
 
     fig, ax = plt.subplots(figsize=figsize)
     _draw_grid(
