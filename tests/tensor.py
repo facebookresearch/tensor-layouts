@@ -1009,6 +1009,259 @@ class TestCuTeCompatibility:
         assert Ts_none.layout == Ts_colon.layout
 
 
+# =============================================================================
+# Tensor Storage
+# =============================================================================
+
+class TestTensorStorage:
+    """Tests for Tensor data storage, element access, and view semantics."""
+
+    def test_construction_with_data(self):
+        """Tensor can be constructed with storage."""
+        layout = Layout((4, 8), (8, 1))
+        buf = list(range(32))
+        t = Tensor(layout, data=buf)
+        assert t.data is buf
+        assert t.layout == layout
+        assert t.offset == 0
+
+    def test_construction_with_data_and_offset(self):
+        """Tensor can have both offset and data."""
+        buf = list(range(64))
+        t = Tensor(Layout((4, 8), (8, 1)), offset=5, data=buf)
+        assert t.offset == 5
+        assert t.data is buf
+
+    def test_data_too_small_raises(self):
+        """Storage smaller than cosize raises ValueError."""
+        layout = Layout((4, 8), (8, 1))  # cosize = 32
+        with pytest.raises(ValueError, match="smaller than layout cosize"):
+            Tensor(layout, data=list(range(10)))
+
+    def test_data_larger_than_cosize(self):
+        """Storage can be larger than cosize."""
+        layout = Layout((4, 8), (8, 1))  # cosize = 32
+        buf = list(range(100))
+        t = Tensor(layout, data=buf)
+        assert t.data is buf
+
+    def test_data_none_by_default(self):
+        """Without data, tensor.data is None."""
+        t = Tensor(Layout((4, 8), (8, 1)))
+        assert t.data is None
+
+    def test_data_property_setter(self):
+        """The data property is writable."""
+        layout = Layout((4, 8), (8, 1))
+        t = Tensor(layout)
+        assert t.data is None
+
+        buf = list(range(32))
+        t.data = buf
+        assert t.data is buf
+
+    def test_data_setter_validates_size(self):
+        """Setting data too small raises ValueError."""
+        layout = Layout((4, 8), (8, 1))  # cosize = 32
+        t = Tensor(layout)
+        with pytest.raises(ValueError, match="smaller than layout cosize"):
+            t.data = list(range(10))
+
+    def test_data_setter_accepts_none(self):
+        """Setting data to None removes storage."""
+        buf = list(range(32))
+        t = Tensor(Layout((4, 8), (8, 1)), data=buf)
+        t.data = None
+        assert t.data is None
+
+    def test_getitem_returns_data_element(self):
+        """With data, tensor[i, j] returns data[offset]."""
+        layout = Layout((4, 8), (8, 1))
+        buf = list("ABCDEFGHIJKLMNOPQRSTUVWXYZ012345")
+        t = Tensor(layout, data=buf)
+
+        assert t[0, 0] == "A"  # buf[0]
+        assert t[0, 1] == "B"  # buf[1]
+        assert t[1, 0] == "I"  # buf[8]
+        assert t[3, 7] == "5"  # buf[31]
+
+    def test_getitem_without_data_returns_offset(self):
+        """Without data, tensor[i, j] still returns the offset integer."""
+        layout = Layout((4, 8), (8, 1))
+        t = Tensor(layout)
+        assert t[2, 3] == 19
+
+    def test_call_unaffected_by_data(self):
+        """tensor(i, j) always returns the offset, even with data."""
+        layout = Layout((4, 8), (8, 1))
+        buf = list("ABCDEFGHIJKLMNOPQRSTUVWXYZ012345")
+        t = Tensor(layout, data=buf)
+        assert t(2, 3) == 19  # offset, not 'T'
+
+    def test_getitem_single_mode_returns_data(self):
+        """Rank-1 tensor: tensor[i] returns data element."""
+        buf = list("ABCDEFGH")
+        t = Tensor(Layout(8, 1), data=buf)
+        assert t[0] == "A"
+        assert t[7] == "H"
+
+    def test_getitem_via_fix_mode_returns_data(self):
+        """Data access through _fix_mode path (single-key indexing on rank-2)."""
+        buf = list(range(32))
+        t = Tensor(Layout((4, 8), (1, 4)), data=buf)
+        # t[2] fixes mode 0 → sub-Tensor
+        row = t[2]
+        assert isinstance(row, Tensor)
+        assert row.data is buf
+
+    def test_setitem_writes_to_data(self):
+        """tensor[i, j] = val writes data[offset]."""
+        buf = list(range(32))
+        t = Tensor(Layout((4, 8), (8, 1)), data=buf)
+
+        t[2, 3] = 999
+        assert buf[19] == 999
+        assert t[2, 3] == 999
+
+    def test_setitem_rank1(self):
+        """Scalar write on rank-1 tensor."""
+        buf = list(range(16))
+        t = Tensor(Layout(8, 2), data=buf)
+        t[3] = 42
+        assert buf[6] == 42  # offset = 3*2 = 6
+
+    def test_setitem_without_data_raises(self):
+        """Writing to a tensor with no storage raises TypeError."""
+        t = Tensor(Layout((4, 8), (8, 1)))
+        with pytest.raises(TypeError, match="no storage"):
+            t[2, 3] = 42
+
+    def test_slice_shares_data(self):
+        """Sub-Tensors from slicing share the parent's data."""
+        buf = list(range(32))
+        t = Tensor(Layout((4, 8), (8, 1)), data=buf)
+        row2 = t[2, :]
+        assert row2.data is buf
+
+    def test_slice_data_read(self):
+        """Reading through a sliced sub-Tensor accesses correct data."""
+        buf = list(range(32))
+        t = Tensor(Layout((4, 8), (8, 1)), data=buf)
+        row2 = t[2, :]
+        # row2[3] should be buf[tensor(2, 3)] = buf[19] = 19
+        assert row2[3] == 19
+        assert row2[3] == t[2, 3]
+
+    def test_slice_data_write(self):
+        """Writing through a sliced sub-Tensor modifies shared data."""
+        buf = list(range(32))
+        t = Tensor(Layout((4, 8), (8, 1)), data=buf)
+        row2 = t[2, :]
+        row2[3] = 999
+        assert buf[19] == 999
+        assert t[2, 3] == 999
+
+    def test_chained_slice_data(self):
+        """tensor[i, :][j] returns the same data element as tensor[i, j]."""
+        buf = list(range(32))
+        t = Tensor(Layout((4, 8), (8, 1)), data=buf)
+        for i in range(4):
+            for j in range(8):
+                assert t[i, :][j] == t[i, j]
+
+    def test_hierarchical_slice_propagates_data(self):
+        """Data is propagated through hierarchical partial slicing."""
+        layout = Layout(((2, 4), 8), ((1, 2), 8))
+        buf = list(range(cosize(layout)))
+        t = Tensor(layout, data=buf)
+
+        sub = t[((0, None), None)]
+        assert sub.data is buf
+
+    def test_data_swap_does_not_affect_existing_slices(self):
+        """Reassigning parent.data does not update existing sub-Tensors."""
+        buf1 = list(range(32))
+        buf2 = list(range(100, 132))
+        t = Tensor(Layout((4, 8), (8, 1)), data=buf1)
+        row = t[2, :]
+
+        t.data = buf2
+        # row still references buf1
+        assert row.data is buf1
+        assert row[0] == 16  # buf1[16]
+        # parent now reads from buf2
+        assert t[2, 0] == 116  # buf2[16]
+
+
+# =============================================================================
+# Tensor Equality with Data
+# =============================================================================
+
+class TestTensorEqualityWithData:
+    """Tests for __eq__ when storage is present."""
+
+    def test_same_contents_equal(self):
+        """Tensors with same layout, offset, and data contents are equal."""
+        layout = Layout(8, 1)
+        a = Tensor(layout, data=[1, 2, 3, 4, 5, 6, 7, 8])
+        b = Tensor(layout, data=[1, 2, 3, 4, 5, 6, 7, 8])
+        assert a == b
+
+    def test_different_contents_not_equal(self):
+        """Tensors with different data contents are not equal."""
+        layout = Layout(8, 1)
+        a = Tensor(layout, data=[1, 2, 3, 4, 5, 6, 7, 8])
+        b = Tensor(layout, data=[8, 7, 6, 5, 4, 3, 2, 1])
+        assert a != b
+
+    def test_one_has_data_other_does_not(self):
+        """Tensor with data != Tensor without data."""
+        layout = Layout(8, 1)
+        a = Tensor(layout, data=[1, 2, 3, 4, 5, 6, 7, 8])
+        b = Tensor(layout)
+        assert a != b
+        assert b != a
+
+    def test_both_none_equal(self):
+        """Two algebraic Tensors with same layout/offset are equal (existing behavior)."""
+        layout = Layout((4, 8), (8, 1))
+        a = Tensor(layout)
+        b = Tensor(layout)
+        assert a == b
+
+    def test_same_data_identity_shortcut(self):
+        """Tensors sharing the same data object are equal."""
+        layout = Layout(8, 1)
+        buf = [1, 2, 3, 4, 5, 6, 7, 8]
+        a = Tensor(layout, data=buf)
+        b = Tensor(layout, data=buf)
+        assert a == b
+
+    def test_different_data_lengths_not_equal(self):
+        """Tensors with different data lengths are not equal."""
+        layout = Layout(4, 1)
+        a = Tensor(layout, data=[1, 2, 3, 4])
+        b = Tensor(layout, data=[1, 2, 3, 4, 5, 6, 7, 8])
+        assert a != b
+
+    def test_hash_consistent_with_equality(self):
+        """Equal Tensors must have equal hashes."""
+        layout = Layout(8, 1)
+        a = Tensor(layout, data=[1, 2, 3, 4, 5, 6, 7, 8])
+        b = Tensor(layout, data=[1, 2, 3, 4, 5, 6, 7, 8])
+        assert a == b
+        assert hash(a) == hash(b)
+
+    def test_different_data_can_collide_hash(self):
+        """Tensors with different data may have same hash (collision OK)."""
+        layout = Layout(8, 1)
+        a = Tensor(layout, data=[1, 2, 3, 4, 5, 6, 7, 8])
+        b = Tensor(layout, data=[8, 7, 6, 5, 4, 3, 2, 1])
+        # Same hash is allowed even though a != b
+        assert hash(a) == hash(b)  # both have same (layout, offset)
+        assert a != b
+
+
 if __name__ == "__main__":
     import subprocess
     import sys

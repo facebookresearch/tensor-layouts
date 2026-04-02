@@ -20,11 +20,20 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-"""Tensor class: combines a Layout with a base offset (pointer equivalent).
+"""Tensor class: combines a Layout with a base offset and optional storage.
 
 In CuTe, a Tensor is (Engine/Pointer, Layout). Here we represent the pointer
-as an integer offset. The Tensor holds the offset and provides slicing operations
-that accumulate offset contributions while reducing the layout.
+as an integer offset and optionally attach storage (any indexable object such
+as a list, numpy array, or torch tensor).
+
+When storage is present:
+  - ``tensor[i, j]`` returns the data element at the computed offset
+  - ``tensor[i, j] = val`` writes to that position
+  - ``draw_layout(tensor)`` auto-labels cells with data values
+  - Slicing produces sub-Tensors that share the same storage (view semantics)
+
+When storage is absent, the Tensor is purely algebraic and ``tensor[i, j]``
+returns the integer offset (the original behavior).
 
 IMPORTANT: For swizzled layouts, the base offset is a *linear* offset that
 gets added to the linear coordinate-to-offset result BEFORE swizzling.
@@ -36,14 +45,16 @@ from .layouts import *
 
 
 class Tensor:
-    """A Tensor combines a base offset with a Layout.
+    """A Tensor combines a base offset and optional storage with a Layout.
 
     In CuTe C++, a Tensor is (Pointer, Layout) where the pointer holds the
-    base address into memory. Here we represent the pointer as an integer
-    offset, which is sufficient for the algebraic operations.
+    base address into memory.  Here we model the pointer as an integer offset
+    and optionally attach a storage object so elements can be read and written
+    through logical coordinates.
 
     Tensor supports slicing: fixing coordinates accumulates their offset
-    contribution and returns a new Tensor with a reduced Layout.
+    contribution and returns a new Tensor with a reduced Layout.  Sub-Tensors
+    produced by slicing share the parent's storage (view semantics).
 
     IMPORTANT: For swizzled layouts, the offset is a *linear* offset.
     The swizzle is applied to (linear_offset + linear_layout_result) at
@@ -57,16 +68,36 @@ class Tensor:
     Args:
         layout: The Layout describing the coordinate-to-offset mapping
         offset: The base offset in linear (pre-swizzle) space (default 0)
+        data:   Optional storage (any indexable object — list, numpy array,
+                torch tensor, etc.).  Must satisfy ``len(data) >= cosize(layout)``.
+                Stored by reference (no copy).
 
     Examples:
-        t = Tensor(Layout((8, 8), (8, 1)))
-        t(3, 5)  -> offset for coordinate (3, 5)
-        t[3, :]  -> Tensor with row 3's offset and column layout
+        Algebraic (no storage)::
+
+            t = Tensor(Layout((4, 8), (8, 1)))
+            t(3, 5)   # 29  — memory offset
+            t[3, :]   # Tensor with row 3's offset and column layout
+            t[3, 5]   # 29  — all modes fixed, returns int offset
+
+        With storage::
+
+            t = Tensor(Layout((4, 8), (8, 1)), data=list(range(32)))
+            t[2, 3]        # data[2*8 + 3] = data[19] → 19
+            t[2, :][3]     # same result via slicing
+            t[0, 0] = 99   # writes data[0] = 99
+            t.data = list(range(100, 132))  # swap storage
     """
 
-    def __init__(self, layout: Layout, offset: int = 0):
+    def __init__(self, layout: Layout, offset: int = 0, data=None):
         self._layout = layout
         self._offset = offset
+        if data is not None and len(data) < cosize(self._layout):
+            raise ValueError(
+                f"Storage length {len(data)} is smaller than "
+                f"layout cosize {cosize(self._layout)}"
+            )
+        self._data = data
 
     @property
     def layout(self) -> Layout:
@@ -84,6 +115,29 @@ class Tensor:
     def stride(self):
         return self._layout.stride
 
+    @property
+    def data(self):
+        """The backing storage, or None if this is a purely algebraic Tensor.
+
+        Assignable: ``tensor.data = new_array`` replaces the storage reference.
+        The new storage must satisfy ``len(new_data) >= cosize(layout)``.
+
+        Note: sub-Tensors produced by slicing hold their own reference to the
+        storage object.  Reassigning ``parent.data`` does *not* update existing
+        sub-Tensors (they keep the old reference).  This matches numpy/torch
+        view semantics.
+        """
+        return self._data
+
+    @data.setter
+    def data(self, value):
+        if value is not None and len(value) < cosize(self._layout):
+            raise ValueError(
+                f"Storage length {len(value)} is smaller than "
+                f"layout cosize {cosize(self._layout)}"
+            )
+        self._data = value
+
     def __repr__(self) -> str:
         if self._offset:
             return f"Tensor({self._layout}, offset={self._offset})"
@@ -95,7 +149,17 @@ class Tensor:
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, Tensor):
             return False
-        return self._layout == other._layout and self._offset == other._offset
+        if self._layout != other._layout or self._offset != other._offset:
+            return False
+        if self._data is None and other._data is None:
+            return True
+        if self._data is None or other._data is None:
+            return False
+        if self._data is other._data:
+            return True
+        return len(self._data) == len(other._data) and all(
+            a == b for a, b in zip(self._data, other._data)
+        )
 
     def __hash__(self):
         return hash((self._layout, self._offset))
@@ -121,20 +185,40 @@ class Tensor:
         return total_linear
 
     def __getitem__(self, key):
-        """Slice the tensor by fixing some coordinates.
+        """Slice the tensor or access a data element.
 
         Fixed coordinates contribute to the offset; free coordinates (:)
-        remain in the resulting tensor's layout.
+        remain in the resulting tensor's layout.  When all coordinates are
+        fixed and storage is present, returns the data element at the
+        computed offset instead of the raw offset integer.
 
         Examples:
-            tensor[3, :]  -- fix mode 0 to 3, keep mode 1
-            tensor[:, 5]  -- keep mode 0, fix mode 1 to 5
-            tensor[2, 3]  -- fix both modes, returns integer offset
+            tensor[3, :]  -- fix mode 0 to 3, keep mode 1 → sub-Tensor
+            tensor[:, 5]  -- keep mode 0, fix mode 1 to 5 → sub-Tensor
+            tensor[2, 3]  -- fix all modes → data[offset] or int offset
         """
         if isinstance(key, tuple):
             return self._slice_multi(key)
         else:
             return self._slice_single(key, 0)
+
+    def __setitem__(self, key, value):
+        """Write a value to storage at the given coordinates.
+
+        Only supports fully-fixed coordinates (all modes specified as
+        integers).  Requires storage to be present and mutable.
+
+        Examples:
+            tensor[2, 3] = 42   # writes data[tensor(2, 3)] = 42
+            tensor[5] = 99      # rank-1 tensor
+        """
+        if self._data is None:
+            raise TypeError("Cannot assign to a Tensor with no storage")
+        if isinstance(key, tuple):
+            offset = self(*key)
+        else:
+            offset = self(key)
+        self._data[offset] = value
 
     def _get_linear_mode_offset(self, mode_idx: int, coord) -> int:
         """Get the linear offset contribution from a mode (without swizzle)."""
@@ -148,7 +232,8 @@ class Tensor:
             # Slice with : (all elements) - return tensor for this mode
             mode_layout = mode(self._layout, mode_idx)
             return Tensor(Layout(mode_layout.shape, mode_layout.stride,
-                                swizzle=self._layout.swizzle), self._offset)
+                                swizzle=self._layout.swizzle), self._offset,
+                         data=self._data)
         elif isinstance(key, (int, tuple)):
             # Fixed coordinate - compute the linear offset contribution
             return self._fix_mode(mode_idx, key)
@@ -172,7 +257,7 @@ class Tensor:
         # If so, delegate to slice_and_offset which handles this correctly.
         if any(self._has_nested_none(k) for k in keys):
             sub, offset = slice_and_offset(keys, self._layout)
-            return Tensor(sub, self._offset + offset)
+            return Tensor(sub, self._offset + offset, data=self._data)
 
         fixed_modes = []
         sliced_modes = []
@@ -185,14 +270,17 @@ class Tensor:
                 raise TypeError(f"Invalid slice key at position {i}: {key}")
 
         if not sliced_modes:
-            # All modes fixed - return the computed offset
-            return self(*keys)
+            # All modes fixed - return data element or computed offset
+            offset = self(*keys)
+            if self._data is not None:
+                return self._data[offset]
+            return offset
 
         # Compute LINEAR offset contribution from fixed modes (no swizzle)
         fixed_offset = sum(self._get_linear_mode_offset(i, coord) for i, coord in fixed_modes)
 
         new_layout = self._build_remaining_layout(sliced_modes)
-        return Tensor(new_layout, self._offset + fixed_offset)
+        return Tensor(new_layout, self._offset + fixed_offset, data=self._data)
 
     @staticmethod
     def _has_nested_none(key) -> bool:
@@ -223,10 +311,14 @@ class Tensor:
         offset_contrib = self._get_linear_mode_offset(mode_idx, coord)
         remaining = [i for i in range(rank(self._layout)) if i != mode_idx]
         if not remaining:
-            # No modes left - return the computed offset
+            # No modes left - return data element or computed offset
             total_linear = self._offset + offset_contrib
             if self._layout.swizzle is not None:
-                return self._layout.swizzle(total_linear)
-            return total_linear
+                offset = self._layout.swizzle(total_linear)
+            else:
+                offset = total_linear
+            if self._data is not None:
+                return self._data[offset]
+            return offset
         new_layout = self._build_remaining_layout(remaining)
-        return Tensor(new_layout, self._offset + offset_contrib)
+        return Tensor(new_layout, self._offset + offset_contrib, data=self._data)
