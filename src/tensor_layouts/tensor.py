@@ -164,7 +164,7 @@ class Tensor:
         for i, key in enumerate(keys):
             if isinstance(key, (int, tuple)):
                 fixed_modes.append((i, key))
-            elif isinstance(key, slice) and key == slice(None):
+            elif key is None or (isinstance(key, slice) and key == slice(None)):
                 sliced_modes.append(i)
             else:
                 raise TypeError(f"Invalid slice key at position {i}: {key}")
