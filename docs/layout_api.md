@@ -309,16 +309,7 @@ swizzled = compose(Swizzle(3, 0, 3), Layout((8, 8), (8, 1)))
 
 ## Tensor
 
-`Tensor(layout, offset=0)` combines a Layout with a base offset (the
-pointer equivalent from CuTe C++).  Supports slicing:
-
-```python
-t = Tensor(Layout((4, 8), (8, 1)))
-t(2, 5)     # 21 — same as layout(2, 5)
-t[2, :]     # Tensor(8:1, offset=16) — row 2
-t[:, 5]     # Tensor(4:8, offset=5)  — column 5
-t[2, 5]     # 21 — fix all modes, returns int
-```
+See [`docs/tensor_api.md`](tensor_api.md).
 
 ## Tile
 

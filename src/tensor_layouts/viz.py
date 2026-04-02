@@ -591,7 +591,7 @@ def _draw_grid(
             text_color = "white" if _is_dark(facecolor) else "black"
             if cell_labels is False:
                 continue
-            if isinstance(cell_labels, (list, tuple)):
+            if not isinstance(cell_labels, (bool, str)):
                 label = str(cell_labels[idx]) if idx < len(cell_labels) else str(idx)
             else:
                 label = str(idx)
@@ -738,8 +738,9 @@ def _build_composite_figure(
         # Unwrap Tensor for offset-grid rendering
         eval_fn = None
         if isinstance(layout, Tensor):
-            eval_fn = layout.__call__
-            layout = layout.layout
+            tensor = layout
+            eval_fn = tensor.__call__
+            layout = tensor.layout
 
         # Merge with defaults
         panel_colorize = opts.get("colorize", colorize)
@@ -751,6 +752,10 @@ def _build_composite_figure(
             "label_hierarchy_levels", label_hierarchy_levels
         )
         panel_cell_labels = opts.get("cell_labels", True)
+
+        # Auto-label from Tensor data (after opts merge so user can override)
+        if eval_fn is not None and tensor.data is not None and panel_cell_labels is True:
+            panel_cell_labels = tensor.data
 
         # Get title
         title = titles[idx] if titles and idx < len(titles) else None
@@ -1370,8 +1375,8 @@ def _draw_hierarchical_grid(
             text_color = "white" if is_dark_bg else "black"
             if cell_labels is False:
                 pass
-            elif isinstance(cell_labels, (list, tuple)):
-                # User-provided labels indexed by offset
+            elif not isinstance(cell_labels, (bool, str)):
+                # User-provided or auto-generated labels indexed by offset
                 label = str(cell_labels[idx]) if idx < len(cell_labels) else str(idx)
                 ax.text(
                     j + 0.5,
@@ -1548,6 +1553,9 @@ def _build_layout_figure(
         layout = tensor.layout
         if title is None:
             title = repr(tensor)
+        # Auto-label cells with data values when storage is present
+        if tensor.data is not None and cell_labels is True:
+            cell_labels = tensor.data
 
     # Resolve color_by shorthand to a color_layout
     if color_by is not None:

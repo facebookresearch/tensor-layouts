@@ -22,4 +22,6 @@ lint:
 	ruff check src/ tests/ examples/
 
 examples:
+	python3 examples/layouts.py
+	python3 examples/tensor.py
 	python3 examples/viz.py
