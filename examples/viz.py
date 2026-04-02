@@ -62,6 +62,7 @@ def setup_output_dir(name: str = "examples_output") -> Path:
 # Section 1: Output Formats (SVG, PNG, PDF)
 # =============================================================================
 
+
 def example_output_formats(output: Path):
     """Demonstrate SVG, PNG, and PDF output formats.
 
@@ -89,57 +90,71 @@ def example_output_formats(output: Path):
     layout = Layout((4, 8), (8, 1))
 
     # SVG output - vector format (default, best for most uses)
-    draw_layout(layout, output / "format_example.svg",
-                title="(4,8):(8,1)")
+    draw_layout(layout, output / "format_example.svg", title="(4,8):(8,1)")
     print(f"✓ SVG: format_example.svg (vector, scalable)")
 
     # PNG output - raster format with configurable DPI
-    draw_layout(layout, output / "format_example.png",
-                title="(4,8):(8,1)", dpi=150)
+    draw_layout(layout, output / "format_example.png", title="(4,8):(8,1)", dpi=150)
     print(f"✓ PNG: format_example.png (raster, 150 dpi)")
 
     # PDF output - print-ready format
-    draw_layout(layout, output / "format_example.pdf",
-                title="(4,8):(8,1)")
+    draw_layout(layout, output / "format_example.pdf", title="(4,8):(8,1)")
     print(f"✓ PDF: format_example.pdf (print-ready)")
 
     # Demonstrate color_layout options
     layout_8x8 = Layout((8, 8), (8, 1))
 
     # Color by value (default) - same value = same color
-    draw_layout(layout_8x8, output / "color_by_value.svg",
-                title="color_layout=None (by value)")
+    draw_layout(layout_8x8, output / "color_by_value.svg", title="color_layout=None (by value)")
     print(f"✓ Color by value: color_by_value.svg")
 
     # Color by column - darker across columns (cute-viz style)
-    draw_layout(layout_8x8, output / "color_by_col.svg",
-                title="color_layout=(8,8):(0,1) (by column)",
-                color_layout=Layout((8, 8), (0, 1)))
+    draw_layout(
+        layout_8x8,
+        output / "color_by_col.svg",
+        title="color_layout=(8,8):(0,1) (by column)",
+        color_layout=Layout((8, 8), (0, 1)),
+    )
     print(f"✓ Color by column: color_by_col.svg")
 
     # Color by row - darker down rows
-    draw_layout(layout_8x8, output / "color_by_row.svg",
-                title="color_layout=(8,8):(1,0) (by row)",
-                color_layout=Layout((8, 8), (1, 0)))
+    draw_layout(
+        layout_8x8,
+        output / "color_by_row.svg",
+        title="color_layout=(8,8):(1,0) (by row)",
+        color_layout=Layout((8, 8), (1, 0)),
+    )
     print(f"✓ Color by row: color_by_row.svg")
 
     # Uniform color - no variation
-    draw_layout(layout_8x8, output / "color_uniform.svg",
-                title="color_layout=1:0 (uniform)",
-                color_layout=Layout(1, 0))
+    draw_layout(
+        layout_8x8,
+        output / "color_uniform.svg",
+        title="color_layout=1:0 (uniform)",
+        color_layout=Layout(1, 0),
+    )
     print(f"✓ Uniform color: color_uniform.svg")
 
     # Rainbow colors with different color_layout
-    draw_layout(layout_8x8, output / "color_by_col_rainbow.svg",
-                title="colorize=True, by column",
-                colorize=True, color_layout=Layout((8, 8), (0, 1)))
+    draw_layout(
+        layout_8x8,
+        output / "color_by_col_rainbow.svg",
+        title="colorize=True, by column",
+        colorize=True,
+        color_layout=Layout((8, 8), (0, 1)),
+    )
     print(f"✓ Rainbow by column: color_by_col_rainbow.svg")
 
     # color_by shorthand — equivalent to the manual color_layout above
-    draw_layout(layout_8x8, output / "color_by_row_shorthand.svg",
-                title='color_by="row"', color_by="row")
-    draw_layout(layout_8x8, output / "color_by_col_shorthand.svg",
-                title='color_by="column"', color_by="column")
+    draw_layout(
+        layout_8x8, output / "color_by_row_shorthand.svg", title='color_by="row"', color_by="row"
+    )
+    draw_layout(
+        layout_8x8,
+        output / "color_by_col_shorthand.svg",
+        title='color_by="column"',
+        color_by="column",
+    )
     print(f"✓ color_by shorthand: color_by_row_shorthand.svg, color_by_col_shorthand.svg")
 
     # Swizzle comparison showing row-group coloring (reveals permutation effect)
@@ -153,6 +168,7 @@ def example_output_formats(output: Path):
 # =============================================================================
 # Section 2: 1D Layouts
 # =============================================================================
+
 
 def example_1d_layouts(output: Path):
     """1D contiguous and strided layouts.
@@ -168,29 +184,36 @@ def example_1d_layouts(output: Path):
 
     # Contiguous 1D layout: 8 elements, stride 1
     layout_1d_contiguous = Layout(8, 1)
-    draw_layout(layout_1d_contiguous, output / "1d_contiguous.svg",
-                title="1D Contiguous: 8:1")
+    draw_layout(layout_1d_contiguous, output / "1d_contiguous.svg", title="1D Contiguous: 8:1")
     print(f"✓ 1D Contiguous: 8:1")
     print(f"  Maps index i → offset i (e.g., 3 → 3)")
 
     # Strided 1D layout: 8 elements, stride 2
     layout_1d_strided = Layout(8, 2)
-    draw_layout(layout_1d_strided, output / "1d_strided.svg",
-                title="1D Strided: 8:2")
+    draw_layout(layout_1d_strided, output / "1d_strided.svg", title="1D Strided: 8:2")
     print(f"✓ 1D Strided: 8:2")
     print(f"  Maps index i → offset 2*i (e.g., 3 → 6)")
 
     # Strided 1D layout: 4 elements, stride 4
     layout_1d_stride4 = Layout(4, 4)
-    draw_layout(layout_1d_stride4, output / "1d_stride4.svg",
-                title="1D Stride-4: 4:4")
+    draw_layout(layout_1d_stride4, output / "1d_stride4.svg", title="1D Stride-4: 4:4")
     print(f"✓ 1D Stride-4: 4:4")
     print(f"  Maps index i → offset 4*i (e.g., 2 → 8)")
+
+    # Transpose: render 1D layout as a column vector instead of a row
+    draw_layout(
+        layout_1d_contiguous,
+        output / "1d_contiguous_col.svg",
+        title="1D Column: 8:1 (transpose=True)",
+        transpose=True,
+    )
+    print(f"✓ 1D Column (transpose=True): renders as N×1 instead of 1×N")
 
 
 # =============================================================================
 # Section 3: 2D Layouts
 # =============================================================================
+
 
 def example_2d_layouts(output: Path):
     """2D row-major and column-major layouts.
@@ -207,35 +230,39 @@ def example_2d_layouts(output: Path):
     # Row-major 4x3: shape (4 rows, 3 cols), stride (3, 1)
     # Row i, Col j → offset = i*3 + j
     row_major_4x3 = Layout((4, 3), (3, 1))
-    draw_layout(row_major_4x3, output / "2d_row_major_4x3.svg",
-                title="Row-Major 4×3: (4,3):(3,1)")
+    draw_layout(row_major_4x3, output / "2d_row_major_4x3.svg", title="Row-Major 4×3: (4,3):(3,1)")
     print(f"✓ Row-Major 4×3: (4,3):(3,1)")
     print(f"  offset(i,j) = i*3 + j*1")
 
     # Column-major 4x3: shape (4 rows, 3 cols), stride (1, 4)
     # Row i, Col j → offset = i*1 + j*4
     col_major_4x3 = Layout((4, 3), (1, 4))
-    draw_layout(col_major_4x3, output / "2d_col_major_4x3.svg",
-                title="Col-Major 4×3: (4,3):(1,4)")
+    draw_layout(col_major_4x3, output / "2d_col_major_4x3.svg", title="Col-Major 4×3: (4,3):(1,4)")
     print(f"✓ Col-Major 4×3: (4,3):(1,4)")
     print(f"  offset(i,j) = i*1 + j*4")
 
     # 8x8 Row-major: shape (8 rows, 8 cols), stride (8, 1)
     # This is the common layout for matrix operations
     row_major_8x8 = Layout((8, 8), (8, 1))
-    draw_layout(row_major_8x8, output / "2d_row_major_8x8.svg",
-                title="Row-Major 8×8: (8,8):(8,1)")
-    draw_layout(row_major_8x8, output / "2d_row_major_8x8_color.svg",
-                title="Row-Major 8×8: (8,8):(8,1)", colorize=True)
+    draw_layout(row_major_8x8, output / "2d_row_major_8x8.svg", title="Row-Major 8×8: (8,8):(8,1)")
+    draw_layout(
+        row_major_8x8,
+        output / "2d_row_major_8x8_color.svg",
+        title="Row-Major 8×8: (8,8):(8,1)",
+        colorize=True,
+    )
     print(f"✓ Row-Major 8×8: (8,8):(8,1) [grayscale and colorized]")
     print(f"  offset(i,j) = i*8 + j*1")
 
     # 8x8 Column-major: shape (8 rows, 8 cols), stride (1, 8)
     col_major_8x8 = Layout((8, 8), (1, 8))
-    draw_layout(col_major_8x8, output / "2d_col_major_8x8.svg",
-                title="Col-Major 8×8: (8,8):(1,8)")
-    draw_layout(col_major_8x8, output / "2d_col_major_8x8_color.svg",
-                title="Col-Major 8×8: (8,8):(1,8)", colorize=True)
+    draw_layout(col_major_8x8, output / "2d_col_major_8x8.svg", title="Col-Major 8×8: (8,8):(1,8)")
+    draw_layout(
+        col_major_8x8,
+        output / "2d_col_major_8x8_color.svg",
+        title="Col-Major 8×8: (8,8):(1,8)",
+        colorize=True,
+    )
     print(f"✓ Col-Major 8×8: (8,8):(1,8) [grayscale and colorized]")
     print(f"  offset(i,j) = i*1 + j*8")
 
@@ -243,6 +270,7 @@ def example_2d_layouts(output: Path):
 # =============================================================================
 # Section 4: Hierarchical Layouts
 # =============================================================================
+
 
 def example_hierarchical_layouts(output: Path):
     """Hierarchical (nested) layouts - flattened and nested views.
@@ -275,8 +303,12 @@ def example_hierarchical_layouts(output: Path):
             print(f"    (({i},0),({j},0)) → {idx}")
 
     # Flat view (default)
-    draw_layout(hier_2x2_3x4, output / "hier_2x2_3x4_flat.svg",
-                title=f"Flat: {hier_2x2_3x4}", flatten_hierarchical=True)
+    draw_layout(
+        hier_2x2_3x4,
+        output / "hier_2x2_3x4_flat.svg",
+        title=f"Flat: {hier_2x2_3x4}",
+        flatten_hierarchical=True,
+    )
     print(f"✓ Flat view: hier_2x2_3x4_flat.svg")
 
     # Nested pedagogical view:
@@ -284,9 +316,13 @@ def example_hierarchical_layouts(output: Path):
     #   - each cell shows col=... (nested column coordinate)
     #   - each cell shows offset=... (resulting offset)
     #   - axes stay simple (R0, R1, ... / C0, C1, ...)
-    draw_layout(hier_2x2_3x4, output / "hier_2x2_3x4_nested.svg",
-                title=f"Nested: {hier_2x2_3x4}", flatten_hierarchical=False,
-                label_hierarchy_levels=True)
+    draw_layout(
+        hier_2x2_3x4,
+        output / "hier_2x2_3x4_nested.svg",
+        title=f"Nested: {hier_2x2_3x4}",
+        flatten_hierarchical=False,
+        label_hierarchy_levels=True,
+    )
     print(f"✓ Nested view: hier_2x2_3x4_nested.svg")
 
     # =========================================================================
@@ -306,13 +342,23 @@ def example_hierarchical_layouts(output: Path):
     # Tile (1,0): 4 6    Tile (1,1): 12 14
     #             5 7                13 15
 
-    draw_layout(logo_layout, output / "hier_2x2_tiles_flat.svg",
-                title=f"Flat: {logo_layout}", flatten_hierarchical=True)
-    draw_layout(logo_layout, output / "hier_2x2_tiles_nested.svg",
-                title=f"Nested: {logo_layout}", flatten_hierarchical=False,
-                label_hierarchy_levels=True)
+    draw_layout(
+        logo_layout,
+        output / "hier_2x2_tiles_flat.svg",
+        title=f"Flat: {logo_layout}",
+        flatten_hierarchical=True,
+    )
+    draw_layout(
+        logo_layout,
+        output / "hier_2x2_tiles_nested.svg",
+        title=f"Nested: {logo_layout}",
+        flatten_hierarchical=False,
+        label_hierarchy_levels=True,
+    )
     print(f"✓ Hierarchical 2×2 in 2×2 (logo layout): {logo_layout}")
-    print(f"  Nested view is pedagogical: row=... / col=... show nested coordinates, offset=... shows mapping")
+    print(
+        f"  Nested view is pedagogical: row=... / col=... show nested coordinates, offset=... shows mapping"
+    )
 
     # =========================================================================
     # Example 3: 3-level asymmetric hierarchy with per-level axis labels
@@ -373,14 +419,12 @@ def example_hierarchical_layouts(output: Path):
 
     # Flatten the hierarchical layout (algebra operation)
     flat_layout = flatten(logo_layout)
-    draw_layout(flat_layout, output / "hier_flattened.svg",
-                title=f"flatten(): {flat_layout}")
+    draw_layout(flat_layout, output / "hier_flattened.svg", title=f"flatten(): {flat_layout}")
     print(f"✓ Flattened (algebra): {flat_layout}")
 
     # Coalesce to merge contiguous dimensions
     coal_layout = coalesce(logo_layout)
-    draw_layout(coal_layout, output / "hier_coalesced.svg",
-                title=f"coalesce(): {coal_layout}")
+    draw_layout(coal_layout, output / "hier_coalesced.svg", title=f"coalesce(): {coal_layout}")
     print(f"✓ Coalesced: {coal_layout}")
 
     # =========================================================================
@@ -397,46 +441,80 @@ def example_hierarchical_layouts(output: Path):
     demo = Layout(((2, 2), (2, 2)), ((1, 4), (2, 8)))
 
     # Flat mode: default labels (offset numbers) vs no labels
-    draw_layout(demo, output / "cell_labels_flat_default.svg",
-                title="Flat: cell_labels=True (default)",
-                colorize=True, flatten_hierarchical=True)
-    draw_layout(demo, output / "cell_labels_flat_none.svg",
-                title="Flat: cell_labels=False",
-                colorize=True, flatten_hierarchical=True, cell_labels=False)
+    draw_layout(
+        demo,
+        output / "cell_labels_flat_default.svg",
+        title="Flat: cell_labels=True (default)",
+        colorize=True,
+        flatten_hierarchical=True,
+    )
+    draw_layout(
+        demo,
+        output / "cell_labels_flat_none.svg",
+        title="Flat: cell_labels=False",
+        colorize=True,
+        flatten_hierarchical=True,
+        cell_labels=False,
+    )
     print(f"✓ Flat mode: default vs cell_labels=False")
 
     # Flat mode: custom labels (alphabet)
     import string
-    labels = list(string.ascii_uppercase[:size(demo)])
-    draw_layout(demo, output / "cell_labels_flat_custom.svg",
-                title="Flat: cell_labels=['A','B',...]",
-                colorize=True, flatten_hierarchical=True, cell_labels=labels)
+
+    labels = list(string.ascii_uppercase[: size(demo)])
+    draw_layout(
+        demo,
+        output / "cell_labels_flat_custom.svg",
+        title="Flat: cell_labels=['A','B',...]",
+        colorize=True,
+        flatten_hierarchical=True,
+        cell_labels=labels,
+    )
     print(f"✓ Flat mode: cell_labels={labels}")
 
     # Hierarchical mode: full detail (default)
-    draw_layout(demo, output / "cell_labels_hier_default.svg",
-                title="Nested: cell_labels=True (default)",
-                colorize=True, flatten_hierarchical=False,
-                label_hierarchy_levels=True)
+    draw_layout(
+        demo,
+        output / "cell_labels_hier_default.svg",
+        title="Nested: cell_labels=True (default)",
+        colorize=True,
+        flatten_hierarchical=False,
+        label_hierarchy_levels=True,
+    )
 
     # Hierarchical mode: offset only — keeps boundaries + axis labels,
     # replaces verbose row/col/offset with a single number
-    draw_layout(demo, output / "cell_labels_hier_offset.svg",
-                title='Nested: cell_labels="offset"',
-                colorize=True, flatten_hierarchical=False,
-                label_hierarchy_levels=True, cell_labels="offset")
+    draw_layout(
+        demo,
+        output / "cell_labels_hier_offset.svg",
+        title='Nested: cell_labels="offset"',
+        colorize=True,
+        flatten_hierarchical=False,
+        label_hierarchy_levels=True,
+        cell_labels="offset",
+    )
 
     # Hierarchical mode: no text at all
-    draw_layout(demo, output / "cell_labels_hier_none.svg",
-                title="Nested: cell_labels=False",
-                colorize=True, flatten_hierarchical=False,
-                label_hierarchy_levels=True, cell_labels=False)
+    draw_layout(
+        demo,
+        output / "cell_labels_hier_none.svg",
+        title="Nested: cell_labels=False",
+        colorize=True,
+        flatten_hierarchical=False,
+        label_hierarchy_levels=True,
+        cell_labels=False,
+    )
 
     # Hierarchical mode: custom labels
-    draw_layout(demo, output / "cell_labels_hier_custom.svg",
-                title="Nested: cell_labels=['A','B',...]",
-                colorize=True, flatten_hierarchical=False,
-                label_hierarchy_levels=True, cell_labels=labels)
+    draw_layout(
+        demo,
+        output / "cell_labels_hier_custom.svg",
+        title="Nested: cell_labels=['A','B',...]",
+        colorize=True,
+        flatten_hierarchical=False,
+        label_hierarchy_levels=True,
+        cell_labels=labels,
+    )
     print(f'✓ Nested mode: default / "offset" / False / custom labels')
 
     # =========================================================================
@@ -446,53 +524,74 @@ def example_hierarchical_layouts(output: Path):
 
     # (4,8):(1,4) — column-major 4x8
     cecka_1 = Layout((4, 8), (1, 4))
-    draw_layout(cecka_1, output / "cecka_4x8_col.svg",
-                title="(4,8):(1,4)")
+    draw_layout(cecka_1, output / "cecka_4x8_col.svg", title="(4,8):(1,4)")
     print(f"✓ (4,8):(1,4) — column-major 4×8")
 
     # (4,8):(8,1) — row-major 4x8
     cecka_2 = Layout((4, 8), (8, 1))
-    draw_layout(cecka_2, output / "cecka_4x8_row.svg",
-                title="(4,8):(8,1)")
+    draw_layout(cecka_2, output / "cecka_4x8_row.svg", title="(4,8):(8,1)")
     print(f"✓ (4,8):(8,1) — row-major 4×8")
 
     # (4,8):(1,5) — non-injective layout (stride 5 with shape 8 wraps)
     cecka_3 = Layout((4, 8), (1, 5))
-    draw_layout(cecka_3, output / "cecka_4x8_s1_s5.svg",
-                title="(4,8):(1,5)")
+    draw_layout(cecka_3, output / "cecka_4x8_s1_s5.svg", title="(4,8):(1,5)")
     print(f"✓ (4,8):(1,5) — non-injective (surjective) layout")
 
     # (4,(4,2)):(4,(1,16)) — hierarchical column dimension
     # Nested rendering explicitly shows how the hierarchical column coordinate
     # maps to the final offset for each displayed cell.
     cecka_4 = Layout((4, (4, 2)), (4, (1, 16)))
-    draw_layout(cecka_4, output / "cecka_hier_col.svg",
-                title="(4,(4,2)):(4,(1,16))", flatten_hierarchical=False,
-                label_hierarchy_levels=True)
-    draw_layout(cecka_4, output / "cecka_hier_col_flat.svg",
-                title="(4,(4,2)):(4,(1,16))", flatten_hierarchical=True)
+    draw_layout(
+        cecka_4,
+        output / "cecka_hier_col.svg",
+        title="(4,(4,2)):(4,(1,16))",
+        flatten_hierarchical=False,
+        label_hierarchy_levels=True,
+    )
+    draw_layout(
+        cecka_4,
+        output / "cecka_hier_col_flat.svg",
+        title="(4,(4,2)):(4,(1,16))",
+        flatten_hierarchical=True,
+    )
     print(f"✓ (4,(4,2)):(4,(1,16)) — hierarchical column")
 
     # ((2,2),(4,2)):((1,8),(2,16)) — hierarchical in both modes
     # This is a good example where explicit row=... / col=... labels help explain
     # the two-level row and column structure.
     cecka_5 = Layout(((2, 2), (4, 2)), ((1, 8), (2, 16)))
-    draw_layout(cecka_5, output / "cecka_hier_both.svg",
-                title="((2,2),(4,2)):((1,8),(2,16))", flatten_hierarchical=False,
-                label_hierarchy_levels=True)
-    draw_layout(cecka_5, output / "cecka_hier_both_flat.svg",
-                title="((2,2),(4,2)):((1,8),(2,16))", flatten_hierarchical=True)
+    draw_layout(
+        cecka_5,
+        output / "cecka_hier_both.svg",
+        title="((2,2),(4,2)):((1,8),(2,16))",
+        flatten_hierarchical=False,
+        label_hierarchy_levels=True,
+    )
+    draw_layout(
+        cecka_5,
+        output / "cecka_hier_both_flat.svg",
+        title="((2,2),(4,2)):((1,8),(2,16))",
+        flatten_hierarchical=True,
+    )
     print(f"✓ ((2,2),(4,2)):((1,8),(2,16)) — hierarchical both modes")
 
     # ((2,2),(2,4)):((0,2),(0,4)) — zero-stride (broadcast) layout
     # The pedagogical nested view is especially useful here because repeated
     # offsets are easier to interpret when the source coordinates are explicit.
     cecka_6 = Layout(((2, 2), (2, 4)), ((0, 2), (0, 4)))
-    draw_layout(cecka_6, output / "cecka_broadcast.svg",
-                title="((2,2),(2,4)):((0,2),(0,4))", flatten_hierarchical=False,
-                label_hierarchy_levels=True)
-    draw_layout(cecka_6, output / "cecka_broadcast_flat.svg",
-                title="((2,2),(2,4)):((0,2),(0,4))", flatten_hierarchical=True)
+    draw_layout(
+        cecka_6,
+        output / "cecka_broadcast.svg",
+        title="((2,2),(2,4)):((0,2),(0,4))",
+        flatten_hierarchical=False,
+        label_hierarchy_levels=True,
+    )
+    draw_layout(
+        cecka_6,
+        output / "cecka_broadcast_flat.svg",
+        title="((2,2),(2,4)):((0,2),(0,4))",
+        flatten_hierarchical=True,
+    )
     print(f"✓ ((2,2),(2,4)):((0,2),(0,4)) — broadcast (zero-stride) layout")
 
     # Morton/Z-order layout using blocked_product (CuTe pattern)
@@ -502,14 +601,12 @@ def example_hierarchical_layouts(output: Path):
     morton1 = Layout((2, 2), (1, 2))
     morton2 = blocked_product(morton1, morton1)
     morton3 = blocked_product(morton1, morton2)
-    draw_layout(morton1, output / "hier_morton_2x2.svg",
-                title=f"Morton 2×2: {morton1}")
-    draw_layout(morton2, output / "hier_morton_4x4.svg",
-                title=f"Morton 4×4: {morton2}")
-    draw_layout(morton3, output / "hier_morton_8x8.svg",
-                title=f"Morton 8×8: {morton3}")
-    draw_layout(morton3, output / "hier_morton_8x8_color.svg",
-                title=f"Morton 8×8: {morton3}", colorize=True)
+    draw_layout(morton1, output / "hier_morton_2x2.svg", title=f"Morton 2×2: {morton1}")
+    draw_layout(morton2, output / "hier_morton_4x4.svg", title=f"Morton 4×4: {morton2}")
+    draw_layout(morton3, output / "hier_morton_8x8.svg", title=f"Morton 8×8: {morton3}")
+    draw_layout(
+        morton3, output / "hier_morton_8x8_color.svg", title=f"Morton 8×8: {morton3}", colorize=True
+    )
     print(f"✓ Morton 2×2: {morton1}")
     print(f"✓ Morton 4×4: {morton2}")
     print(f"✓ Morton 8×8: {morton3}")
@@ -517,20 +614,19 @@ def example_hierarchical_layouts(output: Path):
     # Show nested mode access
     # Mode 0 is the row dimension with shape (2, 2)
     mode0 = mode(logo_layout, 0)
-    draw_layout(mode0, output / "hier_mode0.svg",
-                title=f"Mode 0 (rows): {mode0}")
+    draw_layout(mode0, output / "hier_mode0.svg", title=f"Mode 0 (rows): {mode0}")
     print(f"✓ Mode 0 (rows): {mode0}")
 
     # Mode 1 is the column dimension with shape (2, 2)
     mode1 = mode(logo_layout, 1)
-    draw_layout(mode1, output / "hier_mode1.svg",
-                title=f"Mode 1 (cols): {mode1}")
+    draw_layout(mode1, output / "hier_mode1.svg", title=f"Mode 1 (cols): {mode1}")
     print(f"✓ Mode 1 (cols): {mode1}")
 
 
 # =============================================================================
 # Section 5: Swizzled Layouts
 # =============================================================================
+
 
 def example_swizzled_layouts(output: Path):
     """Swizzled layouts for GPU shared memory bank conflict avoidance.
@@ -642,6 +738,7 @@ def example_swizzled_layouts(output: Path):
 # Section 6: Thread-Value (TV) Layouts
 # =============================================================================
 
+
 def example_thread_value_layouts(output: Path):
     """Thread-Value (TV) layouts for GPU parallelism.
 
@@ -660,44 +757,49 @@ def example_thread_value_layouts(output: Path):
     # Simple TV layout: 4 threads, 2 values each = 8 elements
     # Thread 0: V0, V1; Thread 1: V0, V1; etc.
     tv_4x2 = Layout((4, 2), (2, 1))
-    draw_tv_layout(tv_4x2, output / "tv_4threads_2values.svg",
-                   title="TV: (4,2):(2,1) - 4 threads, 2 values each")
-    draw_tv_layout(tv_4x2, output / "tv_4threads_2values_color.svg",
-                   title="TV: (4,2):(2,1)", colorize=True)
+    draw_tv_layout(
+        tv_4x2,
+        output / "tv_4threads_2values.svg",
+        title="TV: (4,2):(2,1) - 4 threads, 2 values each",
+    )
+    draw_tv_layout(
+        tv_4x2, output / "tv_4threads_2values_color.svg", title="TV: (4,2):(2,1)", colorize=True
+    )
     print(f"✓ TV Layout 4×2: 4 threads, 2 values each")
     print(f"  Thread t owns values V0, V1 at offsets 2*t and 2*t+1")
 
     # TV layout with interleaved threads
     tv_4x2_col = Layout((4, 2), (1, 4))
-    draw_tv_layout(tv_4x2_col, output / "tv_4threads_2values_interleaved.svg",
-                   title="TV interleaved: (4,2):(1,4)")
+    draw_tv_layout(
+        tv_4x2_col,
+        output / "tv_4threads_2values_interleaved.svg",
+        title="TV interleaved: (4,2):(1,4)",
+    )
     print(f"✓ TV Layout 4×2 interleaved: offsets t and t+4")
 
     # 8x4 TV layout (smaller than full warp for clarity)
     tv_8x4 = Layout((8, 4), (4, 1))
-    draw_tv_layout(tv_8x4, output / "tv_8x4.svg",
-                   title="TV: (8,4):(4,1) - 8 threads, 4 values")
-    draw_tv_layout(tv_8x4, output / "tv_8x4_color.svg",
-                   title="TV: (8,4):(4,1)", colorize=True)
+    draw_tv_layout(tv_8x4, output / "tv_8x4.svg", title="TV: (8,4):(4,1) - 8 threads, 4 values")
+    draw_tv_layout(tv_8x4, output / "tv_8x4_color.svg", title="TV: (8,4):(4,1)", colorize=True)
     print(f"✓ TV Layout 8×4: 8 threads, 4 values each")
 
     # 8x8 TV layout (common for LDMATRIX)
     tv_8x8 = Layout((8, 8), (8, 1))
-    draw_tv_layout(tv_8x8, output / "tv_8x8.svg",
-                   title="TV: (8,8):(8,1) - 8 threads, 8 values")
-    draw_tv_layout(tv_8x8, output / "tv_8x8_color.svg",
-                   title="TV: (8,8):(8,1)", colorize=True)
+    draw_tv_layout(tv_8x8, output / "tv_8x8.svg", title="TV: (8,8):(8,1) - 8 threads, 8 values")
+    draw_tv_layout(tv_8x8, output / "tv_8x8_color.svg", title="TV: (8,8):(8,1)", colorize=True)
     print(f"✓ TV Layout 8×8: 8 threads, 8 values each (LDMATRIX style)")
 
     # Also show the regular layout view for comparison
-    draw_layout(tv_8x8, output / "tv_8x8_offsets.svg",
-                title="TV: (8,8):(8,1) - Memory offsets view")
+    draw_layout(
+        tv_8x8, output / "tv_8x8_offsets.svg", title="TV: (8,8):(8,1) - Memory offsets view"
+    )
     print(f"  (Also showing memory offset view for comparison)")
 
 
 # =============================================================================
 # Section 7: Copy Atom Traits (LDMATRIX, STMATRIX, TMA)
 # =============================================================================
+
 
 def example_copy_atoms(output: Path):
     """Copy atom TV layouts across GPU architectures.
@@ -734,8 +836,7 @@ def example_copy_atoms(output: Path):
     ]
     for atom in ldsm_atoms:
         # draw_copy_atom handles upcast from bit to element coords automatically
-        draw_copy_atom(atom, element_bits=element_bits,
-                       filename=output / f"{atom.name}_copy.svg")
+        draw_copy_atom(atom, element_bits=element_bits, filename=output / f"{atom.name}_copy.svg")
 
         dst = upcast(atom.dst_layout_bits, element_bits)
         n_thr = size(atom.thr_id)
@@ -750,8 +851,7 @@ def example_copy_atoms(output: Path):
 
     stsm_atoms = [SM90_U32x4_STSM_N, SM90_U16x8_STSM_T]
     for atom in stsm_atoms:
-        draw_copy_atom(atom, element_bits=element_bits,
-                       filename=output / f"{atom.name}_copy.svg")
+        draw_copy_atom(atom, element_bits=element_bits, filename=output / f"{atom.name}_copy.svg")
         print(f"✓ {atom.name}  ({atom.ptx})")
 
     # =====================================================================
@@ -774,14 +874,14 @@ def example_copy_atoms(output: Path):
     #   For fp16: Swizzle<3,4,3> ∘ (8, 64):(64, 1)  = 8 rows × 64 cols
     print("\n  TMA target: GMMA K-major SW128 smem layout (fp16):")
     base_tma = Layout((8, 64), (64, 1))
-    draw_swizzle(base_tma, Swizzle(3, 4, 3),
-                 output / "SM90_TMA_GMMA_K_SW128.svg", colorize=True)
+    draw_swizzle(base_tma, Swizzle(3, 4, 3), output / "SM90_TMA_GMMA_K_SW128.svg", colorize=True)
     print(f"✓ SM90 TMA → GMMA K-major SW128: Swizzle(3,4,3) ∘ (8,64):(64,1)")
 
     print("\n  TMA target: GMMA M|N-major SW128 smem layout (fp16):")
     base_tma_mn = Layout((64, 8), (1, 64))
-    draw_swizzle(base_tma_mn, Swizzle(3, 4, 3),
-                 output / "SM90_TMA_GMMA_MN_SW128.svg", colorize=True)
+    draw_swizzle(
+        base_tma_mn, Swizzle(3, 4, 3), output / "SM90_TMA_GMMA_MN_SW128.svg", colorize=True
+    )
     print(f"✓ SM90 TMA → GMMA M|N-major SW128: Swizzle(3,4,3) ∘ (64,8):(1,64)")
 
     # =====================================================================
@@ -789,14 +889,14 @@ def example_copy_atoms(output: Path):
     # =====================================================================
     print("\n  --- LDMATRIX Shared Memory with Swizzle ---")
     smem_8x8 = Layout((8, 8), (8, 1))
-    draw_swizzle(smem_8x8, Swizzle(3, 0, 3),
-                 output / "ldmatrix_smem_swizzle.svg", colorize=True)
+    draw_swizzle(smem_8x8, Swizzle(3, 0, 3), output / "ldmatrix_smem_swizzle.svg", colorize=True)
     print(f"✓ LDMATRIX shared memory with Swizzle(3,0,3)")
 
 
 # =============================================================================
 # Section 8: MMA Atom Traits
 # =============================================================================
+
 
 def _draw_mma_atom(atom, output: Path):
     """Draw A, B, C, and combined figures for one MMA atom."""
@@ -813,23 +913,44 @@ def _draw_mma_atom(atom, output: Path):
     b_rows, b_cols = cs_b // N if cs_b % N == 0 else K, N
     c_rows, c_cols = M, cs_c // M if cs_c % M == 0 else N
 
-    draw_tv_layout(atom.a_layout, output / f"{name}_A.svg",
-                   title=f"{name}  A ({a_rows}×{a_cols})",
-                   colorize=True, grid_shape=(a_rows, a_cols), thr_id_layout=thr)
+    draw_tv_layout(
+        atom.a_layout,
+        output / f"{name}_A.svg",
+        title=f"{name}  A ({a_rows}×{a_cols})",
+        colorize=True,
+        grid_shape=(a_rows, a_cols),
+        thr_id_layout=thr,
+    )
 
-    draw_tv_layout(atom.b_layout, output / f"{name}_B.svg",
-                   title=f"{name}  B ({b_rows}×{b_cols})",
-                   colorize=True, grid_shape=(b_rows, b_cols), thr_id_layout=thr,
-                   col_major=False)
+    draw_tv_layout(
+        atom.b_layout,
+        output / f"{name}_B.svg",
+        title=f"{name}  B ({b_rows}×{b_cols})",
+        colorize=True,
+        grid_shape=(b_rows, b_cols),
+        thr_id_layout=thr,
+        col_major=False,
+    )
 
-    draw_tv_layout(atom.c_layout, output / f"{name}_C.svg",
-                   title=f"{name}  C ({c_rows}×{c_cols})",
-                   colorize=True, grid_shape=(c_rows, c_cols), thr_id_layout=thr)
+    draw_tv_layout(
+        atom.c_layout,
+        output / f"{name}_C.svg",
+        title=f"{name}  C ({c_rows}×{c_cols})",
+        colorize=True,
+        grid_shape=(c_rows, c_cols),
+        thr_id_layout=thr,
+    )
 
-    draw_mma_layout(atom.a_layout, atom.b_layout, atom.c_layout,
-                    output / f"{name}_combined.svg",
-                    tile_mnk=(a_rows, c_cols, a_cols), main_title=name,
-                    colorize=True, thr_id_layout=thr)
+    draw_mma_layout(
+        atom.a_layout,
+        atom.b_layout,
+        atom.c_layout,
+        output / f"{name}_combined.svg",
+        tile_mnk=(a_rows, c_cols, a_cols),
+        main_title=name,
+        colorize=True,
+        thr_id_layout=thr,
+    )
 
     n_thr = size(mode(atom.c_layout, 0))
     n_val_a = size(mode(atom.a_layout, 1))
@@ -871,14 +992,12 @@ def _draw_tiled_mma(atom, atom_layout, output: Path, tile_mnk=None):
         label = f"{atom.name}_{n_am}x{n_an}_{M}x{N}x{K}"
 
     # Compute tiled grids
-    c_grid, _ = tile_mma_grid(atom, atom_layout, 'C', tile_mnk=tile_mnk)
-    a_grid, _ = tile_mma_grid(atom, atom_layout, 'A', tile_mnk=tile_mnk)
-    b_grid, _ = tile_mma_grid(atom, atom_layout, 'B', tile_mnk=tile_mnk)
+    c_grid, _ = tile_mma_grid(atom, atom_layout, "C", tile_mnk=tile_mnk)
+    a_grid, _ = tile_mma_grid(atom, atom_layout, "A", tile_mnk=tile_mnk)
+    b_grid, _ = tile_mma_grid(atom, atom_layout, "B", tile_mnk=tile_mnk)
 
-    draw_tiled_grid(c_grid, M, N, output / f"{label}_C.svg",
-                    title=f"{label}  C ({M}×{N})")
-    draw_tiled_grid(a_grid, M, K, output / f"{label}_A.svg",
-                    title=f"{label}  A ({M}×{K})")
+    draw_tiled_grid(c_grid, M, N, output / f"{label}_C.svg", title=f"{label}  C ({M}×{N})")
+    draw_tiled_grid(a_grid, M, K, output / f"{label}_A.svg", title=f"{label}  A ({M}×{K})")
     # B displayed as K×N (transposed)
     b_display = {}
     for (r, c), val in b_grid.items():
@@ -886,17 +1005,19 @@ def _draw_tiled_mma(atom, atom_layout, output: Path, tile_mnk=None):
         n_coord = r
         k_coord = c
         b_display[(k_coord, n_coord)] = val
-    draw_tiled_grid(b_display, K, N, output / f"{label}_B.svg",
-                    title=f"{label}  B ({K}×{N})")
+    draw_tiled_grid(b_display, K, N, output / f"{label}_B.svg", title=f"{label}  B ({K}×{N})")
 
     # Combined figure: A (left), B (top-right), C (bottom-right)
-    draw_combined_mma_grid(a_grid, b_display, c_grid, M, N, K,
-                           output / f"{label}_combined.svg", title=label)
+    draw_combined_mma_grid(
+        a_grid, b_display, c_grid, M, N, K, output / f"{label}_combined.svg", title=label
+    )
 
     print(f"✓ Tiled MMA: {label}")
-    print(f"    {size(atom_layout)} atoms ({n_am}×{n_an}), "
-          f"tile {M}×{N}×{K}, "
-          f"{size(atom_layout) * size(mode(atom.c_layout, 0))} threads")
+    print(
+        f"    {size(atom_layout)} atoms ({n_am}×{n_an}), "
+        f"tile {M}×{N}×{K}, "
+        f"{size(atom_layout) * size(mode(atom.c_layout, 0))} threads"
+    )
 
 
 def example_mma_atom(output: Path):
@@ -922,8 +1043,7 @@ def example_mma_atom(output: Path):
     #   make_tiled_mma(SM70_8x8x4_F32F16F16F32_NT{},
     #                  Layout<Shape<_2,_2>, Stride<_2,_1>>{});
     # Reference: HMMA.8x8x4.NT_2x2.png
-    _draw_tiled_mma(SM70_8x8x4_F32F16F16F32_NT,
-                    Layout((2, 2), (2, 1)), output)
+    _draw_tiled_mma(SM70_8x8x4_F32F16F16F32_NT, Layout((2, 2), (2, 1)), output)
 
     # Tiled MMA expanded to 32×32×4 via value tiling
     # Equivalent to C++:
@@ -931,9 +1051,9 @@ def example_mma_atom(output: Path):
     #                  Layout<Shape<_2,_2>, Stride<_2,_1>>{},
     #                  Tile<_32,_32,_4>{});
     # Reference: HMMA.8x8x4.NT_2x2_32x32x4.png
-    _draw_tiled_mma(SM70_8x8x4_F32F16F16F32_NT,
-                    Layout((2, 2), (2, 1)), output,
-                    tile_mnk=(32, 32, 4))
+    _draw_tiled_mma(
+        SM70_8x8x4_F32F16F16F32_NT, Layout((2, 2), (2, 1)), output, tile_mnk=(32, 32, 4)
+    )
 
     # SM80 Ampere
     print("\n  --- SM80 Ampere (32 threads, warp) ---")
@@ -949,11 +1069,15 @@ def example_mma_atom(output: Path):
     print("\n  --- SM90 Hopper GMMA (128 threads, warpgroup) ---")
     for atom in [SM90_64x8x16_F16F16F16_SS, SM90_64x64x16_F16F16F16_SS]:
         M, N, K = atom.shape_mnk
-        draw_tv_layout(atom.c_layout, output / f"{atom.name}_C.svg",
-                       title=f"{atom.name}  C ({M}×{N})",
-                       colorize=True, grid_shape=(M, N))
+        draw_tv_layout(
+            atom.c_layout,
+            output / f"{atom.name}_C.svg",
+            title=f"{atom.name}  C ({M}×{N})",
+            colorize=True,
+            grid_shape=(M, N),
+        )
         n_vals = size(mode(atom.c_layout, 1))
-        print(f"✓ {atom.name}  C: 128 thr × {n_vals} vals = {128*n_vals} elements")
+        print(f"✓ {atom.name}  C: 128 thr × {n_vals} vals = {128 * n_vals} elements")
 
     # SM75 Turing — 32 threads, first-gen asymmetric tiles
     print("\n  --- SM75 Turing (32 threads, warp) ---")
@@ -975,22 +1099,29 @@ def example_mma_atom(output: Path):
     print("\n  --- SM100 Blackwell UMMA (1 thread, warp group) ---")
     atom = SM100_128x128x16_F16F16F16_SS
     M, N, K = atom.shape_mnk
-    print(f"✓ {atom.name}  C: {atom.c_layout}  ({M*N} elements)")
+    print(f"✓ {atom.name}  C: {atom.c_layout}  ({M * N} elements)")
 
     # Compare: SM90 GMMA 64×8 C uses 128 threads with hierarchical layout
     sm90_atom = SM90_64x8x16_F16F16F16_SS
     sm90_c = sm90_atom.c_layout
-    draw_tv_layout(sm90_c, output / "SM100_compare_SM90_64x8_C.svg",
-                   title="SM90 GMMA  C (64×8) — 128 threads",
-                   colorize=True, grid_shape=(64, 8))
+    draw_tv_layout(
+        sm90_c,
+        output / "SM100_compare_SM90_64x8_C.svg",
+        title="SM90 GMMA  C (64×8) — 128 threads",
+        colorize=True,
+        grid_shape=(64, 8),
+    )
     print(f"✓ SM90 GMMA 64×8 C: {sm90_c}  (128 thr × {size(mode(sm90_c, 1))} vals)")
 
     # SM100 UMMA 64×8 C — same logical tile, 1 "thread", all values
     umma_atom = make_umma_atom_ss(64, 8)
     umma_c = umma_atom.c_layout
-    draw_layout(umma_c, output / "SM100_compare_UMMA_64x8_C.svg",
-                title="SM100 UMMA  C (64×8) — 1 thread, TMEM",
-                flatten_hierarchical=True)
+    draw_layout(
+        umma_c,
+        output / "SM100_compare_UMMA_64x8_C.svg",
+        title="SM100 UMMA  C (64×8) — 1 thread, TMEM",
+        flatten_hierarchical=True,
+    )
     print(f"✓ SM100 UMMA 64×8 C: {umma_c}  (1 thr × {size(umma_c)} vals)")
 
     # SM120 Blackwell B200 — warp-level FP8
@@ -1013,6 +1144,7 @@ def example_mma_atom(output: Path):
 # Section 9: Slicing Examples
 # =============================================================================
 
+
 def example_slicing(output: Path):
     """Slicing layouts - row, column, and complex discontinuous slices.
 
@@ -1029,25 +1161,26 @@ def example_slicing(output: Path):
     base = Layout((8, 8), (8, 1))
 
     # Row slice: select row 3 (all columns)
-    draw_slice(base, (3, None), output / "slice_row3.svg",
-               title="Row Slice: layout(3, :)")
+    draw_slice(base, (3, None), output / "slice_row3.svg", title="Row Slice: layout(3, :)")
     print(f"✓ Row slice: layout(3, :)")
     print(f"  Selects all 8 elements in row 3")
 
     # Column slice: select column 5 (all rows)
-    draw_slice(base, (None, 5), output / "slice_col5.svg",
-               title="Column Slice: layout(:, 5)")
+    draw_slice(base, (None, 5), output / "slice_col5.svg", title="Column Slice: layout(:, 5)")
     print(f"✓ Column slice: layout(:, 5)")
     print(f"  Selects all 8 elements in column 5")
 
     # Single element
-    draw_slice(base, (4, 6), output / "slice_element.svg",
-               title="Single Element: layout(4, 6)")
+    draw_slice(base, (4, 6), output / "slice_element.svg", title="Single Element: layout(4, 6)")
     print(f"✓ Single element: layout(4, 6)")
 
     # Rectangular region: rows 2-5, columns 1-4
-    draw_slice(base, (slice(2, 6), slice(1, 5)), output / "slice_rect.svg",
-               title="Rectangular: layout[2:6, 1:5]")
+    draw_slice(
+        base,
+        (slice(2, 6), slice(1, 5)),
+        output / "slice_rect.svg",
+        title="Rectangular: layout[2:6, 1:5]",
+    )
     print(f"✓ Rectangular region: layout[2:6, 1:5]")
     print(f"  Selects 4×4 = 16 elements")
 
@@ -1057,33 +1190,28 @@ def example_slicing(output: Path):
 
     # Divide 8 rows into 4 groups of 2
     divided = logical_divide(base, Layout((2, 4), (1, 2)))
-    draw_layout(divided, output / "slice_divided_base.svg",
-                title="Divided: 2-row groups")
+    draw_layout(divided, output / "slice_divided_base.svg", title="Divided: 2-row groups")
     print(f"✓ Divided layout: groups of 2 rows")
 
     # Tile-based slicing: select every other 2x2 tile
     tiled = Layout(((2, 4), (2, 4)), ((1, 16), (2, 8)))
-    draw_layout(tiled, output / "slice_tiled.svg",
-                title="Tiled: ((2,4),(2,4)):((1,16),(2,8))")
+    draw_layout(tiled, output / "slice_tiled.svg", title="Tiled: ((2,4),(2,4)):((1,16),(2,8))")
     print(f"✓ Tiled layout: 2×2 tiles in 8×8")
 
     # Strided row access (every other row)
     strided_rows = Layout((4, 8), (16, 1))
-    draw_layout(strided_rows, output / "slice_strided_rows.svg",
-                title="Strided Rows: (4,8):(16,1)")
+    draw_layout(strided_rows, output / "slice_strided_rows.svg", title="Strided Rows: (4,8):(16,1)")
     print(f"✓ Strided rows: every other row")
 
     # Strided column access (every other column)
     strided_cols = Layout((8, 4), (8, 2))
-    draw_layout(strided_cols, output / "slice_strided_cols.svg",
-                title="Strided Cols: (8,4):(8,2)")
+    draw_layout(strided_cols, output / "slice_strided_cols.svg", title="Strided Cols: (8,4):(8,2)")
     print(f"✓ Strided columns: every other column")
 
     # Diagonal-like pattern using hierarchical layout
     # Access elements (0,0), (1,1), (2,2), (3,3), ...
     diag = Layout(8, 9)  # stride 9 = 8+1 gives diagonal
-    draw_layout(diag, output / "slice_diagonal.svg",
-                title="Diagonal: 8:9")
+    draw_layout(diag, output / "slice_diagonal.svg", title="Diagonal: 8:9")
     print(f"✓ Diagonal access: stride 9 (row_stride + 1)")
 
     # =========================================================================
@@ -1092,51 +1220,64 @@ def example_slicing(output: Path):
     # =========================================================================
     print(f"\n  --- Cecka Hierarchical Slicing ---")
     cecka_t = Layout(((3, 2), ((2, 3), 2)), ((4, 1), ((2, 15), 100)))
-    draw_layout(cecka_t, output / "cecka_slice_base.svg",
-                title=f"Tensor: {cecka_t}", flatten_hierarchical=True)
-    draw_layout(cecka_t, output / "cecka_slice_base_nested.svg",
-                title=f"Tensor: {cecka_t}", flatten_hierarchical=False,
-                label_hierarchy_levels=True)
+    draw_layout(
+        cecka_t,
+        output / "cecka_slice_base.svg",
+        title=f"Tensor: {cecka_t}",
+        flatten_hierarchical=True,
+    )
+    draw_layout(
+        cecka_t,
+        output / "cecka_slice_base_nested.svg",
+        title=f"Tensor: {cecka_t}",
+        flatten_hierarchical=False,
+        label_hierarchy_levels=True,
+    )
     print(f"✓ Base tensor: {cecka_t}")
 
     # Slice (2, None) — fix mode-0 to flat index 2, keep all of mode-1
-    draw_slice(cecka_t, (2, None), output / "cecka_slice_2_None.svg",
-               title="(2,:)")
+    draw_slice(cecka_t, (2, None), output / "cecka_slice_2_None.svg", title="(2,:)")
     print(f"✓ Slice (2, :) — fix row to 2")
 
     # Slice (None, 5) — keep all of mode-0, fix mode-1 to flat index 5
-    draw_slice(cecka_t, (None, 5), output / "cecka_slice_None_5.svg",
-               title="(:,5)")
+    draw_slice(cecka_t, (None, 5), output / "cecka_slice_None_5.svg", title="(:,5)")
     print(f"✓ Slice (:, 5) — fix col to 5")
 
     # Slice (2, ((0,None),None)) — fix mode-0 to 2, partially slice mode-1
-    draw_slice(cecka_t, (2, ((0, None), None)),
-               output / "cecka_slice_2_0NN.svg",
-               title="(2,((0,:),:))")
+    draw_slice(
+        cecka_t, (2, ((0, None), None)), output / "cecka_slice_2_0NN.svg", title="(2,((0,:),:))"
+    )
     print(f"✓ Slice (2, ((0,:),:)) — fix row=2, inner-col-0=0, rest free")
 
     # Slice ((None,1),(None,0)) — fix outer-row=1, inner-col-outer=0
-    draw_slice(cecka_t, ((None, 1), (None, 0)),
-               output / "cecka_slice_N1_N0.svg",
-               title="((:,1),(:,0))")
+    draw_slice(
+        cecka_t, ((None, 1), (None, 0)), output / "cecka_slice_N1_N0.svg", title="((:,1),(:,0))"
+    )
     print(f"✓ Slice ((:,1), (:,0)) — outer-row=1, mode-1 partially fixed")
 
     # Slice ((None,0),((0,None),1)) — outer-row=0, inner-col-0=0, outer-col=1
-    draw_slice(cecka_t, ((None, 0), ((0, None), 1)),
-               output / "cecka_slice_N0_0N1.svg",
-               title="((:,0),((0,:),1))")
+    draw_slice(
+        cecka_t,
+        ((None, 0), ((0, None), 1)),
+        output / "cecka_slice_N0_0N1.svg",
+        title="((:,0),((0,:),1))",
+    )
     print(f"✓ Slice ((:,0), ((0,:),1)) — outer-row=0, inner-0=0, outer-col=1")
 
     # Slice ((1,None),((None,0),None)) — inner-row=1, middle-col=0
-    draw_slice(cecka_t, ((1, None), ((None, 0), None)),
-               output / "cecka_slice_1N_N0N.svg",
-               title="((1,:),((:,0),:))")
+    draw_slice(
+        cecka_t,
+        ((1, None), ((None, 0), None)),
+        output / "cecka_slice_1N_N0N.svg",
+        title="((1,:),((:,0),:))",
+    )
     print(f"✓ Slice ((1,:), ((:,0),:)) — inner-row=1, middle-col=0")
 
 
 # =============================================================================
 # Section 10: Layout Algebra Operations
 # =============================================================================
+
 
 def example_algebra_operations(output: Path):
     """Layout algebra operations: compose, complement, divide, product.
@@ -1154,57 +1295,60 @@ def example_algebra_operations(output: Path):
     inner = Layout((4, 2), (1, 4))
     outer = Layout(8, 2)
     composed = compose(outer, inner)
-    draw_layout(inner, output / "algebra_inner.svg",
-                title=f"Inner: {inner}")
-    draw_layout(composed, output / "algebra_composed.svg",
-                title=f"Composed: compose({outer}, {inner})")
+    draw_layout(inner, output / "algebra_inner.svg", title=f"Inner: {inner}")
+    draw_layout(
+        composed, output / "algebra_composed.svg", title=f"Composed: compose({outer}, {inner})"
+    )
     print(f"✓ Composition: compose({outer}, {inner}) = {composed}")
 
     # Complement: find layout that covers remaining indices
     base = Layout((4, 2), (2, 1))
     comp = complement(base, 16)
-    draw_layout(base, output / "algebra_base.svg",
-                title=f"Base: {base}")
-    draw_layout(comp, output / "algebra_complement.svg",
-                title=f"Complement: complement({base}, 16)")
+    draw_layout(base, output / "algebra_base.svg", title=f"Base: {base}")
+    draw_layout(
+        comp, output / "algebra_complement.svg", title=f"Complement: complement({base}, 16)"
+    )
     print(f"✓ Complement: complement({base}, 16) = {comp}")
 
     # Logical divide: tile a layout
     matrix = Layout((8, 8), (8, 1))
     tiler = Layout((2, 2), (1, 2))
     divided = logical_divide(matrix, tiler)
-    draw_layout(matrix, output / "algebra_matrix.svg",
-                title=f"Matrix: {matrix}")
-    draw_layout(divided, output / "algebra_divided.svg",
-                title=f"Divided: logical_divide by {tiler}")
+    draw_layout(matrix, output / "algebra_matrix.svg", title=f"Matrix: {matrix}")
+    draw_layout(
+        divided, output / "algebra_divided.svg", title=f"Divided: logical_divide by {tiler}"
+    )
     print(f"✓ Logical divide: 8×8 by 2×2 tiler")
 
     # Logical product: replicate a layout
     tile = Layout((2, 2), (2, 1))
     grid = Layout((4, 4), (1, 4))
     product = logical_product(tile, grid)
-    draw_layout(tile, output / "algebra_tile.svg",
-                title=f"Tile: {tile}")
-    draw_layout(product, output / "algebra_product.svg",
-                title=f"Product: logical_product({tile}, {grid})")
+    draw_layout(tile, output / "algebra_tile.svg", title=f"Tile: {tile}")
+    draw_layout(
+        product, output / "algebra_product.svg", title=f"Product: logical_product({tile}, {grid})"
+    )
     print(f"✓ Logical product: {tile} × {grid}")
 
     # Rank >= 3 results: flat_divide and flat_product produce rank-3 layouts
     # that are now automatically rendered as multi-panel 2D grids
     fd = flat_divide(matrix, Layout(2, 1))
-    draw_layout(fd, output / "algebra_flat_divide.svg",
-                title=f"flat_divide result (rank {rank(fd)})")
+    draw_layout(
+        fd, output / "algebra_flat_divide.svg", title=f"flat_divide result (rank {rank(fd)})"
+    )
     print(f"✓ flat_divide: shape={fd.shape}, rank={rank(fd)} → multi-panel")
 
     fp = flat_product(Layout((2, 2), (1, 2)), Layout(4, 1))
-    draw_layout(fp, output / "algebra_flat_product.svg",
-                title=f"flat_product result (rank {rank(fp)})")
+    draw_layout(
+        fp, output / "algebra_flat_product.svg", title=f"flat_product result (rank {rank(fp)})"
+    )
     print(f"✓ flat_product: shape={fp.shape}, rank={rank(fp)} → multi-panel")
 
 
 # =============================================================================
 # Section 11: Tensor Slicing with Visualization
 # =============================================================================
+
 
 def example_tensor_slicing(output: Path):
     """Tensor slicing - visualizing tensors directly.
@@ -1230,10 +1374,12 @@ def example_tensor_slicing(output: Path):
     print(f"✓ Offset tensor (offset=16): cell (0,0) = {tensor_16(0, 0)}")
 
     # Side-by-side comparison using draw_composite
-    draw_composite([tensor, tensor_16],
-                   output / "tensor_offset_compare.svg",
-                   titles=["offset=0", "offset=16"],
-                   main_title="Tensor Offset Comparison")
+    draw_composite(
+        [tensor, tensor_16],
+        output / "tensor_offset_compare.svg",
+        titles=["offset=0", "offset=16"],
+        main_title="Tensor Offset Comparison",
+    )
     print(f"✓ Tensor comparison: tensor_offset_compare.svg")
 
     # Swizzled tensor — swizzle applied to total linear offset
@@ -1247,13 +1393,13 @@ def example_tensor_slicing(output: Path):
     row2 = tensor[2, :]
     print(f"\n  tensor[2, :] = {row2}")
     print(f"  tensor[2, :](0) = {row2(0)}, tensor(2, 0) = {tensor(2, 0)}")
-    draw_layout(row2, output / "tensor_slice_row2.svg",
-                title=f"tensor[2, :] = {row2}")
+    draw_layout(row2, output / "tensor_slice_row2.svg", title=f"tensor[2, :] = {row2}")
 
 
 # =============================================================================
 # Main Entry Point
 # =============================================================================
+
 
 def main(output_dir: str = "examples_output"):
     """Run all visualization examples."""

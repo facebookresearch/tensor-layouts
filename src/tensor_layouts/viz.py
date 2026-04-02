@@ -1539,6 +1539,7 @@ def _build_layout_figure(
     label_hierarchy_levels: bool = False,
     cell_labels: bool = True,
     interleave_colors: bool = False,
+    transpose: bool = False,
 ):
     """Build the layout figure used by draw_layout/show_layout.
 
@@ -1687,6 +1688,16 @@ def _build_layout_figure(
         eval_fn=eval_fn,
     )
 
+    # Transpose rank-1 layouts from 1×N row to N×1 column
+    if transpose and rank(layout) <= 1:
+        grid = OffsetGrid(
+            indices=grid.indices.T,
+            color_indices=grid.color_indices.T if grid.color_indices is not None else None,
+            cell_coords=grid.cell_coords,
+            row_shape=grid.row_shape,
+            col_shape=grid.col_shape,
+        )
+
     if figsize is None:
         if grid.is_hierarchical and cell_labels is True:
             figsize = _auto_hierarchical_figsize(
@@ -1745,6 +1756,7 @@ def draw_layout(
     label_hierarchy_levels: bool = False,
     cell_labels: bool = True,
     interleave_colors: bool = False,
+    transpose: bool = False,
 ):
     """Draw a layout or tensor and save to file.
 
@@ -1786,6 +1798,8 @@ def draw_layout(
         interleave_colors: If True, reorder the rainbow palette so that
             consecutive indices share hues (blue, lt blue, green, lt green, ...).
             Matches the CuTe paper's coloring convention.
+        transpose: If True, render rank-1 layouts as a column vector (N×1)
+            instead of the default row vector (1×N). Ignored for rank >= 2.
     """
     fig = _build_layout_figure(
         layout,
@@ -1799,6 +1813,7 @@ def draw_layout(
         label_hierarchy_levels=label_hierarchy_levels,
         cell_labels=cell_labels,
         interleave_colors=interleave_colors,
+        transpose=transpose,
     )
     _save_figure(fig, filename, dpi)
 
