@@ -972,6 +972,42 @@ class TestCuTeCompatibility:
         # Verify they access different starting positions
         assert thread0_slice.offset != thread1_slice.offset or thread0_slice(0) != thread1_slice(0)
 
+    def test_hierarchical_slice_preserves_structure(self):
+        """Slicing with nested Nones preserves hierarchical mode boundaries.
+
+        From arXiv:2603.02298, Figure 5: slicing the Cecka tensor.
+        """
+        A = Layout(((3, 2), ((2, 3), 2)), ((4, 1), ((2, 15), 100)))
+        T = Tensor(A)
+
+        # (2, ((0, None), None)) — fix mode 0 and partial mode 1
+        Ts = T[(2, ((0, None), None))]
+        assert Ts.offset == 8
+        assert Ts.layout.shape == (3, 2)
+        for j1 in range(3):
+            for j2 in range(2):
+                assert A(2, ((0, j1), j2)) == Ts.offset + Ts.layout(j1, j2)
+
+        # ((1, None), ((None, 0), None)) — partial slice on both modes
+        Ts = T[((1, None), ((None, 0), None))]
+        assert Ts.offset == 4
+        assert Ts.layout.shape == (2, (2, 2))
+        for i1 in range(2):
+            for j0 in range(2):
+                for j2 in range(2):
+                    assert A((1, i1), ((j0, 0), j2)) == Ts.offset + Ts.layout(i1, (j0, j2))
+
+    def test_tensor_slice_with_none(self):
+        """Tensor.__getitem__ accepts None as equivalent to slice(None)."""
+        layout = Layout((4, 8), (1, 4))
+        T = Tensor(layout)
+
+        # T[(2, None)] should equal T[2, :]
+        Ts_none = T[(2, None)]
+        Ts_colon = T[2, :]
+        assert Ts_none.offset == Ts_colon.offset
+        assert Ts_none.layout == Ts_colon.layout
+
 
 if __name__ == "__main__":
     import subprocess

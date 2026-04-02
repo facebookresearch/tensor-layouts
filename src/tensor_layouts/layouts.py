@@ -1837,7 +1837,13 @@ def slice_and_offset(crd, layout: Layout):
     """
     sliced_shape = slice_modes(crd, layout.shape)
     sliced_stride = slice_modes(crd, layout.stride)
-    # slice_modes returns tuples that preserve structure; pass directly to Layout
+    # When slicing drops some top-level modes, a single surviving hierarchical
+    # mode can end up wrapped in a spurious outer tuple, e.g. ((3,2),).
+    # Unwrap it so the result is (3,2) — but only when the single element is
+    # itself a tuple (hierarchical); scalar modes like (4,) must stay wrapped.
+    if len(sliced_shape) == 1 and is_tuple(sliced_shape[0]):
+        sliced_shape = sliced_shape[0]
+        sliced_stride = sliced_stride[0]
     sublayout = Layout(
         sliced_shape if sliced_shape else (),
         sliced_stride if sliced_stride else (),
@@ -2067,11 +2073,14 @@ def slice_modes(crd, trg):
         if is_tuple(trg):
             if len(crd) != len(trg):
                 raise ValueError(f"Rank mismatch: crd has {len(crd)} elements, trg has {len(trg)}")
-            # Flatten and concatenate non-empty results
+            # Process each top-level mode independently, preserving hierarchy
             result = []
             for c, s in zip(crd, trg):
                 sub = slice_modes(c, s)
-                result.extend(sub)
+                if sub:
+                    # Unwrap single-element results to avoid extra nesting,
+                    # but keep multi-element results as a nested tuple
+                    result.append(sub[0] if len(sub) == 1 else sub)
             return tuple(result)
         else:
             raise TypeError("Cannot slice scalar target with tuple coordinate")
