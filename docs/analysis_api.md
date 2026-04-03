@@ -288,3 +288,84 @@ explain(complement, Layout(4, 2), 16)
 #   complement = (2, 2) : (1, 8)
 #   image(complement) = [0, 1, 8, 9]
 ```
+
+## F2 Linear Layout Matrix
+
+`to_F2_matrix(layout)` converts a layout with power-of-2 shapes to its
+binary matrix representation over GF(2).  The layout mapping becomes
+`offset_bits = M @ coord_bits (mod 2)`.
+
+This is the "linear layout" representation from arXiv 2603.02298 Section 2.4.4.
+Swizzles (XOR operations) are linear over F2 and fold into the matrix.
+
+```python
+from tensor_layouts.analysis import to_F2_matrix
+```
+
+### Identity (column-major)
+
+A contiguous column-major layout is the identity map over F2:
+
+```python
+to_F2_matrix(Layout((4, 8), (1, 4)))
+# [[1, 0, 0, 0, 0],
+#  [0, 1, 0, 0, 0],
+#  [0, 0, 1, 0, 0],
+#  [0, 0, 0, 1, 0],
+#  [0, 0, 0, 0, 1]]
+```
+
+### Row-major (bit permutation)
+
+Row-major swaps the row and column bit groups -- a permutation matrix:
+
+```python
+to_F2_matrix(Layout((4, 8), (8, 1)))
+# [[0, 0, 1, 0, 0],    coord bits: [row0, row1, col0, col1, col2]
+#  [0, 0, 0, 1, 0],    offset bits: row bits moved to high positions
+#  [0, 0, 0, 0, 1],
+#  [1, 0, 0, 0, 0],
+#  [0, 1, 0, 0, 0]]
+```
+
+### Swizzle (XOR connections)
+
+Swizzle(3,0,3) XORs offset bits 0-2 with bits 3-5, adding off-diagonal
+1s to the identity:
+
+```python
+to_F2_matrix(compose(Swizzle(3, 0, 3), Layout((8, 8), (8, 1))))
+# [[1, 0, 0, 1, 0, 0],    col0 = col0 XOR row0
+#  [0, 1, 0, 0, 1, 0],    col1 = col1 XOR row1
+#  [0, 0, 1, 0, 0, 1],    col2 = col2 XOR row2
+#  [1, 0, 0, 0, 0, 0],    row0 = row0
+#  [0, 1, 0, 0, 0, 0],    row1 = row1
+#  [0, 0, 1, 0, 0, 0]]    row2 = row2
+```
+
+### MMA register mapping
+
+The SM80 16x8x16 C accumulator layout maps (thread, value) bits to
+(m, n) coordinates of the output tile.  The F2 matrix reveals which
+thread and value bits control which output dimensions:
+
+```python
+from tensor_layouts.atoms_nv import SM80_16x8x16_F16F16F16F16_TN
+c = SM80_16x8x16_F16F16F16F16_TN.c_layout
+# ((4, 8), (2, 2)) : ((32, 1), (16, 8))
+# Thread bits T0-T4, Value bits V0-V1 -> m0-m3, n0-n2
+
+to_F2_matrix(c)
+#        T0  T1  T2  T3  T4  V0  V1
+#   m0 [  0,  0,  1,  0,  0,  0,  0]   m0 = T2
+#   m1 [  0,  0,  0,  1,  0,  0,  0]   m1 = T3
+#   m2 [  0,  0,  0,  0,  1,  0,  0]   m2 = T4
+#   m3 [  0,  0,  0,  0,  0,  0,  1]   m3 = V1
+#   n0 [  0,  0,  0,  0,  0,  1,  0]   n0 = V0
+#   n1 [  1,  0,  0,  0,  0,  0,  0]   n1 = T0
+#   n2 [  0,  1,  0,  0,  0,  0,  0]   n2 = T1
+```
+
+Reading: threads 0-3 (T0, T1) select N-dimension column pairs, threads
+within each group of 4 (T2-T4) select M-dimension rows, and the two
+value bits split across M bit 3 and N bit 0.
