@@ -185,20 +185,32 @@ class Tensor:
         return total_linear
 
     def __getitem__(self, key):
-        """Slice the tensor or access a data element.
+        """Access a data element or slice the tensor.
 
-        Fixed coordinates contribute to the offset; free coordinates (:)
-        remain in the resulting tensor's layout.  When all coordinates are
-        fixed and storage is present, returns the data element at the
-        computed offset instead of the raw offset integer.
+        A bare integer performs **flat 1D evaluation**: the index is
+        decomposed via ``idx2crd`` into the natural coordinate, and the
+        offset is computed.  This matches CuTe C++ ``Tensor::operator()(int)``
+        and is consistent with ``__setitem__``, enabling the canonical
+        copy loop ``dst[i] = src[i]`` on any-rank tensor.
+
+        A tuple key performs **slicing**: fixed coordinates (ints) contribute
+        to the offset; free coordinates (``:`` / ``None``) remain in the
+        resulting sub-Tensor's layout.
 
         Examples:
+            tensor[5]     -- flat 1D evaluation → data element or offset
+            tensor[2, 3]  -- fix all modes → data element or offset
             tensor[3, :]  -- fix mode 0 to 3, keep mode 1 → sub-Tensor
             tensor[:, 5]  -- keep mode 0, fix mode 1 to 5 → sub-Tensor
-            tensor[2, 3]  -- fix all modes → data[offset] or int offset
         """
         if isinstance(key, tuple):
             return self._slice_multi(key)
+        elif isinstance(key, int):
+            # Flat 1D evaluation — matches CuTe C++ and __setitem__
+            offset = self(key)
+            if self._data is not None:
+                return self._data[offset]
+            return offset
         else:
             return self._slice_single(key, 0)
 
