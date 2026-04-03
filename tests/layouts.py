@@ -400,6 +400,29 @@ def test_coalesce_by_mode_with_profile():
     assert coalesce(L31, (8, 4)) == Layout((8, 4), (1, 8))
 
 
+def test_coalesce_per_mode_with_none_profile():
+    """coalesce with (None, ...) profile coalesces each mode independently."""
+    # Per-mode coalesce: simplify within each mode, preserve rank
+    A = Layout((2, (1, 6)), (1, (6, 2)))
+    assert coalesce(A, (None, None)) == Layout((2, 6), (1, 2))
+
+    # Hierarchical both modes
+    B = Layout(((2, 4), (2, 4)), ((1, 2), (8, 16)))
+    assert coalesce(B, (None, None)) == Layout((8, 8), (1, 8))
+
+    # Already flat — no-op
+    C = Layout((4, 8), (1, 4))
+    assert coalesce(C, (None, None)) == C
+
+    # Mode with size-1 sub-modes
+    E = Layout((2, (1, 1, 6)), (1, (0, 0, 2)))
+    assert coalesce(E, (None, None)) == Layout((2, 6), (1, 2))
+
+    # Without profile flattens across modes
+    assert coalesce(A) == Layout(12, 1)
+    assert coalesce(B) == Layout(64, 1)
+
+
 def test_complement_layouts():
     assert complement(Layout(), 8) == Layout(8, 1)
     assert complement(Layout(4, 2), 16) == Layout((2, 2), (1, 8))
