@@ -747,6 +747,453 @@ def test_mma_atom_repr_is_verbose():
     assert "a_layout=Layout(2, 1)" in r
 
 
+# =============================================================================
+# to_F2_matrix
+# =============================================================================
+
+
+def _verify_F2_matrix(layout):
+    """Helper: check that the F2 matrix reproduces layout(idx) for all idx."""
+    M = to_F2_matrix(layout)
+    n_coord = len(M[0])
+    n_offset = len(M)
+    for idx in range(size(layout)):
+        coord_bits = [(idx >> b) & 1 for b in range(n_coord)]
+        offset_bits = [
+            sum(M[i][j] * coord_bits[j] for j in range(n_coord)) % 2
+            for i in range(n_offset)
+        ]
+        offset = sum(b << i for i, b in enumerate(offset_bits))
+        assert offset == layout(idx), (
+            f"F2 mismatch at idx={idx}: matrix={offset}, layout={layout(idx)}"
+        )
+
+
+def test_F2_matrix_identity():
+    """Contiguous layout produces identity matrix."""
+    M = to_F2_matrix(Layout(4, 1))
+    assert M == [[1, 0], [0, 1]]
+
+
+def test_F2_matrix_row_major():
+    """Row-major 4x8 produces a permutation matrix (bit swap)."""
+    M = to_F2_matrix(Layout((4, 8), (8, 1)))
+    assert len(M) == 5
+    assert len(M[0]) == 5
+    _verify_F2_matrix(Layout((4, 8), (8, 1)))
+
+
+def test_F2_matrix_col_major():
+    """Column-major produces identity (already in natural bit order)."""
+    M = to_F2_matrix(Layout((4, 8), (1, 4)))
+    assert M == [[1, 0, 0, 0, 0],
+                 [0, 1, 0, 0, 0],
+                 [0, 0, 1, 0, 0],
+                 [0, 0, 0, 1, 0],
+                 [0, 0, 0, 0, 1]]
+
+
+def test_F2_matrix_swizzle():
+    """Swizzled layout folds XOR into the matrix."""
+    L = compose(Swizzle(3, 0, 3), Layout((8, 8), (8, 1)))
+    M = to_F2_matrix(L)
+    # Swizzle adds XOR connections — off-diagonal 1s appear
+    assert M[0][3] == 1  # bit 0 gets XOR'd with bit 3
+    _verify_F2_matrix(L)
+
+
+def test_F2_matrix_hierarchical():
+    """Hierarchical layout is flattened before matrix construction."""
+    L = Layout(((2, 4), (2, 4)), ((1, 2), (8, 16)))
+    _verify_F2_matrix(L)
+
+
+def test_F2_matrix_non_power_of_2_raises():
+    """Non-power-of-2 shapes raise ValueError."""
+    with pytest.raises(ValueError, match="not a power of 2"):
+        to_F2_matrix(Layout(6, 1))
+
+
+def test_F2_matrix_stride_2():
+    """Strided layout: 4:2 maps coord bits to offset bits with a shift."""
+    M = to_F2_matrix(Layout(4, 2))
+    # stride 2 = 0b10: bit 0 of coord maps to bit 1 of offset
+    assert M == [[0, 0], [1, 0], [0, 1]]
+    _verify_F2_matrix(Layout(4, 2))
+
+
+def test_F2_matrix_swizzle_8x8_structure():
+    """Swizzle(3,0,3) on 8x8 row-major: XOR creates off-diagonal 1s.
+
+    Source: CuTe Swizzle(3,0,3) — the canonical LDMATRIX bank-conflict
+    avoidance pattern.  See atoms_nv.py and
+    include/cute/atom/copy_traits_sm75.hpp.
+
+    The F2 matrix shows how column bits get XOR'd with row bits:
+      col_i' = col_i XOR row_i  (for i in 0..2)
+      row_i' = row_i            (unchanged)
+    """
+    L = compose(Swizzle(3, 0, 3), Layout((8, 8), (8, 1)))
+    M = to_F2_matrix(L)
+    #        r0  r1  r2  c0  c1  c2
+    assert M == [
+        [1, 0, 0, 1, 0, 0],  # offset bit 0 = col0 XOR row0
+        [0, 1, 0, 0, 1, 0],  # offset bit 1 = col1 XOR row1
+        [0, 0, 1, 0, 0, 1],  # offset bit 2 = col2 XOR row2
+        [1, 0, 0, 0, 0, 0],  # offset bit 3 = row0
+        [0, 1, 0, 0, 0, 0],  # offset bit 4 = row1
+        [0, 0, 1, 0, 0, 0],  # offset bit 5 = row2
+    ]
+    _verify_F2_matrix(L)
+
+
+def test_F2_matrix_sm80_mma_c_accumulator():
+    """SM80 16x8x16 C accumulator: thread/value bits map to m/n coordinates.
+
+    Thread shape (4,8) = 32 threads (5 bits: T0..T4)
+    Value shape (2,2) = 4 values (2 bits: V0, V1)
+    Output: 16×8 tile, col-major offset = m + 16*n (7 bits: m0..m3, n0..n2)
+
+    The F2 matrix reveals the register assignment:
+      m0..m2 = T2..T4  (threads in groups of 4 select rows)
+      m3 = V1          (second value bit selects row 8-15 vs 0-7)
+      n0 = V0          (first value bit selects odd vs even column)
+      n1..n2 = T0..T1  (thread pairs select column groups)
+    """
+    from tensor_layouts.atoms_nv import SM80_16x8x16_F16F16F16F16_TN
+    c = SM80_16x8x16_F16F16F16F16_TN.c_layout
+    M = to_F2_matrix(c)
+    #        T0  T1  T2  T3  T4  V0  V1
+    assert M == [
+        [0, 0, 1, 0, 0, 0, 0],  # m0 = T2
+        [0, 0, 0, 1, 0, 0, 0],  # m1 = T3
+        [0, 0, 0, 0, 1, 0, 0],  # m2 = T4
+        [0, 0, 0, 0, 0, 0, 1],  # m3 = V1
+        [0, 0, 0, 0, 0, 1, 0],  # n0 = V0
+        [1, 0, 0, 0, 0, 0, 0],  # n1 = T0
+        [0, 1, 0, 0, 0, 0, 0],  # n2 = T1
+    ]
+    _verify_F2_matrix(c)
+
+
+# =============================================================================
+# to_F2_matrix — cross-reference against Triton LinearLayout
+# =============================================================================
+#
+# Triton's LinearLayout represents GPU tensor core layouts as basis vectors
+# over (register, lane, warp, block) → (dim0, dim1, ...) dimensions.
+#
+# Each basis vector (dim0_val, dim1_val) is a power-of-2 coordinate
+# contribution.  The mapping to our F2 matrix is:
+#
+#   flat_offset = dim0 + M * dim1     (col-major, matching CuTe convention)
+#   F2 column j = binary decomposition of flat_offset for coord bit j
+#
+# The F2 matrix columns follow CuTe's flattened colexicographic order:
+# thread sub-mode bits first (lane bits, then warp bits), then value
+# sub-mode bits (register bits).  This matches how Triton orders its
+# input dimensions: lane, warp, register.
+#
+# Source file for known-good Triton representations:
+#   triton/unittest/Dialect/TritonGPU/LinearLayoutConversionsTest.cpp
+#
+
+
+def _triton_bases_to_F2_matrix(bases, tile_M, tile_N):
+    """Build expected F2 matrix from Triton LinearLayout basis vectors.
+
+    Args:
+        bases: list of (dim0, dim1) tuples, ordered as:
+            lane bits (LSB first), warp bits, register bits.
+            This matches CuTe's flattened coord bit order.
+        tile_M: output tile rows (dim0 extent).
+        tile_N: output tile columns (dim1 extent).
+
+    Returns:
+        F2 matrix (list of lists), same format as to_F2_matrix().
+    """
+    n_coord_bits = len(bases)
+    col_strides = [dim0 + tile_M * dim1 for dim0, dim1 in bases]
+    max_val = max(col_strides) if col_strides else 0
+    tile_size = tile_M * tile_N
+    n_offset_bits = max((max(max_val, tile_size - 1)).bit_length(), 1)
+
+    M = [[0] * n_coord_bits for _ in range(n_offset_bits)]
+    for j, stride in enumerate(col_strides):
+        for i in range(n_offset_bits):
+            M[i][j] = (stride >> i) & 1
+    return M
+
+
+def test_F2_matrix_sm80_c_vs_triton_MMAv2():
+    """SM80 MMAv2 C accumulator matches Triton's LinearLayout.
+
+    Validates the atom-level 16×8 C layout (SM80_16x8_Row) against
+    the basis vectors from Triton's MMAv2 encoding.  All SM80/SM89/SM90
+    warp-level and SM120 atoms with 16×8 C tiles share this layout.
+
+    Source: LinearLayoutConversionsTest.cpp, TEST_F(MMAv2_16x16), line 433.
+    Atom-level bases extracted from the 16×16 tiled layout by taking
+    the first 2 register bases (atom values) and all 5 lane bases:
+
+        register: {(0,1), (8,0)}              — 2 bits → 4 values/thread
+        lane:     {(0,2), (0,4), (1,0), (2,0), (4,0)}  — 5 bits → 32 threads
+    """
+    from tensor_layouts.atoms_nv import SM80_16x8x16_F16F16F16F16_TN
+
+    c = SM80_16x8x16_F16F16F16F16_TN.c_layout
+    actual = to_F2_matrix(c)
+
+    # Triton basis vectors — lane bits first, then register bits
+    # (matching CuTe's flattened thread → value coord bit order)
+    triton_bases = [
+        # lane (thread) bases — from LinearLayoutConversionsTest.cpp:438
+        (0, 2), (0, 4), (1, 0), (2, 0), (4, 0),
+        # register (value) bases — from LinearLayoutConversionsTest.cpp:438
+        (0, 1), (8, 0),
+    ]
+    expected = _triton_bases_to_F2_matrix(triton_bases, tile_M=16, tile_N=8)
+
+    assert actual == expected
+    _verify_F2_matrix(c)
+
+
+def test_F2_matrix_sm80_c_all_atoms_share_layout():
+    """All SM80+ atoms with 16×8 C tile produce the same F2 matrix.
+
+    SM80_16x8_Row is shared across FP16, FP32, BF16, TF32, INT8, INT4,
+    FP8 (SM89), and SM120 atoms.  This test verifies that the F2
+    matrix is identical for a representative sample.
+
+    Source: mma_traits_sm80.hpp line 53 (SM80_16x8_Row definition).
+    """
+    from tensor_layouts.atoms_nv import (
+        SM80_16x8x8_F16F16F16F16_TN,
+        SM80_16x8x16_F32F16F16F32_TN,
+        SM80_16x8x16_F32BF16BF16F32_TN,
+        SM80_16x8x32_S32S8S8S32_TN,
+        SM80_16x8x64_S32S4S4S32_TN,
+        SM89_16x8x32_F32E4M3E4M3F32_TN,
+        SM120_16x8x32_F32E4M3E4M3F32_TN,
+    )
+
+    ref = to_F2_matrix(SM80_16x8x8_F16F16F16F16_TN.c_layout)
+    for atom in [
+        SM80_16x8x16_F32F16F16F32_TN,
+        SM80_16x8x16_F32BF16BF16F32_TN,
+        SM80_16x8x32_S32S8S8S32_TN,
+        SM80_16x8x64_S32S4S4S32_TN,
+        SM89_16x8x32_F32E4M3E4M3F32_TN,
+        SM120_16x8x32_F32E4M3E4M3F32_TN,
+    ]:
+        assert to_F2_matrix(atom.c_layout) == ref, atom.name
+
+
+def test_F2_matrix_sm90_gmma_c_64x16_vs_triton_MMAv3():
+    """SM90 GMMA 64×16 C accumulator matches Triton's MMAv3 LinearLayout.
+
+    The GMMA warpgroup (128 threads) C layout maps (T128, V8) → 64×16
+    tile.  CuTe's thread dimension (4,8,4) subsumes Triton's lane+warp:
+    - Thread sub-modes (4,8) = 32 lanes → lane bits T0..T4
+    - Thread sub-mode (4)   = 4 warps  → warp bits W0..W1
+
+    Source: LinearLayoutConversionsTest.cpp, TEST_F(MMAv3_64x16), line 522.
+    Both instrShapes {16,16,8} and {16,8,8} produce the same layout:
+
+        register: {(0,1), (8,0), (0,8)}              — 3 bits → 8 values
+        lane:     {(0,2), (0,4), (1,0), (2,0), (4,0)}  — 5 bits → 32 lanes
+        warp:     {(16,0), (32,0)}                      — 2 bits → 4 warps
+    """
+    from tensor_layouts.atoms_nv import SM90_64x16x16_F16F16F16_SS
+
+    c = SM90_64x16x16_F16F16F16_SS.c_layout
+    actual = to_F2_matrix(c)
+
+    # Triton basis vectors — lane, warp, register order
+    # (matching CuTe's flattened thread → value coord bit order)
+    triton_bases = [
+        # lane bases — LinearLayoutConversionsTest.cpp:531
+        (0, 2), (0, 4), (1, 0), (2, 0), (4, 0),
+        # warp bases — LinearLayoutConversionsTest.cpp:532
+        (16, 0), (32, 0),
+        # register bases — LinearLayoutConversionsTest.cpp:530
+        (0, 1), (8, 0), (0, 8),
+    ]
+    expected = _triton_bases_to_F2_matrix(triton_bases, tile_M=64, tile_N=16)
+
+    assert actual == expected
+    _verify_F2_matrix(c)
+
+
+def test_F2_matrix_sm90_gmma_c_parametric():
+    """GMMA C accumulator F2 matrix is self-consistent for all standard N.
+
+    Source: mma_traits_sm90_gmma.hpp line 432 (CLayout_64xN template).
+    Validates that to_F2_matrix faithfully reproduces the layout function
+    for every N in the standard GMMA repertoire.
+    """
+    from tensor_layouts.atoms_nv import gmma_c_layout
+
+    for n in [8, 16, 32, 64, 128, 256]:
+        c = gmma_c_layout(n)
+        _verify_F2_matrix(c)
+
+
+def test_F2_matrix_sm80_a_operand():
+    """SM80 16×8×16 A operand F2 matrix is self-consistent.
+
+    A layout maps (T32, V8) → M×K = 16×16 tile.  Unlike the C
+    accumulator, this cannot be directly compared against Triton's
+    DotOperand encoding (which applies kWidth packing), but the
+    F2 matrix must reproduce the layout function for all indices.
+
+    Source: mma_traits_sm80.hpp, SM80_16x8x16 A layout.
+    """
+    from tensor_layouts.atoms_nv import SM80_16x8x16_F16F16F16F16_TN
+
+    a = SM80_16x8x16_F16F16F16F16_TN.a_layout
+    M = to_F2_matrix(a)
+    assert len(M) == 8       # 8 offset bits (cosize = 256 = 16×16)
+    assert len(M[0]) == 8    # 8 coord bits (5 thread + 3 value)
+    _verify_F2_matrix(a)
+
+
+def test_F2_matrix_sm80_b_operand():
+    """SM80 16×8×16 B operand F2 matrix is self-consistent.
+
+    B layout maps (T32, V4) → N×K = 8×16 tile.
+
+    Source: mma_traits_sm80.hpp, SM80_16x8x16 B layout.
+    """
+    from tensor_layouts.atoms_nv import SM80_16x8x16_F16F16F16F16_TN
+
+    b = SM80_16x8x16_F16F16F16F16_TN.b_layout
+    M = to_F2_matrix(b)
+    assert len(M) == 7       # 7 offset bits (cosize = 128 = 8×16)
+    assert len(M[0]) == 7    # 7 coord bits (5 thread + 2 value)
+    _verify_F2_matrix(b)
+
+
+def test_F2_matrix_sm90_gmma_c_64x32_vs_triton_MMAv3():
+    """SM90 GMMA 64×32 C accumulator matches Triton's MMAv3 LinearLayout.
+
+    The GMMA warpgroup (128 threads) C layout maps (T128, V16) → 64×32.
+    CuTe's thread dimension (4,8,4) gives 7 thread bits; value dimension
+    (2,2,4) gives 4 value bits; total 11 bits = 2048 = 64×32.
+
+    Source: LinearLayoutConversionsTest.cpp, TEST_F(MMAv3_4x2Warps), line 575.
+    instrShape {16,32,16}, warps {4,2}, tile {64,32}:
+
+        register: {(0,1), (8,0), (0,8), (0,16)}      — 4 bits → 16 values
+        lane:     {(0,2), (0,4), (1,0), (2,0), (4,0)}  — 5 bits → 32 lanes
+        warp:     {(16,0), (32,0), (0,0)}               — 3 bits → 8 warps
+
+    The 3rd warp base (0,0) is a broadcast: with {4,2} warps for a
+    {64,32} tile, the 2 N-warps are redundant since the 16×32 atom
+    already covers 32 columns.  The 11 non-zero bases correspond to
+    our 128-thread × 16-value GMMA atom.
+    """
+    from tensor_layouts.atoms_nv import SM90_64x32x16_F16F16F16_SS
+
+    c = SM90_64x32x16_F16F16F16_SS.c_layout
+    actual = to_F2_matrix(c)
+
+    # Triton basis vectors — non-zero bases only, lane→warp→register order
+    triton_bases = [
+        # lane bases — LinearLayoutConversionsTest.cpp:577
+        (0, 2), (0, 4), (1, 0), (2, 0), (4, 0),
+        # warp bases (skipping W2=(0,0) broadcast) — line 578
+        (16, 0), (32, 0),
+        # register bases — LinearLayoutConversionsTest.cpp:576
+        (0, 1), (8, 0), (0, 8), (0, 16),
+    ]
+    expected = _triton_bases_to_F2_matrix(triton_bases, tile_M=64, tile_N=32)
+
+    assert actual == expected
+    _verify_F2_matrix(c)
+
+
+def test_F2_matrix_sm90_warp_c_vs_triton_MMAv3():
+    """SM90 warp-level 16×8 C accumulator matches Triton MMAv3 bases.
+
+    SM90 warp-level MMA atoms (F64, complex F64) reuse SM80_16x8_Row
+    as c_layout — the same per-thread register assignment as SM80.
+
+    Source: LinearLayoutConversionsTest.cpp, TEST_F(MMAv3_64x16), line 522.
+    The atom-level bases (first 2 register + 5 lane) match MMAv2.
+    """
+    from tensor_layouts.atoms_nv import (
+        SM90_16x8x4_F64F64F64F64_TN,
+        SM90_16x8x16_F64F64F64F64_TN,
+        SM90_16x8x16_C64C64C64C64_TN,
+    )
+
+    # Same expected matrix as SM80 MMAv2 C accumulator
+    triton_bases = [
+        (0, 2), (0, 4), (1, 0), (2, 0), (4, 0),  # lane
+        (0, 1), (8, 0),                            # register
+    ]
+    expected = _triton_bases_to_F2_matrix(triton_bases, tile_M=16, tile_N=8)
+
+    for atom in [
+        SM90_16x8x4_F64F64F64F64_TN,
+        SM90_16x8x16_F64F64F64F64_TN,
+        SM90_16x8x16_C64C64C64C64_TN,
+    ]:
+        actual = to_F2_matrix(atom.c_layout)
+        assert actual == expected, atom.name
+        _verify_F2_matrix(atom.c_layout)
+
+
+def test_F2_matrix_sm100_umma_c_identity():
+    """SM100 UMMA C accumulator is col-major identity over F2.
+
+    UMMA uses 1 thread with all M×N elements in the value dimension:
+    (1, (M, N)) : (0, (1, M)).  Since stride-0 thread mode contributes
+    no bits, the F2 matrix reduces to the value-only mapping, which is
+    a pure identity (col-major offset = m + M*n).
+
+    Source: mma_traits_sm100.hpp (tcgen05.mma UMMA instructions).
+    """
+    from tensor_layouts.atoms_nv import SM100_64x64x16_F16F16F16_SS
+
+    c = SM100_64x64x16_F16F16F16_SS.c_layout
+    M = to_F2_matrix(c)
+    n_bits = len(M)
+    assert n_bits == 12  # log2(64*64) = 12
+
+    # Should be identity: each coord bit maps to the same offset bit
+    for i in range(n_bits):
+        for j in range(n_bits):
+            assert M[i][j] == (1 if i == j else 0), (
+                f"SM100 UMMA F2 not identity at [{i}][{j}]"
+            )
+    _verify_F2_matrix(c)
+
+
+def test_F2_matrix_sm100_umma_c_parametric():
+    """SM100 UMMA C accumulator is self-consistent for all standard sizes.
+
+    All UMMA sizes should produce identity F2 matrices (col-major).
+
+    Source: mma_traits_sm100.hpp (tcgen05.mma UMMA instructions).
+    """
+    from tensor_layouts.atoms_nv import umma_layout
+
+    for m, n in [(64, 64), (64, 128), (64, 256),
+                 (128, 64), (128, 128), (128, 256)]:
+        c = umma_layout(m, n)
+        M = to_F2_matrix(c)
+        n_bits = len(M)
+        # Identity check
+        for i in range(n_bits):
+            for j in range(n_bits):
+                assert M[i][j] == (1 if i == j else 0), (
+                    f"UMMA {m}×{n} F2 not identity at [{i}][{j}]"
+                )
+        _verify_F2_matrix(c)
+
+
 if __name__ == "__main__":
     import subprocess
     import sys

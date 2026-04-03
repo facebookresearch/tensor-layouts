@@ -52,6 +52,7 @@ __all__ = [
     "atom_summary",
     "operand_analysis",
     "explain",
+    "to_F2_matrix",
 ]
 
 
@@ -1069,3 +1070,119 @@ def explain(fn, *args):
     text = '\n'.join(lines)
     print(text)
     return text
+
+
+# =============================================================================
+# F2 linear layout matrix
+# =============================================================================
+#
+# A layout with power-of-2 shapes is a linear map over GF(2).  Each
+# coordinate bit maps to an offset bit via a binary matrix M such that
+# offset_bits = M @ coord_bits  (mod 2).
+#
+# Swizzles (XOR operations) are also linear over F2, so they fold
+# naturally into the matrix.
+#
+# Reference: arXiv 2603.02298, Section 2.4.4
+#
+
+
+def to_F2_matrix(layout: Layout) -> list[list[int]]:
+    """Return the F2 (binary) matrix representation of a layout.
+
+    The layout must have power-of-2 shapes in all modes.  The returned
+    matrix M has shape (n_offset_bits, n_coord_bits) where:
+
+    - n_coord_bits = log2(size(layout))
+    - n_offset_bits = enough bits to represent the codomain
+
+    Each entry is 0 or 1.  The mapping is:
+    ``offset_bits = M @ coord_bits  (mod 2)``
+
+    Columns correspond to coordinate bits in colexicographic order
+    (mode 0 LSB first, then mode 1, etc.).  Rows correspond to offset
+    bits (LSB at row 0).
+
+    When the layout has a swizzle, it is folded into the matrix (XOR
+    is linear over F2).
+
+    Args:
+        layout: Layout with power-of-2 shapes.
+
+    Returns:
+        List of lists representing the binary matrix (row-major).
+
+    Raises:
+        ValueError: If any shape is not a power of 2.
+
+    Examples:
+        # Identity layout
+        to_F2_matrix(Layout(4, 1))
+        # [[1, 0], [0, 1]]  — 2x2 identity
+
+        # Row-major 4x8
+        to_F2_matrix(Layout((4, 8), (8, 1)))
+        # 5x5 permutation matrix (swaps row/col bit groups)
+
+        # Swizzled layout — swizzle folds into the matrix
+        to_F2_matrix(compose(Swizzle(3, 0, 3), Layout((8, 8), (8, 1))))
+    """
+    flat = flatten(layout)
+    if is_int(flat.shape):
+        shapes = [flat.shape]
+        strides = [flat.stride]
+    else:
+        shapes = list(flat.shape)
+        strides = list(flat.stride)
+
+    # Validate: all shapes must be powers of 2
+    for s in shapes:
+        if s < 1 or (s & (s - 1)) != 0:
+            raise ValueError(
+                f"Shape {s} is not a power of 2; "
+                f"F2 matrix requires all shapes to be powers of 2"
+            )
+
+    # Number of coordinate bits
+    n_coord_bits = sum(s.bit_length() - 1 for s in shapes)
+
+    # Determine number of offset bits from cosize
+    cs = cosize(layout)
+    n_offset_bits = max((cs - 1).bit_length(), 1) if cs > 1 else 1
+
+    # Build columns: coordinate bit j has value stride_i * 2^b
+    col_values = []
+    for s, d in zip(shapes, strides):
+        n_bits = s.bit_length() - 1  # log2(s)
+        for b in range(n_bits):
+            col_values.append(d * (1 << b))
+
+    # Build the matrix (n_offset_bits × n_coord_bits)
+    M = [[0] * n_coord_bits for _ in range(n_offset_bits)]
+    for j, val in enumerate(col_values):
+        for i in range(n_offset_bits):
+            M[i][j] = (val >> i) & 1
+
+    # Fold in swizzle: Swizzle(bits, base, shift) XORs offset bits
+    # [base, base+bits) with [base+shift, base+shift+bits).
+    # In F2: row[base+k] += row[base+shift+k] (mod 2)
+    # This is a post-composition: M' = S @ M
+    if layout.swizzle is not None:
+        sw = layout.swizzle
+        # Build swizzle matrix S (identity + XOR connections)
+        S = [[1 if i == j else 0 for j in range(n_offset_bits)]
+             for i in range(n_offset_bits)]
+        for k in range(sw.bits):
+            src = sw.base + sw.shift + k
+            dst = sw.base + k
+            if src < n_offset_bits and dst < n_offset_bits:
+                S[dst][src] = 1
+        # Compose: M' = S @ M (mod 2)
+        M = [
+            [sum(S[i][k] * M[k][j] for k in range(n_offset_bits)) % 2
+             for j in range(n_coord_bits)]
+            for i in range(n_offset_bits)
+        ]
+
+    return M
+
