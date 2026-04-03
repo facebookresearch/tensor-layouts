@@ -94,15 +94,18 @@ t[2, 3]    # 19  — data[19] (happens to equal 19 here)
 
 ## Element Access — `__getitem__`
 
-When **all** coordinates are fixed:
+A bare integer performs **flat 1D evaluation** on any-rank tensor: the
+index is decomposed via `idx2crd` into the natural coordinate and the
+offset is computed.  This matches CuTe C++ `Tensor::operator()(int)`.
 
-| Storage | `tensor[i, j]` returns |
-|---------|------------------------|
-| Present | `data[offset]` — the element at the computed offset |
-| Absent  | `offset` — the raw integer (original behavior) |
+| Key | Returns |
+|-----|---------|
+| `tensor[i]` | Flat 1D evaluation — data element or offset |
+| `tensor[i, j]` | All modes fixed — data element or offset |
+| `tensor[i, :]` | Slicing — sub-Tensor (see [Slicing](#slicing)) |
 
-When some coordinates are free (`:` or `None`), a sub-Tensor is
-returned regardless of storage (see [Slicing](#slicing)).
+When storage is present, fully-resolved accesses return `data[offset]`.
+When absent, they return the raw offset integer.
 
 ```python
 buf = list("ABCDEFGHIJKLMNOPQRSTUVWXYZ012345")
@@ -112,6 +115,40 @@ t[0, 1]    # 'B'  — buf[1]
 t[1, 0]    # 'I'  — buf[8]
 t[3, 7]    # '5'  — buf[31]
 ```
+
+### Flat 1D evaluation
+
+`tensor[i]` decomposes the flat index `i` into coordinates via `idx2crd`,
+then computes the offset — even on rank-2+ tensors.  This is consistent
+with `__setitem__` and enables the canonical copy loop:
+
+```python
+def copy(src: Tensor, dst: Tensor):
+    assert size(src.layout) == size(dst.layout)
+    for i in range(size(dst.layout)):
+        dst[i] = src[i]
+```
+
+Because `src` and `dst` can have different layouts (e.g. row-major vs
+column-major), `copy` automatically remaps elements through each tensor's
+layout function:
+
+```python
+row_major = Layout((4, 8), (8, 1))
+col_major = Layout((4, 8), (1, 4))
+
+src = Tensor(row_major, data=list(range(32)))
+dst = Tensor(col_major, data=[0] * 32)
+
+for i in range(size(row_major)):
+    dst[i] = src[i]
+
+# Same logical element at every coordinate:
+assert src[2, 5] == dst[2, 5]
+```
+
+To slice mode 0 (the old `tensor[i]` behavior), use `tensor[i, :]`
+explicitly.
 
 ## Element Assignment — `__setitem__`
 

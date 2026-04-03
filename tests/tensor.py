@@ -273,14 +273,23 @@ class TestTensorSlicingBasic:
                 assert isinstance(result, int)
                 assert result == tensor(i, j)
 
-    def test_single_index_slice(self):
-        """tensor[i] - single index fixes mode 0."""
+    def test_single_index_flat_eval(self):
+        """tensor[i] — flat 1D evaluation on any-rank tensor.
+
+        Matches CuTe C++ Tensor::operator()(int): the integer is decomposed
+        via idx2crd into the natural coordinate, then the offset is computed.
+        """
         layout = Layout((4, 8), (1, 4))
         tensor = Tensor(layout)
 
-        row = tensor[2]
-        assert isinstance(row, Tensor)
-        assert row.offset == 2
+        # tensor[2] decomposes: idx2crd(2, (4,8)) = (2, 0) → offset 2
+        result = tensor[2]
+        assert isinstance(result, int)
+        assert result == layout(2)
+
+        # Verify for all flat indices
+        for i in range(size(layout)):
+            assert tensor[i] == layout(i)
 
 
 class TestTensorSlicingRowMajor:
@@ -1010,6 +1019,131 @@ class TestCuTeCompatibility:
 
 
 # =============================================================================
+# Flat 1D Evaluation and Copy Algorithm
+# =============================================================================
+
+
+class TestFlatEvaluation:
+    """Flat 1D evaluation: tensor[i] decomposes i via idx2crd on any rank."""
+
+    def test_flat_eval_rank2_row_major(self):
+        """Row-major rank-2 tensor: tensor[i] == layout(i) for all i."""
+        layout = Layout((4, 8), (8, 1))
+        t = Tensor(layout)
+        for i in range(size(layout)):
+            assert t[i] == layout(i)
+
+    def test_flat_eval_rank2_col_major(self):
+        """Column-major rank-2 tensor: tensor[i] == layout(i) for all i."""
+        layout = Layout((4, 8), (1, 4))
+        t = Tensor(layout)
+        for i in range(size(layout)):
+            assert t[i] == layout(i)
+
+    def test_flat_eval_rank3(self):
+        """Rank-3 tensor: flat 1D evaluation through all elements."""
+        layout = Layout((2, 4, 8), (32, 8, 1))
+        t = Tensor(layout)
+        for i in range(size(layout)):
+            assert t[i] == layout(i)
+
+    def test_flat_eval_with_offset(self):
+        """Flat 1D evaluation respects base offset."""
+        layout = Layout((4, 8), (8, 1))
+        t = Tensor(layout, offset=100)
+        for i in range(size(layout)):
+            assert t[i] == 100 + layout(i)
+
+    def test_flat_eval_with_data(self):
+        """Flat 1D evaluation with storage returns data[offset]."""
+        layout = Layout((4, 8), (8, 1))
+        buf = list(range(32))
+        t = Tensor(layout, data=buf)
+        for i in range(size(layout)):
+            assert t[i] == buf[layout(i)]
+
+    def test_flat_eval_consistent_with_setitem(self):
+        """tensor[i] reads what tensor[i] = val wrote."""
+        layout = Layout((4, 8), (8, 1))
+        buf = [0] * 32
+        t = Tensor(layout, data=buf)
+        for i in range(size(layout)):
+            t[i] = i * 10
+        for i in range(size(layout)):
+            assert t[i] == i * 10
+
+    def test_slice_mode0_still_works(self):
+        """Mode-0 slicing uses tensor[i, :], not tensor[i]."""
+        layout = Layout((4, 8), (1, 4))
+        t = Tensor(layout)
+        row = t[2, :]
+        assert isinstance(row, Tensor)
+        assert row.offset == 2
+        for j in range(8):
+            assert row(j) == t(2, j)
+
+
+class TestCopyAlgorithm:
+    """The canonical COPY algorithm: dst[i] = src[i] for all i."""
+
+    def test_copy_same_layout(self):
+        """Copy between tensors with the same layout."""
+        layout = Layout((4, 8), (8, 1))
+        src_buf = list(range(32))
+        dst_buf = [0] * 32
+        src = Tensor(layout, data=src_buf)
+        dst = Tensor(layout, data=dst_buf)
+
+        for i in range(size(layout)):
+            dst[i] = src[i]
+
+        for i in range(32):
+            assert dst_buf[i] == src_buf[i]
+
+    def test_copy_different_layouts(self):
+        """Copy between row-major and column-major tensors.
+
+        This is the motivating use case: different layouts over the same
+        logical shape produce different physical orderings, and copy()
+        must remap correctly.
+        """
+        row_major = Layout((4, 8), (8, 1))
+        col_major = Layout((4, 8), (1, 4))
+
+        src_buf = list(range(32))
+        dst_buf = [0] * 32
+        src = Tensor(row_major, data=src_buf)
+        dst = Tensor(col_major, data=dst_buf)
+
+        assert size(src.layout) == size(dst.layout)
+        for i in range(size(src.layout)):
+            dst[i] = src[i]
+
+        # Verify: same logical element at every coordinate
+        for i in range(4):
+            for j in range(8):
+                assert dst[i, j] == src[i, j]
+
+    def test_copy_rank3(self):
+        """Copy works on rank-3 tensors."""
+        layout_a = Layout((2, 4, 8), (32, 8, 1))
+        layout_b = Layout((2, 4, 8), (1, 2, 8))
+
+        src_buf = list(range(64))
+        dst_buf = [0] * 64
+        src = Tensor(layout_a, data=src_buf)
+        dst = Tensor(layout_b, data=dst_buf)
+
+        for i in range(size(layout_a)):
+            dst[i] = src[i]
+
+        for b in range(2):
+            for h in range(4):
+                for w in range(8):
+                    assert dst[b, h, w] == src[b, h, w]
+
+
+# =============================================================================
 # Tensor Storage
 # =============================================================================
 
@@ -1105,14 +1239,14 @@ class TestTensorStorage:
         assert t[0] == "A"
         assert t[7] == "H"
 
-    def test_getitem_via_fix_mode_returns_data(self):
-        """Data access through _fix_mode path (single-key indexing on rank-2)."""
+    def test_getitem_flat_eval_returns_data(self):
+        """Flat 1D evaluation with data returns data element, not sub-Tensor."""
         buf = list(range(32))
         t = Tensor(Layout((4, 8), (1, 4)), data=buf)
-        # t[2] fixes mode 0 → sub-Tensor
-        row = t[2]
-        assert isinstance(row, Tensor)
-        assert row.data is buf
+        # t[2] does flat 1D eval: layout(2) = 2, returns buf[2]
+        result = t[2]
+        assert isinstance(result, int)
+        assert result == buf[t.layout(2)]
 
     def test_setitem_writes_to_data(self):
         """tensor[i, j] = val writes data[offset]."""
