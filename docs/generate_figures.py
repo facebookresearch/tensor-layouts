@@ -150,20 +150,6 @@ def main():
         title="SM80 16x8x16 C \u2014 2x2 atoms",
     )
 
-    # -- show_layout (no title) --
-    draw_layout(
-        layout_8x8,
-        IMAGES / "show_layout.png",
-        colorize=True,
-    )
-
-    # -- show_swizzle (no colorize) --
-    draw_swizzle(
-        layout_8x8,
-        Swizzle(3, 0, 3),
-        IMAGES / "show_swizzle.png",
-    )
-
     print(f"Generated {len(list(IMAGES.glob('*.png')))} figures in {IMAGES}")
 
 

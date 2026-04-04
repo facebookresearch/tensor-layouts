@@ -51,8 +51,9 @@ Every `draw_*` function accepts a `filename` parameter:
 | `"out.png"` | Save as PNG (raster) at specified `dpi` |
 | `"out.pdf"` | Save as PDF (vector) |
 
-The `show_*` functions always display inline and return the matplotlib
-`Figure` for further customization.
+When `filename` is `None` (the default), figures are displayed inline
+in Jupyter notebooks and the matplotlib `Figure` is returned for
+further customization.
 
 ## draw_layout
 
@@ -465,29 +466,17 @@ draw_combined_mma_grid(a_grid, b_grid, c_grid, M, N, K,
 
 ## Jupyter Inline Display
 
-Every `draw_*` function has a corresponding `show_*` that displays inline
-and returns the matplotlib `Figure`:
-
-| `draw_*` | `show_*` |
-|----------|----------|
-| `draw_layout` | `show_layout` |
-| `draw_swizzle` | `show_swizzle` |
-| `draw_tv_layout` | `show_tv_layout` |
-| `draw_mma_layout` | `show_mma_layout` |
-| `draw_tiled_grid` | `show_tiled_grid` |
-| `draw_copy_layout` | `show_copy_layout` |
-| `draw_combined_mma_grid` | `show_combined_mma_grid` |
-| `draw_slice` | `show_slice` |
-| `draw_composite` | `show_composite` |
+When `filename` is omitted (or `None`), all `draw_*` functions display
+inline in Jupyter notebooks and return the matplotlib `Figure`:
 
 ```python
-from tensor_layouts.viz import show_layout, show_swizzle, show_tv_layout
+from tensor_layouts.viz import draw_layout, draw_swizzle, draw_tv_layout
 
-fig = show_layout(Layout((8, 8), (8, 1)), colorize=True)
-fig = show_swizzle(Layout((8, 8), (8, 1)), Swizzle(3, 0, 3))
-fig = show_tv_layout(Layout((4, 2), (2, 1)), colorize=True)
+fig = draw_layout(Layout((8, 8), (8, 1)), colorize=True)
+fig = draw_swizzle(Layout((8, 8), (8, 1)), Swizzle(3, 0, 3))
+fig = draw_tv_layout(Layout((4, 2), (2, 1)), colorize=True)
 ```
 
-| `show_layout` | `show_swizzle` |
+| `draw_layout` | `draw_swizzle` |
 |----------------|----------------|
-| ![show_layout](images/show_layout.png) | ![show_swizzle](images/show_swizzle.png) |
+| ![draw_layout](images/draw_layout.png) | ![draw_swizzle](images/draw_swizzle.png) |
