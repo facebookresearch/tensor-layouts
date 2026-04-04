@@ -656,6 +656,8 @@ def size(obj: Any) -> int:
     """Returns the logical number of elements (product of shape)."""
     if isinstance(obj, Layout):
         return size(obj.shape)
+    if hasattr(obj, 'layout'):  # Tensor or any layout-backed object
+        return size(obj.layout)
     if is_tuple(obj) or is_int(obj):
         return fold(obj, 1, lambda acc, x: acc * x)
     raise TypeError(f"Cannot calculate size of {type(obj).__name__}")
@@ -663,6 +665,8 @@ def size(obj: Any) -> int:
 
 def cosize(obj: Layout) -> int:
     """Returns the memory span (max_offset + 1)."""
+    if hasattr(obj, 'layout') and not isinstance(obj, Layout):
+        return cosize(obj.layout)
     if is_int(obj.shape):
         return obj._calculate_max_offset(obj.shape, obj.stride) + 1
     if len(obj.shape) == 0:
@@ -671,6 +675,8 @@ def cosize(obj: Layout) -> int:
 
 
 def rank(obj: Any) -> int:
+    if hasattr(obj, 'layout') and not isinstance(obj, Layout):
+        return rank(obj.layout)
     if is_tuple(obj):
         return len(obj)
     if isinstance(obj, Layout):
@@ -691,6 +697,8 @@ def depth(obj: Any) -> int:
     """
     if isinstance(obj, Layout):
         return depth(obj.shape)
+    if hasattr(obj, 'layout'):
+        return depth(obj.layout)
     if is_int(obj):
         return 0
     if is_tuple(obj):
@@ -701,6 +709,8 @@ def depth(obj: Any) -> int:
 
 
 def mode(obj: Any, idx):
+    if hasattr(obj, 'layout') and not isinstance(obj, Layout):
+        return mode(obj.layout, idx)
     if is_tuple(obj):
         if not obj:
             return ()
@@ -867,6 +877,8 @@ def image(layout: Layout) -> list:
         image(Layout(4, 2))              # [0, 2, 4, 6]
         image(Layout((4, 2), (0, 1)))    # [0, 1]  (broadcast)
     """
+    if hasattr(layout, 'layout') and not isinstance(layout, Layout):
+        return image(layout.layout)
     return sorted({layout(i) for i in range(size(layout))})
 
 
@@ -1051,6 +1063,8 @@ def flatten(obj: Any) -> Any:
         return (obj,)
     if is_tuple(obj):
         return _flatten(obj)
+    if hasattr(obj, 'layout') and not isinstance(obj, Layout):
+        return flatten(obj.layout)
     elif isinstance(obj, Layout):
         flat_shape = _flatten(obj.shape)
         flat_stride = _flatten(obj.stride)
