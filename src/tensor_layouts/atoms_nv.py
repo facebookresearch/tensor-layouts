@@ -46,6 +46,14 @@ PTX ISA documentation:
     §9.7.13  Matrix Multiply-Accumulate
     §9.7.12  Matrix Load/Store
 
+.. note:: Community feedback welcome
+
+   These atom definitions were derived from NVIDIA CUTLASS source and PTX
+   ISA documentation.  If you find an incorrect mapping, please open an
+   issue at https://github.com/facebookresearch/tensor-layouts/issues —
+   both bug reports and confirmations that layouts match real hardware are
+   valuable.
+
 Usage:
     from tensor_layouts.atoms_nv import SM70_8x8x4_F32F16F16F32_NT, SM80_16x8x8_F16F16F16F16_TN
     print(SM70_8x8x4_F32F16F16F32_NT.a_layout)
