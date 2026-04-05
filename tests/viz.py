@@ -49,6 +49,7 @@ try:
         _build_combined_grid_figure,
         _build_composite_figure,
         _build_copy_figure,
+        _build_gemm_figure,
         _build_layout_figure,
         _build_mma_figure,
         _build_slice_figure,
@@ -658,6 +659,92 @@ def test_draw_composite_per_panel_override_wins():
         cell_texts = [c.get_text() for c in ax.texts
                       if c.get_text() in ("W", "X", "Y", "Z")]
         assert len(cell_texts) == 4
+    finally:
+        plt.close(fig)
+
+
+
+# --- draw_gemm tests ---
+
+@requires_viz
+def test_draw_gemm_smoke():
+    """draw_gemm produces a figure with 4 axes (empty + A + B^T + C)."""
+    A = Layout((4, 2), (1, 4))
+    B = Layout((3, 2), (1, 3))
+    C = Layout((4, 3), (1, 4))
+    fig = _build_gemm_figure(A, B, C, main_title="GEMM smoke")
+    try:
+        assert isinstance(fig, matplotlib.figure.Figure)
+        # 4 axes: empty (hidden) + A + B^T + C
+        assert len(fig.axes) == 4
+    finally:
+        plt.close(fig)
+
+
+
+@requires_viz
+def test_draw_gemm_tensor_shows_data():
+    """Tensor operands display data values, not offsets."""
+    A = Tensor(Layout((2, 2), (1, 2)), data=list("ABCD"))
+    B = Tensor(Layout((2, 2), (1, 2)), data=list("WXYZ"))
+    C = Tensor(Layout((2, 2), (1, 2)), data=[0, 1, 2, 3])
+    fig = _build_gemm_figure(A, B, C)
+    try:
+        # Check A panel (axes[2] = bottom-left)
+        a_texts = [c.get_text() for c in fig.axes[2].texts
+                   if c.get_text() in ("A", "B", "C", "D")]
+        assert len(a_texts) == 4, f"expected A data labels, got {a_texts}"
+    finally:
+        plt.close(fig)
+
+
+
+@requires_viz
+def test_draw_gemm_b_transposed():
+    """B panel title shows transposed dimensions K×N."""
+    A = Layout((4, 2), (1, 4))
+    B = Layout((3, 2), (1, 3))
+    C = Layout((4, 3), (1, 4))
+    fig = _build_gemm_figure(A, B, C)
+    try:
+        # B^T panel is axes[1] (top-right)
+        b_title = fig.axes[1].get_title()
+        assert "2\u00d73" in b_title, f"B^T title should show K×N=2×3, got {b_title}"
+    finally:
+        plt.close(fig)
+
+
+
+@requires_viz
+def test_draw_gemm_cell_labels_offset():
+    """cell_labels='offset' forces offset display for Tensor operands."""
+    A = Tensor(Layout((2, 2), (1, 2)), data=list("ABCD"))
+    B = Tensor(Layout((2, 2), (1, 2)), data=list("WXYZ"))
+    C = Tensor(Layout((2, 2), (1, 2)), data=[0, 1, 2, 3])
+    fig = _build_gemm_figure(A, B, C, cell_labels="offset")
+    try:
+        a_texts = [c.get_text() for c in fig.axes[2].texts]
+        assert "A" not in a_texts, "should show offsets, not data"
+        assert "0" in a_texts
+    finally:
+        plt.close(fig)
+
+
+
+@requires_viz
+def test_draw_gemm_hierarchy_boundary_boxes():
+    """Hierarchical layouts get hierarchy boundary lines in draw_gemm."""
+    A = Layout(((2, 3), 2), ((1, 2), 6))
+    B = Layout((4, 2), (1, 4))
+    C = Layout(((2, 3), 4), ((1, 2), 6))
+    fig = _build_gemm_figure(A, B, C)
+    try:
+        # A panel (axes[2]) has hierarchical mode 0 → should have boundary lines
+        a_ax = fig.axes[2]
+        assert len(a_ax.lines) > 0, "A panel should have hierarchy boundary lines"
+        # B panel (axes[1]) is plain → no boundary lines
+        b_ax = fig.axes[1]
+        assert len(b_ax.lines) == 0, "B panel should have no hierarchy lines"
     finally:
         plt.close(fig)
 

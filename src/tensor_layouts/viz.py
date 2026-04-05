@@ -85,6 +85,7 @@ __all__ = [
     "draw_combined_mma_grid",
     "draw_copy_layout",
     "draw_composite",
+    "draw_gemm",
     "draw_copy_atom",
 ]
 
@@ -837,6 +838,158 @@ def _build_composite_figure(
 
     plt.tight_layout()
     return fig
+
+
+def _unwrap_tensor(panel):
+    """Duck-type unwrap a Layout or Tensor into (layout, eval_fn, cell_labels)."""
+    if hasattr(panel, 'layout') and hasattr(panel, 'data') and callable(panel):
+        tensor = panel
+        layout = tensor.layout
+        eval_fn = tensor.__call__
+        labels = tensor.data if tensor.data is not None else True
+        return layout, eval_fn, labels
+    return as_layout(panel), None, True
+
+
+def _build_gemm_figure(
+    A, B, C,
+    main_title: Optional[str] = None,
+    **defaults,
+):
+    """Build the GEMM figure used by draw_gemm.
+
+    Arranges A, B, C in the standard matmul spatial pattern::
+
+                  B^T (K×N)
+            A (M×K)    C (M×N)
+
+    B is automatically transposed for display so its K dimension aligns
+    vertically with A's K columns.
+    """
+    import matplotlib.gridspec as gridspec
+
+    a_layout, a_fn, a_labels = _unwrap_tensor(A)
+    b_layout, b_fn, b_labels = _unwrap_tensor(B)
+    c_layout, c_fn, c_labels = _unwrap_tensor(C)
+
+    # Get M, K, N from flattened sizes (for grid proportions)
+    M = size(mode(a_layout, 0))
+    K = size(mode(a_layout, 1))
+    N = size(mode(b_layout, 0))
+
+    # Transpose B for display: (N, K):(sn, sk) → (K, N):(sk, sn)
+    bt_layout = Layout(
+        (b_layout.shape[1], b_layout.shape[0]),
+        (b_layout.stride[1], b_layout.stride[0]),
+    )
+    bt_fn = (lambda k, n: b_fn(n, k)) if b_fn is not None else None
+
+    # Format shape for panel titles, preserving hierarchy
+    def _fmt(s):
+        if isinstance(s, tuple):
+            return "(" + ",".join(str(x) for x in s) + ")"
+        return str(s)
+
+    a_title = f"A ({_fmt(a_layout.shape[0])}\u00d7{_fmt(a_layout.shape[1])})"
+    bt_title = f"B\u1d40 ({_fmt(bt_layout.shape[0])}\u00d7{_fmt(bt_layout.shape[1])})"
+    c_title = f"C ({_fmt(c_layout.shape[0])}\u00d7{_fmt(c_layout.shape[1])})"
+
+    # Figure sizing proportional to matrix dimensions
+    cell_scale = 0.55
+    pad = 1.5
+    fig_w = (K + N) * cell_scale + pad
+    fig_h = (K + M) * cell_scale + pad
+
+    fig = plt.figure(figsize=(fig_w, fig_h), layout="constrained")
+    gs = fig.add_gridspec(
+        2, 2,
+        width_ratios=[K, N],
+        height_ratios=[K, M],
+        wspace=0.3,
+        hspace=0.15,
+    )
+
+    ax_empty = fig.add_subplot(gs[0, 0])
+    ax_empty.axis("off")
+    ax_b = fig.add_subplot(gs[0, 1])
+    ax_a = fig.add_subplot(gs[1, 0])
+    ax_c = fig.add_subplot(gs[1, 1])
+
+    def _hier_shapes(layout):
+        """Extract hierarchy_shapes for boundary boxes if layout has nested modes."""
+        if rank(layout) == 2:
+            rs = mode(layout.shape, 0)
+            cs = mode(layout.shape, 1)
+            if isinstance(rs, tuple) or isinstance(cs, tuple):
+                return (rs, cs)
+        return None
+
+    def _render(ax, layout, eval_fn, auto_labels, title):
+        cell_labels = defaults.get("cell_labels", True)
+        if cell_labels is True and isinstance(auto_labels, list):
+            cell_labels = auto_labels
+        grid = _prepare_offset_grid(
+            layout, eval_fn=eval_fn,
+            color_layout=defaults.get("color_layout"),
+        )
+        _draw_grid(
+            ax, grid.indices, title=title,
+            colorize=defaults.get("colorize", False),
+            color_indices=grid.color_indices,
+            num_colors=defaults.get("num_colors", 8),
+            cell_labels=cell_labels,
+            interleave_colors=defaults.get("interleave_colors", False),
+            hierarchy_shapes=_hier_shapes(layout),
+        )
+
+    _render(ax_a, a_layout, a_fn, a_labels, a_title)
+    _render(ax_b, bt_layout, bt_fn, b_labels, bt_title)
+    _render(ax_c, c_layout, c_fn, c_labels, c_title)
+
+    if main_title:
+        fig.suptitle(main_title, fontsize=12, fontweight="bold")
+
+    return fig
+
+
+def draw_gemm(
+    A, B, C,
+    filename: str = None,
+    main_title: Optional[str] = None,
+    dpi: int = 150,
+    **kwargs,
+):
+    """Draw GEMM operands in the standard matmul spatial arrangement.
+
+    Renders A, B, C as offset grids arranged so shared dimensions align::
+
+                  B^T (K×N)
+            A (M×K)    C (M×N)
+
+    B is automatically transposed for display so its K dimension aligns
+    vertically with A's K columns, and its N dimension aligns horizontally
+    with C's N columns.
+
+    Each operand can be a Layout (shows offsets) or a Tensor (shows data).
+
+    Args:
+        A: Layout or Tensor with shape (M, K)
+        B: Layout or Tensor with shape (N, K)
+        C: Layout or Tensor with shape (M, N)
+        filename: Output path (.svg, .png, .pdf) or None for inline display
+        main_title: Optional title for the entire figure
+        dpi: Resolution for raster formats
+        **kwargs: Rendering options (cell_labels, colorize, num_colors, etc.)
+
+    Example:
+        A = Tensor(Layout((4, 2), (1, 4)), data=[1,0,0,1, 2,1,1,0])
+        B = Tensor(Layout((3, 2), (1, 3)), data=[1,0,1, 0,1,1])
+        C = Tensor(Layout((4, 3), (1, 4)), data=[0]*12)
+        gemm(A, B, C)
+        draw_gemm(A, B, C, main_title='NT GEMM -- data')
+    """
+    fig = _build_gemm_figure(A, B, C, main_title=main_title, **kwargs)
+    return _save_figure(fig, filename, dpi)
 
 
 def draw_composite(

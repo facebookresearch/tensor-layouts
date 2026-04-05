@@ -374,6 +374,42 @@ draw_composite(panels, "comparison.png",
 
 Per-panel option dicts override top-level `**kwargs`.
 
+## draw_gemm
+
+Draw GEMM operands in the standard matmul spatial arrangement.
+
+```python
+from tensor_layouts import Layout, Tensor
+from tensor_layouts.viz import draw_gemm
+
+A = Layout((4, 2), (1, 4))
+B = Layout((3, 2), (1, 3))
+C = Layout((4, 3), (1, 4))
+draw_gemm(A, B, C, main_title="NT GEMM -- offset maps")
+```
+
+The figure arranges A, B, C so shared dimensions align visually:
+
+```
+              B^T (K×N)
+        A (M×K)    C (M×N)
+```
+
+B is automatically transposed for display.  Each operand can be a
+Layout (shows offsets) or a Tensor (shows data values).
+
+**Parameters:**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `A` | Layout/Tensor | required | Shape (M, K) |
+| `B` | Layout/Tensor | required | Shape (N, K) |
+| `C` | Layout/Tensor | required | Shape (M, N) |
+| `filename` | `str` | `None` | Output path (or None for inline display) |
+| `main_title` | `str` | `None` | Overall title |
+| `dpi` | `int` | `150` | Resolution |
+| `**kwargs` | | | Rendering options: `cell_labels`, `colorize`, `num_colors` |
+
 ## draw_tiled_grid
 
 Draw a tiled MMA grid produced by `tile_mma_grid()`.
