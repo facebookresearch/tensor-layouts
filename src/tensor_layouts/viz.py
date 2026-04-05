@@ -726,9 +726,11 @@ def _build_composite_figure(
             layout = panel
             opts = {}
 
-        # Unwrap Tensor for offset-grid rendering
+        # Unwrap Tensor for offset-grid rendering (duck-typed to avoid
+        # class-identity mismatches after editable-install reloads)
         eval_fn = None
-        if isinstance(layout, Tensor):
+        tensor = None
+        if hasattr(layout, 'layout') and hasattr(layout, 'data') and callable(layout):
             tensor = layout
             eval_fn = tensor.__call__
             layout = tensor.layout
@@ -745,7 +747,7 @@ def _build_composite_figure(
         panel_cell_labels = opts.get("cell_labels", True)
 
         # Auto-label from Tensor data (after opts merge so user can override)
-        if eval_fn is not None and tensor.data is not None and panel_cell_labels is True:
+        if tensor is not None and tensor.data is not None and panel_cell_labels is True:
             panel_cell_labels = tensor.data
 
         # Get title
@@ -1538,8 +1540,9 @@ def _build_layout_figure(
     values and the default title includes the base offset.
     """
     # Unwrap Tensor: use its layout for shape/structure, its __call__ for values
+    # (duck-typed to avoid class-identity mismatches after editable-install reloads)
     eval_fn = None
-    if isinstance(layout, Tensor):
+    if hasattr(layout, 'layout') and hasattr(layout, 'data') and callable(layout):
         tensor = layout
         eval_fn = tensor.__call__
         layout = tensor.layout

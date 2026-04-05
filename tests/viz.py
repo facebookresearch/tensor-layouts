@@ -561,6 +561,35 @@ def test_draw_composite_returns_figure():
 
 
 @requires_viz
+def test_draw_composite_tensor_data_labels():
+    """Tensor panels show data values, not raw offsets, in cell text."""
+    t = Tensor(Layout(4, 1), data=list("WXYZ"))
+    fig = _build_composite_figure([t], titles=["Data"])
+    try:
+        ax = fig.axes[0]
+        cell_texts = [c.get_text() for c in ax.texts
+                      if c.get_text() in ("W", "X", "Y", "Z")]
+        assert len(cell_texts) == 4, f"expected data labels, got {cell_texts}"
+    finally:
+        plt.close(fig)
+
+
+
+@requires_viz
+def test_draw_composite_layout_shows_offsets():
+    """Layout panels show offset integers, not data."""
+    fig = _build_composite_figure([Layout(4, 1)], titles=["Offsets"])
+    try:
+        ax = fig.axes[0]
+        cell_texts = sorted(c.get_text() for c in ax.texts
+                            if c.get_text().isdigit())
+        assert "0" in cell_texts and "3" in cell_texts
+    finally:
+        plt.close(fig)
+
+
+
+@requires_viz
 def test_draw_copy_layout_same_thread_colors_both_panels():
     """Src and dst panels should use the same color for the same thread."""
     src = Layout((4, 2), (2, 1))
