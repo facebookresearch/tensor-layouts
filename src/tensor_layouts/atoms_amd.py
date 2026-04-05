@@ -20,10 +20,13 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-"""AMD CDNA MFMA (Matrix Fused Multiply-Add) atom definitions.
+"""AMD CDNA MFMA and RDNA WMMA atom definitions.
 
-Mirrors the lane-to-element mapping of AMD's MFMA instructions on CDNA
-architectures (CDNA1/gfx908, CDNA2/gfx90a, CDNA3/gfx942, CDNA3+/gfx950).
+Mirrors the lane-to-element mapping of AMD's matrix multiply instructions:
+  - **MFMA** (Matrix Fused Multiply-Add) on CDNA architectures
+    (CDNA1/gfx908, CDNA2/gfx90a, CDNA3/gfx942, CDNA3+/gfx950) — wave64
+  - **WMMA** (Wave Matrix Multiply-Accumulate) on RDNA architectures
+    (RDNA3/gfx1100, RDNA4/gfx1200) — wave32
 
 Each MFMA atom maps (thread_idx, value_idx) -> element coordinate using
 column-major encoding:
@@ -781,4 +784,246 @@ MMA_ATOMS_CDNA3P = [
     CDNA3P_16x16x32_F32BF16BF16_MFMA,
     CDNA3P_32x32x32_I32I8I8_MFMA,
     CDNA3P_16x16x64_I32I8I8_MFMA,
+]
+
+
+# =============================================================================
+# RDNA WMMA (Wave Matrix Multiply-Accumulate) — wave32
+#
+# WMMA operates on a wave32 (32 lanes), unlike CDNA MFMA which uses wave64.
+# All WMMA variants produce a 16×16 output tile.
+#
+# WMMA Register Layout
+# --------------------
+#
+# The 16×16 output (C/D) is distributed across 32 lanes with 8 values
+# per lane (32 × 8 = 256 = 16 × 16):
+#
+#     lane t (0..31):
+#         row_group = t // 16    (0 or 1 — upper or lower 8 rows)
+#         col       = t %  16    (column 0..15)
+#     value v (0..7):
+#         row = row_group * 8 + v
+#
+#     col-major offset = row + col * 16
+#
+# The A and B inputs (each rows × K) are distributed similarly:
+#
+#     lane t (0..31):
+#         row     = t % 16       (which row, 0..15)
+#         k_group = t // 16      (0 or 1 — first or second K-half)
+#     value v (0..V-1):
+#         k = k_group * V + v    (V = K/2 values per lane)
+#
+#     col-major offset = row + k * rows
+#
+# References:
+#     - AMD RDNA3/RDNA4 ISA Reference Guides (publicly available from GPUOpen)
+#     - AMD Matrix Instruction Calculator:
+#       https://github.com/ROCm/amd_matrix_instruction_calculator
+#     - rocWMMA library: https://github.com/ROCm/rocWMMA
+# =============================================================================
+
+
+def _wmma_c_layout(m: int, n: int) -> Layout:
+    """Build the (T32, V8) -> col-major(M, N) accumulator layout.
+
+    Thread (2, 16) decomposition:
+        row_group = t // 16   (0 or 1)
+        col       = t %  16   (0..15)
+
+    Value 8:
+        row = row_group * 8 + v
+
+    offset = row + col * M
+           = (row_group * 8 + v) + col * M
+    """
+    half_m = m // 2  # rows per row_group = 8
+    return Layout(
+        ((2, n), half_m),
+        ((half_m, m), 1),
+    )
+
+
+def _wmma_input_layout(rows: int, k: int) -> Layout:
+    """Build the (T32, V) -> col-major(rows, K) input layout for A or B.
+
+    Thread (2, 16) decomposition:
+        row     = t % 16      (which row)
+        k_group = t // 16     (0 or 1)
+
+    Value (K // 2):
+        k = k_group * (K // 2) + v
+
+    offset = row + k * rows
+           = row + (k_group * V + v) * rows
+    """
+    v_per_lane = k // 2
+    return Layout(
+        ((2, rows), v_per_lane),
+        ((v_per_lane * rows, 1), rows),
+    )
+
+
+def make_wmma_atom(
+    name: str,
+    inst: str,
+    m: int,
+    n: int,
+    k: int,
+) -> MMAAtom:
+    """Create an AMD RDNA WMMA atom.
+
+    All WMMA variants use wave32 with the same structural mapping;
+    only M, N, K dimensions vary.
+    """
+    wave_size = 32
+
+    if m != 16 or n != 16:
+        raise ValueError(f"WMMA requires M=N=16, got M={m}, N={n}")
+    if k % 2 != 0:
+        raise ValueError(f"WMMA K must be even, got K={k}")
+    if m * n != wave_size * (m // 2):
+        raise ValueError(f"M*N ({m * n}) != wave_size * V ({wave_size * m // 2})")
+
+    c_layout = _wmma_c_layout(m, n)
+    a_layout = _wmma_input_layout(m, k)
+    b_layout = _wmma_input_layout(n, k)
+
+    return MMAAtom(
+        name=name,
+        ptx=inst,
+        shape_mnk=(m, n, k),
+        thr_id=None,   # identity: lane_id = thread_idx % 32
+        a_layout=a_layout,
+        b_layout=b_layout,
+        c_layout=c_layout,
+    )
+
+
+# =============================================================================
+# RDNA3 (gfx1100/gfx1101) — WMMA 16×16×16 atoms
+# =============================================================================
+
+# --- FP16 ---
+RDNA3_16x16x16_F32F16F16_WMMA = make_wmma_atom(
+    name="RDNA3_16x16x16_F32F16F16_WMMA",
+    inst="v_wmma_f32_16x16x16_f16",
+    m=16, n=16, k=16,
+)
+
+RDNA3_16x16x16_F16F16F16_WMMA = make_wmma_atom(
+    name="RDNA3_16x16x16_F16F16F16_WMMA",
+    inst="v_wmma_f16_16x16x16_f16",
+    m=16, n=16, k=16,
+)
+
+# --- BF16 ---
+RDNA3_16x16x16_F32BF16BF16_WMMA = make_wmma_atom(
+    name="RDNA3_16x16x16_F32BF16BF16_WMMA",
+    inst="v_wmma_f32_16x16x16_bf16",
+    m=16, n=16, k=16,
+)
+
+RDNA3_16x16x16_BF16BF16BF16_WMMA = make_wmma_atom(
+    name="RDNA3_16x16x16_BF16BF16BF16_WMMA",
+    inst="v_wmma_bf16_16x16x16_bf16",
+    m=16, n=16, k=16,
+)
+
+# --- INT8 ---
+RDNA3_16x16x16_I32I8I8_WMMA = make_wmma_atom(
+    name="RDNA3_16x16x16_I32I8I8_WMMA",
+    inst="v_wmma_i32_16x16x16_iu8",
+    m=16, n=16, k=16,
+)
+
+# --- INT4 ---
+RDNA3_16x16x16_I32I4I4_WMMA = make_wmma_atom(
+    name="RDNA3_16x16x16_I32I4I4_WMMA",
+    inst="v_wmma_i32_16x16x16_iu4",
+    m=16, n=16, k=16,
+)
+
+
+# =============================================================================
+# RDNA4 (gfx1200) — WMMA 16×16×32 atoms (doubled K)
+# =============================================================================
+
+# --- FP16 ---
+RDNA4_16x16x32_F32F16F16_WMMA = make_wmma_atom(
+    name="RDNA4_16x16x32_F32F16F16_WMMA",
+    inst="v_wmma_f32_16x16x32_f16",
+    m=16, n=16, k=32,
+)
+
+RDNA4_16x16x32_F16F16F16_WMMA = make_wmma_atom(
+    name="RDNA4_16x16x32_F16F16F16_WMMA",
+    inst="v_wmma_f16_16x16x32_f16",
+    m=16, n=16, k=32,
+)
+
+# --- BF16 ---
+RDNA4_16x16x32_F32BF16BF16_WMMA = make_wmma_atom(
+    name="RDNA4_16x16x32_F32BF16BF16_WMMA",
+    inst="v_wmma_f32_16x16x32_bf16",
+    m=16, n=16, k=32,
+)
+
+RDNA4_16x16x32_BF16BF16BF16_WMMA = make_wmma_atom(
+    name="RDNA4_16x16x32_BF16BF16BF16_WMMA",
+    inst="v_wmma_bf16_16x16x32_bf16",
+    m=16, n=16, k=32,
+)
+
+# --- FP8 (new in RDNA4) ---
+RDNA4_16x16x32_F32F8F8_WMMA = make_wmma_atom(
+    name="RDNA4_16x16x32_F32F8F8_WMMA",
+    inst="v_wmma_f32_16x16x32_fp8_fp8",
+    m=16, n=16, k=32,
+)
+
+RDNA4_16x16x32_F32BF8BF8_WMMA = make_wmma_atom(
+    name="RDNA4_16x16x32_F32BF8BF8_WMMA",
+    inst="v_wmma_f32_16x16x32_bf8_bf8",
+    m=16, n=16, k=32,
+)
+
+# --- INT8 (doubled K) ---
+RDNA4_16x16x32_I32I8I8_WMMA = make_wmma_atom(
+    name="RDNA4_16x16x32_I32I8I8_WMMA",
+    inst="v_wmma_i32_16x16x32_iu8",
+    m=16, n=16, k=32,
+)
+
+# --- INT4 (quadrupled K) ---
+RDNA4_16x16x64_I32I4I4_WMMA = make_wmma_atom(
+    name="RDNA4_16x16x64_I32I4I4_WMMA",
+    inst="v_wmma_i32_16x16x64_iu4",
+    m=16, n=16, k=64,
+)
+
+
+# =============================================================================
+# Convenience lists — RDNA WMMA
+# =============================================================================
+
+MMA_ATOMS_RDNA3 = [
+    RDNA3_16x16x16_F32F16F16_WMMA,
+    RDNA3_16x16x16_F16F16F16_WMMA,
+    RDNA3_16x16x16_F32BF16BF16_WMMA,
+    RDNA3_16x16x16_BF16BF16BF16_WMMA,
+    RDNA3_16x16x16_I32I8I8_WMMA,
+    RDNA3_16x16x16_I32I4I4_WMMA,
+]
+
+MMA_ATOMS_RDNA4 = [
+    RDNA4_16x16x32_F32F16F16_WMMA,
+    RDNA4_16x16x32_F16F16F16_WMMA,
+    RDNA4_16x16x32_F32BF16BF16_WMMA,
+    RDNA4_16x16x32_BF16BF16BF16_WMMA,
+    RDNA4_16x16x32_F32F8F8_WMMA,
+    RDNA4_16x16x32_F32BF8BF8_WMMA,
+    RDNA4_16x16x32_I32I8I8_WMMA,
+    RDNA4_16x16x64_I32I4I4_WMMA,
 ]
