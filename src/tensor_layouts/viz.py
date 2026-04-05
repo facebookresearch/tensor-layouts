@@ -669,12 +669,13 @@ def _build_composite_figure(
     titles: Optional[list] = None,
     main_title: Optional[str] = None,
     panel_size: Optional[Tuple[float, float]] = None,
-    colorize: bool = False,
-    tv_mode: bool = False,
-    flatten_hierarchical: bool = True,
-    label_hierarchy_levels: bool = False,
+    **defaults,
 ):
-    """Build the composite figure used by draw_composite."""
+    """Build the composite figure used by draw_composite.
+
+    Keyword arguments beyond the named parameters are treated as default
+    panel-rendering options.  Per-panel option dicts override these defaults.
+    """
     n = len(panels)
     if n == 0:
         raise ValueError("panels list cannot be empty")
@@ -747,6 +748,9 @@ def _build_composite_figure(
             layout = panel
             opts = {}
 
+        # Merge defaults with per-panel overrides
+        panel_opts = {**defaults, **opts}
+
         # Unwrap Tensor for offset-grid rendering (duck-typed to avoid
         # class-identity mismatches after editable-install reloads)
         eval_fn = None
@@ -756,16 +760,14 @@ def _build_composite_figure(
             eval_fn = tensor.__call__
             layout = tensor.layout
 
-        # Merge with defaults
-        panel_colorize = opts.get("colorize", colorize)
-        panel_tv_mode = opts.get("tv_mode", tv_mode)
-        color_layout = opts.get("color_layout", None)
-        num_colors = opts.get("num_colors", 8)
-        panel_flatten = opts.get("flatten_hierarchical", flatten_hierarchical)
-        panel_label_levels = opts.get(
-            "label_hierarchy_levels", label_hierarchy_levels
-        )
-        panel_cell_labels = opts.get("cell_labels", True)
+        # Extract rendering options with sensible fallbacks
+        panel_colorize = panel_opts.get("colorize", False)
+        panel_tv_mode = panel_opts.get("tv_mode", False)
+        panel_color_layout = panel_opts.get("color_layout", None)
+        panel_num_colors = panel_opts.get("num_colors", 8)
+        panel_flatten = panel_opts.get("flatten_hierarchical", True)
+        panel_label_levels = panel_opts.get("label_hierarchy_levels", False)
+        panel_cell_labels = panel_opts.get("cell_labels", True)
 
         # Auto-label from Tensor data (after opts merge so user can override)
         if tensor is not None and tensor.data is not None and panel_cell_labels is True:
@@ -781,11 +783,11 @@ def _build_composite_figure(
                 layout,
                 title=title,
                 colorize=panel_colorize,
-                num_colors=opts.get("num_colors", num_colors),
-                grid_rows=opts.get("grid_rows"),
-                grid_cols=opts.get("grid_cols"),
-                thr_id_layout=opts.get("thr_id_layout"),
-                col_major=opts.get("col_major", True),
+                num_colors=panel_num_colors,
+                grid_rows=panel_opts.get("grid_rows"),
+                grid_cols=panel_opts.get("grid_cols"),
+                thr_id_layout=panel_opts.get("thr_id_layout"),
+                col_major=panel_opts.get("col_major", True),
             )
         else:
             # Check if this panel should use hierarchical rendering
@@ -795,7 +797,7 @@ def _build_composite_figure(
                 or isinstance(mode(layout.shape, 1), tuple)
             )
             grid = _prepare_offset_grid(
-                layout, color_layout=color_layout, eval_fn=eval_fn,
+                layout, color_layout=panel_color_layout, eval_fn=eval_fn,
                 hierarchical=is_hier,
             )
             if grid.is_hierarchical:
@@ -813,7 +815,7 @@ def _build_composite_figure(
                     flatten_hierarchical=False,
                     label_hierarchy_levels=panel_label_levels,
                     cell_labels=panel_cell_labels,
-                    num_colors=num_colors,
+                    num_colors=panel_num_colors,
                 )
             else:
                 _draw_grid(
@@ -822,7 +824,7 @@ def _build_composite_figure(
                     title=title,
                     colorize=panel_colorize,
                     color_indices=grid.color_indices,
-                    num_colors=num_colors,
+                    num_colors=panel_num_colors,
                     cell_labels=panel_cell_labels,
                 )
 
@@ -845,10 +847,7 @@ def draw_composite(
     main_title: Optional[str] = None,
     dpi: int = 150,
     panel_size: Optional[Tuple[float, float]] = None,
-    colorize: bool = False,
-    tv_mode: bool = False,
-    flatten_hierarchical: bool = True,
-    label_hierarchy_levels: bool = False,
+    **kwargs,
 ):
     """Draw multiple layouts in a single composite figure.
 
@@ -861,11 +860,7 @@ def draw_composite(
 
     Args:
         panels: List of Layout/Tensor objects or (Layout/Tensor, options_dict)
-                tuples. Per-panel options override the top-level defaults:
-                  colorize, color_layout, num_colors -- offset-grid options
-                  tv_mode -- if True, render this panel as a TV grid
-                  grid_rows, grid_cols, thr_id_layout, col_major -- TV options
-                  flatten_hierarchical, label_hierarchy_levels -- hierarchy options
+                tuples.  Per-panel option dicts override the top-level defaults.
         filename: Output path (.svg, .png, or .pdf)
         arrangement: How to arrange panels:
             - "horizontal": side by side (1 row)
@@ -877,12 +872,12 @@ def draw_composite(
         panel_size: Size of each panel in inches (width, height).
             If None (default), auto-computed from layout dimensions:
             ~0.55 in per cell plus padding for titles and labels.
-        colorize: Default colorize setting for all panels
-        tv_mode: If True, render panels as TV layouts with T/V labels
-        flatten_hierarchical: Default for all panels. If False, show explicit
-            nested coordinate labels for hierarchical layouts
-        label_hierarchy_levels: Default for all panels. If True, annotate axes
-            with hierarchy level labels
+        **kwargs: Default rendering options applied to every panel
+            unless overridden by a per-panel option dict.  Common options:
+              cell_labels -- True (auto), False, "offset", or a list
+              colorize, color_layout, num_colors -- coloring
+              tv_mode, grid_rows, grid_cols -- TV layout rendering
+              flatten_hierarchical, label_hierarchy_levels -- hierarchy
 
     Example:
         # Side-by-side comparison
@@ -899,10 +894,7 @@ def draw_composite(
         titles=titles,
         main_title=main_title,
         panel_size=panel_size,
-        colorize=colorize,
-        tv_mode=tv_mode,
-        flatten_hierarchical=flatten_hierarchical,
-        label_hierarchy_levels=label_hierarchy_levels,
+        **kwargs,
     )
     return _save_figure(fig, filename, dpi)
 
