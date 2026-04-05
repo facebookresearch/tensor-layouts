@@ -629,6 +629,41 @@ def test_draw_composite_explicit_panel_size_overrides_auto():
 
 
 @requires_viz
+def test_draw_composite_cell_labels_offset_kwarg():
+    """cell_labels='offset' passed as kwarg forces offset display for Tensors."""
+    t = Tensor(Layout(4, 1), data=list("WXYZ"))
+    fig = _build_composite_figure([t], cell_labels="offset")
+    try:
+        ax = fig.axes[0]
+        cell_texts = [c.get_text() for c in ax.texts]
+        # Should show offsets (0, 1, 2, 3), not letters
+        assert "0" in cell_texts and "3" in cell_texts
+        assert "W" not in cell_texts
+    finally:
+        plt.close(fig)
+
+
+
+@requires_viz
+def test_draw_composite_per_panel_override_wins():
+    """Per-panel option dict overrides top-level kwarg."""
+    t = Tensor(Layout(4, 1), data=list("WXYZ"))
+    # Top-level says offset, but per-panel says show data (True = auto)
+    fig = _build_composite_figure(
+        [(t, {"cell_labels": True})],
+        cell_labels="offset",
+    )
+    try:
+        ax = fig.axes[0]
+        cell_texts = [c.get_text() for c in ax.texts
+                      if c.get_text() in ("W", "X", "Y", "Z")]
+        assert len(cell_texts) == 4
+    finally:
+        plt.close(fig)
+
+
+
+@requires_viz
 def test_draw_copy_layout_same_thread_colors_both_panels():
     """Src and dst panels should use the same color for the same thread."""
     src = Layout((4, 2), (2, 1))

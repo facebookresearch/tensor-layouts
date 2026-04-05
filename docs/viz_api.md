@@ -351,22 +351,28 @@ draw_composite(panels, "comparison.png",
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `panels` | `list` | required | List of Layouts to draw |
-| `filename` | `str` | required | Output path |
-| `arrangement` | `str` | `"horizontal"` | `"horizontal"` or `"vertical"` |
+| `panels` | `list` | required | List of Layout/Tensor objects to draw |
+| `filename` | `str` | `None` | Output path (or None for inline display) |
+| `arrangement` | `str` | `"horizontal"` | `"horizontal"`, `"vertical"`, or `"grid:RxC"` |
 | `titles` | `list` | `None` | Per-panel titles |
 | `main_title` | `str` | `None` | Overall title |
 | `dpi` | `int` | `150` | Resolution |
 | `panel_size` | `(w, h)` | `None` | Size per panel; auto-computed from layout dimensions when None |
-| `colorize` | `bool` | `False` | Rainbow colors |
-| `tv_mode` | `bool` | `False` | Use TV-layout rendering |
-| `flatten_hierarchical` | `bool` | `True` | Flatten nested shapes to 2D grid |
-| `label_hierarchy_levels` | `bool` | `False` | In nested hierarchical mode, annotate hierarchy levels |
+| `**kwargs` | | | Default rendering options for all panels (see below) |
 
-Per-panel options (`(Layout, opts_dict)` tuples) override the top-level
-defaults: `colorize`, `color_layout`, `num_colors`, `tv_mode`,
-`flatten_hierarchical`, `label_hierarchy_levels`, and the TV-specific
-`grid_rows`, `grid_cols`, `thr_id_layout`, `col_major`.
+**Rendering options** (passed as `**kwargs` or per-panel via `(Layout, opts_dict)`):
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `cell_labels` | `True` | `True` (auto: offsets for Layout, data for Tensor), `False`, `"offset"`, or a list |
+| `colorize` | `False` | Rainbow colors |
+| `color_layout` | `None` | Custom coloring layout |
+| `num_colors` | `8` | Palette size |
+| `tv_mode` | `False` | Use TV-layout rendering |
+| `flatten_hierarchical` | `True` | Flatten nested shapes to 2D grid |
+| `label_hierarchy_levels` | `False` | Annotate hierarchy levels |
+
+Per-panel option dicts override top-level `**kwargs`.
 
 ## draw_tiled_grid
 
