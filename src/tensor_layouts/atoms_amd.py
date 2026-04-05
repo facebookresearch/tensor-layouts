@@ -46,6 +46,14 @@ References:
     - AMD Matrix Cores blog:
       https://gpuopen.com/learn/amd-lab-notes/amd-lab-notes-matrix-cores-readme/
 
+.. note:: Community feedback welcome
+
+   These atom definitions were derived from public ISA documentation and
+   cross-checked against AMD's matrix instruction calculator where possible.
+   If you find an incorrect mapping, please open an issue at
+   https://github.com/facebookresearch/tensor-layouts/issues — both bug
+   reports and confirmations that layouts match real hardware are valuable.
+
 
 MFMA Register Layout
 =====================

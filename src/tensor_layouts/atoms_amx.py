@@ -65,6 +65,13 @@ References
 - Intel 64 and IA-32 Architectures Software Developer's Manual (SDM),
   Volume 2 -- Instruction Set Reference
 
+.. note:: Community feedback welcome
+
+   These atom definitions were derived from public Intel ISA documentation.
+   If you find an incorrect mapping, please open an issue at
+   https://github.com/facebookresearch/tensor-layouts/issues — both bug
+   reports and confirmations that layouts match real hardware are valuable.
+
 Usage::
 
     from tensor_layouts.atoms_amx import AMX_16x16x32_F32BF16BF16F32
