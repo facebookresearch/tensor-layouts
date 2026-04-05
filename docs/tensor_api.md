@@ -240,6 +240,41 @@ the layout's image are accessed; extra elements are simply unused.
 This is useful when multiple Tensors with different layouts share the
 same underlying buffer.
 
+## Views — `view()`
+
+`tensor.view(layout)` returns a new Tensor that shares the same backing
+storage but uses a different layout.  The new layout's cosize must not
+exceed the storage length.
+
+```python
+buf = list("ABCDEFGHIJKLMNOP")
+t = Tensor(Layout((4, 4), (4, 1)), data=buf)   # row-major
+
+# Flat 1D view of the same backing store
+flat = t.view(Layout(16, 1))
+flat[0]   # 'A'
+flat[15]  # 'P'
+
+# Column-major view
+col = t.view(Layout((4, 4), (1, 4)))
+col[0, 0]  # 'A'  — same element, different traversal order
+
+# The view shares storage — writes are visible everywhere
+flat[0] = 'Z'
+t[0, 0]    # 'Z'
+```
+
+This is the Python equivalent of CuTe's `make_tensor(tensor.data(), new_layout)`.
+It is useful for inspecting the physical storage order of a tensor:
+
+```python
+src = Tensor(Layout((4, 8), (8, 1)), data=list(range(32)))
+physical = src.view(Layout(len(src.data), 1))  # flat view of backing store
+```
+
+Calling `view()` on a Tensor without storage raises `TypeError`.
+A layout whose cosize exceeds the storage length raises `ValueError`.
+
 ## Visualization
 
 When a data-backed Tensor is passed to `draw_layout`, cells are
@@ -285,3 +320,9 @@ hashes, and collisions when only data differs are harmless.
 | `shape` | tuple | Shorthand for `layout.shape` |
 | `stride` | tuple | Shorthand for `layout.stride` |
 | `data` | indexable or `None` | Backing storage (read-write) |
+
+## Methods
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `view(layout)` | `Tensor` | New Tensor sharing storage with a different layout |

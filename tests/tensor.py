@@ -1396,6 +1396,61 @@ class TestTensorEqualityWithData:
         assert a != b
 
 
+class TestView:
+    """Tests for Tensor.view()."""
+
+    def test_view_shares_data(self):
+        """View shares the same backing storage."""
+        buf = list("ABCDEFGH")
+        t = Tensor(Layout((2, 4), (4, 1)), data=buf)
+        flat = t.view(Layout(8, 1))
+        assert flat.data is t.data
+
+    def test_view_reads_same_data(self):
+        """View reads from the shared storage."""
+        buf = list("ABCDEFGH")
+        t = Tensor(Layout((2, 4), (4, 1)), data=buf)
+        flat = t.view(Layout(8, 1))
+        assert flat[0] == "A"
+        assert flat[7] == "H"
+
+    def test_view_write_visible(self):
+        """Writes through a view are visible in the original."""
+        buf = list("ABCDEFGH")
+        t = Tensor(Layout((2, 4), (4, 1)), data=buf)
+        flat = t.view(Layout(8, 1))
+        flat[0] = "Z"
+        assert t[0, 0] == "Z"
+
+    def test_view_different_layout(self):
+        """View can reshape to a different rank."""
+        buf = list(range(12))
+        t = Tensor(Layout(12, 1), data=buf)
+        reshaped = t.view(Layout((3, 4), (4, 1)))
+        assert reshaped[1, 2] == buf[1 * 4 + 2]
+
+    def test_view_no_storage_raises(self):
+        """View on algebraic Tensor raises TypeError."""
+        t = Tensor(Layout(8, 1))
+        with pytest.raises(TypeError):
+            t.view(Layout(8, 1))
+
+    def test_view_cosize_too_large_raises(self):
+        """View with cosize exceeding storage raises ValueError."""
+        buf = list(range(8))
+        t = Tensor(Layout(8, 1), data=buf)
+        with pytest.raises(ValueError):
+            t.view(Layout(16, 1))
+
+    def test_view_smaller_cosize(self):
+        """View with smaller cosize is allowed."""
+        buf = list(range(16))
+        t = Tensor(Layout(16, 1), data=buf)
+        small = t.view(Layout(4, 1))
+        assert small[0] == 0
+        assert small[3] == 3
+
+
 if __name__ == "__main__":
     import subprocess
     import sys
