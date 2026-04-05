@@ -357,7 +357,7 @@ draw_composite(panels, "comparison.png",
 | `titles` | `list` | `None` | Per-panel titles |
 | `main_title` | `str` | `None` | Overall title |
 | `dpi` | `int` | `150` | Resolution |
-| `panel_size` | `(w, h)` | `(4, 4)` | Size per panel |
+| `panel_size` | `(w, h)` | `None` | Size per panel; auto-computed from layout dimensions when None |
 | `colorize` | `bool` | `False` | Rainbow colors |
 | `tv_mode` | `bool` | `False` | Use TV-layout rendering |
 | `flatten_hierarchical` | `bool` | `True` | Flatten nested shapes to 2D grid |

@@ -590,6 +590,45 @@ def test_draw_composite_layout_shows_offsets():
 
 
 @requires_viz
+def test_draw_composite_auto_panel_size_compact_for_1d():
+    """Auto panel_size produces compact height for rank-1 layouts."""
+    fig = _build_composite_figure([Layout(8, 1)])
+    try:
+        _, h = fig.get_size_inches()
+        assert h < 3.0, f"1-row layout should be compact, got height={h}"
+    finally:
+        plt.close(fig)
+
+
+
+@requires_viz
+def test_draw_composite_auto_panel_size_scales_with_rows():
+    """Auto panel_size grows taller for layouts with more rows."""
+    fig_1d = _build_composite_figure([Layout(8, 1)])
+    fig_2d = _build_composite_figure([Layout((4, 8), (8, 1))])
+    try:
+        _, h_1d = fig_1d.get_size_inches()
+        _, h_2d = fig_2d.get_size_inches()
+        assert h_2d > h_1d, f"4×8 should be taller than 1×8: {h_2d} vs {h_1d}"
+    finally:
+        plt.close(fig_1d)
+        plt.close(fig_2d)
+
+
+
+@requires_viz
+def test_draw_composite_explicit_panel_size_overrides_auto():
+    """Explicit panel_size takes precedence over auto-compute."""
+    fig = _build_composite_figure([Layout(8, 1)], panel_size=(5.0, 5.0))
+    try:
+        w, h = fig.get_size_inches()
+        assert abs(w - 5.0) < 0.1 and abs(h - 5.0) < 0.1
+    finally:
+        plt.close(fig)
+
+
+
+@requires_viz
 def test_draw_copy_layout_same_thread_colors_both_panels():
     """Src and dst panels should use the same color for the same thread."""
     src = Layout((4, 2), (2, 1))

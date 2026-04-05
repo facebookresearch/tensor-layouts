@@ -668,7 +668,7 @@ def _build_composite_figure(
     arrangement: str = "horizontal",
     titles: Optional[list] = None,
     main_title: Optional[str] = None,
-    panel_size: Tuple[float, float] = (4, 4),
+    panel_size: Optional[Tuple[float, float]] = None,
     colorize: bool = False,
     tv_mode: bool = False,
     flatten_hierarchical: bool = True,
@@ -678,6 +678,27 @@ def _build_composite_figure(
     n = len(panels)
     if n == 0:
         raise ValueError("panels list cannot be empty")
+
+    # Auto-compute panel_size from layout dimensions if not provided
+    if panel_size is None:
+        cell_scale = 0.55
+        padding_w, padding_h = 1.5, 0.9
+        max_rows, max_cols = 1, 1
+        for p in panels:
+            lay = p[0] if isinstance(p, tuple) else p
+            if hasattr(lay, 'layout'):
+                lay = lay.layout
+            lay = as_layout(lay)
+            r = rank(lay)
+            if r >= 2:
+                pr = size(mode(lay.shape, 0))
+                pc = size(mode(lay.shape, 1))
+            else:
+                pr, pc = 1, size(lay)
+            max_rows = max(max_rows, pr)
+            max_cols = max(max_cols, pc)
+        panel_size = (max_cols * cell_scale + padding_w,
+                      max_rows * cell_scale + padding_h)
 
     # Parse arrangement
     if arrangement == "horizontal":
@@ -823,7 +844,7 @@ def draw_composite(
     titles: Optional[list] = None,
     main_title: Optional[str] = None,
     dpi: int = 150,
-    panel_size: Tuple[float, float] = (4, 4),
+    panel_size: Optional[Tuple[float, float]] = None,
     colorize: bool = False,
     tv_mode: bool = False,
     flatten_hierarchical: bool = True,
@@ -853,7 +874,9 @@ def draw_composite(
         titles: Optional list of titles for each panel
         main_title: Optional title for the entire figure
         dpi: Resolution for raster formats
-        panel_size: Size of each panel in inches (width, height)
+        panel_size: Size of each panel in inches (width, height).
+            If None (default), auto-computed from layout dimensions:
+            ~0.55 in per cell plus padding for titles and labels.
         colorize: Default colorize setting for all panels
         tv_mode: If True, render panels as TV layouts with T/V labels
         flatten_hierarchical: Default for all panels. If False, show explicit
