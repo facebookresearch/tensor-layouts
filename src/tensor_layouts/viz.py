@@ -686,17 +686,29 @@ def _build_composite_figure(
         cell_scale = 0.55
         padding_w, padding_h = 1.5, 0.9
         max_rows, max_cols = 1, 1
+        # If grid_rows/grid_cols are specified in defaults, use them
+        # instead of inferring from layout shape (which can be wrong
+        # for TV layouts where the rendered grid differs from the shape).
+        default_gr = defaults.get("grid_rows")
+        default_gc = defaults.get("grid_cols")
         for p in panels:
             lay = p[0] if isinstance(p, tuple) else p
+            opts = p[1] if isinstance(p, tuple) else {}
             if hasattr(lay, 'layout'):
                 lay = lay.layout
             lay = as_layout(lay)
-            r = rank(lay)
-            if r >= 2:
-                pr = size(mode(lay.shape, 0))
-                pc = size(mode(lay.shape, 1))
+            # Per-panel grid overrides take priority, then defaults
+            gr = opts.get("grid_rows", default_gr)
+            gc = opts.get("grid_cols", default_gc)
+            if gr is not None and gc is not None:
+                pr, pc = gr, gc
             else:
-                pr, pc = 1, size(lay)
+                r = rank(lay)
+                if r >= 2:
+                    pr = size(mode(lay.shape, 0))
+                    pc = size(mode(lay.shape, 1))
+                else:
+                    pr, pc = 1, size(lay)
             max_rows = max(max_rows, pr)
             max_cols = max(max_cols, pc)
         panel_size = (max_cols * cell_scale + padding_w,
