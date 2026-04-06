@@ -1727,7 +1727,7 @@ def _build_layout_figure(
         eval_fn = tensor.__call__
         layout = tensor.layout
         if title is None:
-            title = repr(tensor)
+            title = str(tensor)
         # Auto-label cells with data values when storage is present
         if tensor.data is not None and cell_labels is True:
             cell_labels = tensor.data

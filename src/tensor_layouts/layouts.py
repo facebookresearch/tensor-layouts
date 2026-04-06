@@ -375,6 +375,17 @@ def _validate_shape_type(x, name: str) -> None:
     raise TypeError(f"Layout {name} must be int or tuple of ints, got {type(x).__name__}")
 
 
+def _fmt_shape(x):
+    """Format a shape/stride without Python's trailing-comma for 1-tuples.
+
+    Python renders ``((4, 2),)`` for a 1-element tuple, but CuTe notation
+    uses ``((4, 2))`` which is cleaner for human readers.
+    """
+    if isinstance(x, int):
+        return str(x)
+    return "(" + ", ".join(_fmt_shape(e) for e in x) + ")"
+
+
 class Layout:
     """A function from logical coordinates to memory offsets: offset = sum(coord_i * stride_i).
 
@@ -473,13 +484,7 @@ class Layout:
 
     def __str__(self):
         """Return human-readable CuTe notation: (4, 2) : (1, 4)."""
-
-        def fmt(x):
-            if isinstance(x, int):
-                return str(x)
-            return repr(x)
-
-        base = f"{fmt(self._shape)} : {fmt(self._stride)}"
+        base = f"{_fmt_shape(self._shape)} : {_fmt_shape(self._stride)}"
         if self._swizzle is not None:
             return f"({self._swizzle}) o ({base})"
         return base
