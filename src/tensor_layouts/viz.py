@@ -445,6 +445,13 @@ def _setup_axes(
         ax.set_title(title, fontsize=title_fontsize, fontweight="bold", pad=10)
 
 
+def _format_cell_value(val, precision: Optional[int] = None) -> str:
+    """Format a cell label value, respecting *precision* for floats."""
+    if precision is not None and isinstance(val, float):
+        return f"{val:.{precision}g}"
+    return str(val)
+
+
 def _draw_grid(
     ax,
     indices: np.ndarray,
@@ -461,6 +468,7 @@ def _draw_grid(
     cell_fontsize: Optional[float] = None,
     cell_labels=True,
     interleave_colors: bool = False,
+    precision: Optional[int] = None,
 ):
     """Draw a grid of cells with indices on a matplotlib axis.
 
@@ -481,6 +489,9 @@ def _draw_grid(
         cell_fontsize: Font size for cell value text. If None, auto-scaled
             based on the figure width and number of columns so text fits
             within cells.
+        precision: Number of digits for float cell labels. None (default)
+            uses full ``str()`` representation. When set, floats are
+            formatted with ``f"{v:.{precision}g}"``.
     """
     rows, cols = indices.shape
 
@@ -580,7 +591,8 @@ def _draw_grid(
             if cell_labels is False:
                 continue
             if not isinstance(cell_labels, (bool, str)):
-                label = str(cell_labels[idx]) if idx < len(cell_labels) else str(idx)
+                val = cell_labels[idx] if idx < len(cell_labels) else idx
+                label = _format_cell_value(val, precision)
             else:
                 label = str(idx)
             ax.text(
@@ -781,6 +793,7 @@ def _build_composite_figure(
         panel_flatten = panel_opts.get("flatten_hierarchical", True)
         panel_label_levels = panel_opts.get("label_hierarchy_levels", False)
         panel_cell_labels = panel_opts.get("cell_labels", True)
+        panel_precision = panel_opts.get("precision", None)
 
         # Auto-label from Tensor data (after opts merge so user can override)
         if tensor is not None and tensor.data is not None and panel_cell_labels is True:
@@ -829,6 +842,7 @@ def _build_composite_figure(
                     label_hierarchy_levels=panel_label_levels,
                     cell_labels=panel_cell_labels,
                     num_colors=panel_num_colors,
+                    precision=panel_precision,
                 )
             else:
                 _draw_grid(
@@ -839,6 +853,7 @@ def _build_composite_figure(
                     color_indices=grid.color_indices,
                     num_colors=panel_num_colors,
                     cell_labels=panel_cell_labels,
+                    precision=panel_precision,
                 )
 
     # Hide unused axes
@@ -952,6 +967,7 @@ def _build_gemm_figure(
             cell_labels=cell_labels,
             interleave_colors=defaults.get("interleave_colors", False),
             hierarchy_shapes=_hier_shapes(layout),
+            precision=defaults.get("precision"),
         )
 
     _render(ax_a, a_layout, a_fn, a_labels, a_title)
@@ -1043,6 +1059,7 @@ def draw_composite(
               colorize, color_layout, num_colors -- coloring
               tv_mode, grid_rows, grid_cols -- TV layout rendering
               flatten_hierarchical, label_hierarchy_levels -- hierarchy
+              precision -- significant digits for float cell labels
 
     Example:
         # Side-by-side comparison
@@ -1464,6 +1481,7 @@ def _draw_hierarchical_grid(
     cell_labels: bool = True,
     num_colors: int = 8,
     interleave_colors: bool = False,
+    precision: Optional[int] = None,
 ):
     """Draw a hierarchical layout grid.
 
@@ -1550,7 +1568,8 @@ def _draw_hierarchical_grid(
                 pass
             elif not isinstance(cell_labels, (bool, str)):
                 # User-provided or auto-generated labels indexed by offset
-                label = str(cell_labels[idx]) if idx < len(cell_labels) else str(idx)
+                val = cell_labels[idx] if idx < len(cell_labels) else idx
+                label = _format_cell_value(val, precision)
                 ax.text(
                     j + 0.5,
                     i + 0.5,
@@ -1713,6 +1732,7 @@ def _build_layout_figure(
     cell_labels: bool = True,
     interleave_colors: bool = False,
     transpose: bool = False,
+    precision: Optional[int] = None,
 ):
     """Build the layout figure used by draw_layout.
 
@@ -1839,6 +1859,7 @@ def _build_layout_figure(
                 num_colors=num_colors,
                 cell_labels=cell_labels,
                 interleave_colors=interleave_colors,
+                precision=precision,
             )
 
         for idx in range(n_panels, len(axes)):
@@ -1900,6 +1921,7 @@ def _build_layout_figure(
             cell_labels=cell_labels,
             interleave_colors=interleave_colors,
             num_colors=num_colors,
+            precision=precision,
         )
     else:
         _draw_grid(
@@ -1911,6 +1933,7 @@ def _build_layout_figure(
             num_colors=num_colors,
             cell_labels=cell_labels,
             interleave_colors=interleave_colors,
+            precision=precision,
         )
 
     return fig
@@ -1931,6 +1954,7 @@ def draw_layout(
     cell_labels: bool = True,
     interleave_colors: bool = False,
     transpose: bool = False,
+    precision: Optional[int] = None,
 ):
     """Draw a layout or tensor and save to file.
 
@@ -1974,6 +1998,8 @@ def draw_layout(
             Matches the CuTe paper's coloring convention.
         transpose: If True, render rank-1 layouts as a column vector (N×1)
             instead of the default row vector (1×N). Ignored for rank >= 2.
+        precision: Number of significant digits for float cell labels.
+            None (default) uses full ``str()`` representation.
     """
     fig = _build_layout_figure(
         layout,
@@ -1988,6 +2014,7 @@ def draw_layout(
         cell_labels=cell_labels,
         interleave_colors=interleave_colors,
         transpose=transpose,
+        precision=precision,
     )
     return _save_figure(fig, filename, dpi)
 
