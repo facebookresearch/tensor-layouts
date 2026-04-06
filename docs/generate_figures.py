@@ -33,6 +33,9 @@ Or, after the same install step:
 import shutil
 from pathlib import Path
 
+import matplotlib.patches as patches
+import matplotlib.pyplot as plt
+
 from tensor_layouts import Layout, Swizzle
 from tensor_layouts.atoms_nv import SM80_16x8x16_F16F16F16F16_TN
 from tensor_layouts.layout_utils import tile_mma_grid
@@ -47,6 +50,105 @@ from tensor_layouts.viz import (
 )
 
 IMAGES = Path(__file__).resolve().parent / "images"
+
+
+def _generate_intile_oftile(path: Path) -> None:
+    """intile/oftile coordinate diagram: manual index math vs layout algebra.
+
+    Three panels on a 4×8 matrix tiled by (2,4):
+      Left:   cells show linear index i
+      Center: cells show 2D index (r,c)
+      Right:  cells show intile coords — the output of logical_divide
+    Tile coloring (shared across all panels) shows the oftile grouping.
+    Formulas below each panel explain the conversion.
+    """
+    M, K = 4, 8
+    tm, tk = 2, 4
+    tile_colors = {
+        (0, 0): "#DBEAFE", (0, 1): "#FEE2E2",
+        (1, 0): "#D1FAE5", (1, 1): "#EDE9FE",
+    }
+
+    fig, axes = plt.subplots(1, 3, figsize=(18, 5.2))
+
+    def _draw_grid(ax, cell_text_fn, title, subtitle):
+        """Draw M×K grid with colored tiles and per-cell text."""
+        for r in range(M):
+            for c in range(K):
+                om, im = r // tm, r % tm
+                ok, ik = c // tk, c % tk
+                y = M - 1 - r
+                rect = patches.Rectangle(
+                    (c, y), 1, 1,
+                    facecolor=tile_colors[(om, ok)],
+                    edgecolor="#D1D5DB", linewidth=0.5,
+                )
+                ax.add_patch(rect)
+                ax.text(
+                    c + 0.5, y + 0.5, cell_text_fn(r, c),
+                    ha="center", va="center", fontsize=9,
+                    color="#374151", family="monospace",
+                )
+        # thick tile borders
+        for i in range(0, M + 1, tm):
+            ax.plot([0, K], [i, i], color="#1F2937", lw=2.5,
+                    solid_capstyle="butt")
+        for j in range(0, K + 1, tk):
+            ax.plot([j, j], [0, M], color="#1F2937", lw=2.5,
+                    solid_capstyle="butt")
+        # oftile margin labels
+        for om in range(M // tm):
+            y_c = M - om * tm - tm / 2
+            ax.text(-0.3, y_c, f"oftile\u2080={om}", ha="right", va="center",
+                    fontsize=8, fontweight="bold", color="#7C3AED",
+                    family="monospace")
+        for ok in range(K // tk):
+            x_c = ok * tk + tk / 2
+            ax.text(x_c, M + 0.15, f"oftile\u2081={ok}", ha="center",
+                    va="bottom", fontsize=8, fontweight="bold", color="#7C3AED",
+                    family="monospace")
+        ax.set_xlim(-2.5, K + 0.5)
+        ax.set_ylim(-1.8, M + 0.8)
+        ax.axis("off")
+        ax.set_title(title, fontsize=10.5, fontweight="bold", pad=10)
+        ax.text(K / 2, -0.3, subtitle, ha="center", va="top", fontsize=8,
+                color="#6B7280", family="monospace", linespacing=1.6)
+
+    # ── Panel 1: linear index ────────────────────────────────────
+    _draw_grid(
+        axes[0],
+        lambda r, c: str(r * K + c),
+        "Linear index i",
+        "row = i // 8,  col = i % 8\n"
+        "intile = (row % 2, col % 4)\n"
+        "oftile = (row // 2, col // 4)",
+    )
+
+    # ── Panel 2: 2D index ────────────────────────────────────────
+    _draw_grid(
+        axes[1],
+        lambda r, c: f"{r},{c}",
+        "2D index (row, col)",
+        "intile = (row % 2, col % 4)\n"
+        "oftile = (row // 2, col // 4)",
+    )
+
+    # ── Panel 3: layout algebra ──────────────────────────────────
+    _draw_grid(
+        axes[2],
+        lambda r, c: f"{r % tm},{c % tk}",
+        "logical_divide((4,8):(8,1), (2,4))",
+        "result: ((2,2),(4,2)) : ((8,16),(1,4))\n"
+        "mode 0: (intile\u2080, oftile\u2080)\n"
+        "mode 1: (intile\u2081, oftile\u2081)",
+    )
+    axes[2].text(K / 2, -1.45, "cells show (intile\u2080, intile\u2081)",
+                 ha="center", va="top", fontsize=9, fontweight="bold",
+                 color="#2563EB", family="monospace")
+
+    plt.tight_layout()
+    fig.savefig(path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
 
 
 def main():
@@ -149,6 +251,9 @@ def main():
         IMAGES / "draw_tiled_grid.png",
         title="SM80 16x8x16 C \u2014 2x2 atoms",
     )
+
+    # -- intile / oftile (applications.ipynb §3.3.5) --
+    _generate_intile_oftile(IMAGES / "intile_oftile.png")
 
     print(f"Generated {len(list(IMAGES.glob('*.png')))} figures in {IMAGES}")
 
