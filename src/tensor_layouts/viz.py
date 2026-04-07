@@ -2852,7 +2852,7 @@ def draw_copy_layout(
     return _save_figure(fig, filename, dpi)
 
 
-def _swizzle_figsize(linear_idx, swizzle_idx, rows, cols):
+def _swizzle_figsize(linear_idx, swizzle_idx, rows, cols, arrangement="horizontal"):
     """Compute figure size for a two-panel swizzle comparison.
 
     Uses the larger of the "comfortable" cell width (0.5in, matching the
@@ -2864,6 +2864,8 @@ def _swizzle_figsize(linear_idx, swizzle_idx, rows, cols):
     # Minimum cell width so 7pt text fits: digit ≈ 0.6em
     min_cell_w = n_digits * 0.6 * 7 / 72
     cell_w = max(min_cell_w, 0.5)
+    if arrangement == "vertical":
+        return (cols * cell_w + 1.5, rows * 0.5 * 2 + 3)
     return (cols * cell_w * 2 + 3, rows * 0.5 + 1.5)
 
 
@@ -2873,6 +2875,7 @@ def _build_swizzle_figure(
     figsize: Optional[Tuple[float, float]] = None,
     colorize: bool = False,
     num_colors: int = 8,
+    arrangement: str = "horizontal",
 ):
     """Build the swizzle comparison figure used by draw_swizzle."""
     sw_layout = compose(swizzle, base_layout)
@@ -2887,18 +2890,18 @@ def _build_swizzle_figure(
         effective_colors = blocks_per_row
         bit_shift = swizzle.base
         if figsize is None:
-            figsize = _swizzle_figsize(linear_idx, swizzle_idx, rows, cols)
+            figsize = _swizzle_figsize(linear_idx, swizzle_idx, rows, cols, arrangement)
     elif swizzle.base == 0:
         effective_colors = num_colors
         bit_shift = 0
         if figsize is None:
-            figsize = _swizzle_figsize(linear_idx, swizzle_idx, rows, cols)
+            figsize = _swizzle_figsize(linear_idx, swizzle_idx, rows, cols, arrangement)
     else:
         bit_shift = swizzle.base
         distinct_groups = len(set(int(v) >> bit_shift for v in linear_idx.flat))
         effective_colors = max(num_colors, distinct_groups)
         if figsize is None:
-            figsize = _swizzle_figsize(linear_idx, swizzle_idx, rows, cols)
+            figsize = _swizzle_figsize(linear_idx, swizzle_idx, rows, cols, arrangement)
 
     def _swizzle_color_indices(idx_array):
         return np.vectorize(lambda v: (int(v) >> bit_shift) % effective_colors)(
@@ -2908,7 +2911,10 @@ def _build_swizzle_figure(
     linear_ci = _swizzle_color_indices(linear_idx)
     swizzle_ci = _swizzle_color_indices(swizzle_idx)
 
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=figsize)
+    if arrangement == "vertical":
+        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=figsize)
+    else:
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=figsize)
     _draw_grid(
         ax1,
         linear_idx,
@@ -2942,6 +2948,7 @@ def draw_swizzle(
     figsize: Optional[Tuple[float, float]] = None,
     colorize: bool = False,
     num_colors: int = 8,
+    arrangement: str = "horizontal",
 ):
     """Draw side-by-side comparison of linear vs swizzled layout.
 
@@ -2962,9 +2969,12 @@ def draw_swizzle(
         figsize: Figure size in inches (auto-calculated if None)
         colorize: If True, use rainbow colors (makes swizzle movement clearer)
         num_colors: Number of colors in palette
+        arrangement: Panel layout — "horizontal" (side-by-side) or "vertical"
+            (stacked). Use "vertical" for wide layouts like 8×128.
     """
     fig = _build_swizzle_figure(
-        base_layout, swizzle, figsize=figsize, colorize=colorize, num_colors=num_colors
+        base_layout, swizzle, figsize=figsize, colorize=colorize,
+        num_colors=num_colors, arrangement=arrangement,
     )
     return _save_figure(fig, filename, dpi)
 
