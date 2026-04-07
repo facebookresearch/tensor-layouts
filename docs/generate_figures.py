@@ -151,6 +151,151 @@ def _generate_intile_oftile(path: Path) -> None:
     plt.close(fig)
 
 
+def _generate_im2col(
+    path: Path,
+    H: int = 4,
+    W: int = 4,
+    R: int = 2,
+    S: int = 2,
+) -> None:
+    """im2col diagram: input matrix on the left, unrolled output on the right.
+
+    Shows how a sliding R×S window over an H×W input produces a (P*Q)×(R*S)
+    matrix where each row is one flattened window.  Color-coding links each
+    window position to its row in the output.
+    """
+    import colorsys
+    from collections import defaultdict
+
+    P, Q = H - R + 1, W - S + 1
+    n_windows = P * Q
+    n_taps = R * S
+    labels = [chr(ord("A") + i) for i in range(H * W)]
+
+    # -- im2col index matrix: each row lists the H*W indices for one window --
+    im2col_rows = []
+    for p in range(P):
+        for q in range(Q):
+            im2col_rows.append(
+                [(p + r) * W + (q + s) for r in range(R) for s in range(S)]
+            )
+
+    # -- color palette: one pastel color per window --
+    window_colors_rgb = []
+    for i in range(n_windows):
+        hue = i / n_windows
+        r, g, b = colorsys.hsv_to_rgb(hue, 0.30, 0.95)
+        window_colors_rgb.append((r, g, b))
+
+    def rgb_to_hex(rgb):
+        return f"#{int(rgb[0]*255):02X}{int(rgb[1]*255):02X}{int(rgb[2]*255):02X}"
+
+    window_colors = [rgb_to_hex(c) for c in window_colors_rgb]
+
+    # -- per-input-cell color: blend all windows that cover each cell --
+    cell_windows = defaultdict(list)
+    for win_idx, indices in enumerate(im2col_rows):
+        for idx in indices:
+            cell_windows[idx].append(win_idx)
+
+    def blend(win_indices):
+        rgbs = [window_colors_rgb[i] for i in win_indices]
+        avg = tuple(sum(c[k] for c in rgbs) / len(rgbs) for k in range(3))
+        return rgb_to_hex(avg)
+
+    # -- figure --
+    fig, axes = plt.subplots(
+        1, 2, figsize=(4 + n_taps * 1.2, max(H, n_windows) * 0.8 + 1.5),
+        gridspec_kw={"width_ratios": [W, n_taps * 1.1]},
+    )
+
+    # ── Left panel: input grid ──────────────────────────────────────
+    ax = axes[0]
+    for row in range(H):
+        for col in range(W):
+            idx = row * W + col
+            y = H - 1 - row
+            color = blend(cell_windows[idx])
+            rect = patches.Rectangle(
+                (col, y), 1, 1,
+                facecolor=color, edgecolor="#D1D5DB", linewidth=0.5,
+            )
+            ax.add_patch(rect)
+            ax.text(
+                col + 0.5, y + 0.5, labels[idx],
+                ha="center", va="center", fontsize=13,
+                color="#374151", family="monospace", fontweight="bold",
+            )
+    # thick outer border
+    rect = patches.Rectangle(
+        (0, 0), W, H,
+        facecolor="none", edgecolor="#1F2937", linewidth=2.5,
+    )
+    ax.add_patch(rect)
+    ax.set_xlim(-0.5, W + 0.5)
+    ax.set_ylim(-0.8, H + 0.8)
+    ax.set_aspect("equal")
+    ax.axis("off")
+    ax.set_title(f"Input ({H}\u00d7{W})", fontsize=11, fontweight="bold", pad=10)
+
+    # ── Right panel: im2col output grid ─────────────────────────────
+    ax = axes[1]
+    for row_idx in range(n_windows):
+        y = n_windows - 1 - row_idx
+        for col_idx in range(n_taps):
+            cell_label = labels[im2col_rows[row_idx][col_idx]]
+            rect = patches.Rectangle(
+                (col_idx, y), 1, 1,
+                facecolor=window_colors[row_idx],
+                edgecolor="#D1D5DB", linewidth=0.5,
+            )
+            ax.add_patch(rect)
+            ax.text(
+                col_idx + 0.5, y + 0.5, cell_label,
+                ha="center", va="center", fontsize=12,
+                color="#374151", family="monospace", fontweight="bold",
+            )
+        # row label: window position (p, q)
+        p, q = divmod(row_idx, Q)
+        ax.text(
+            -0.2, y + 0.5, f"({p},{q})",
+            ha="right", va="center", fontsize=8,
+            color="#6B7280", family="monospace",
+        )
+    # thick outer border
+    rect = patches.Rectangle(
+        (0, 0), n_taps, n_windows,
+        facecolor="none", edgecolor="#1F2937", linewidth=2.5,
+    )
+    ax.add_patch(rect)
+    ax.set_xlim(-1.5, n_taps + 0.5)
+    ax.set_ylim(-0.5, n_windows + 0.8)
+    ax.set_aspect("equal")
+    ax.axis("off")
+    ax.set_title(
+        f"im2col output ({n_windows}\u00d7{n_taps})",
+        fontsize=11, fontweight="bold", pad=10,
+    )
+
+    # ── Arrow connecting the panels ─────────────────────────────────
+    arrow = patches.FancyArrowPatch(
+        (0.44, 0.5), (0.52, 0.5),
+        transform=fig.transFigure,
+        arrowstyle="->,head_width=6,head_length=5",
+        color="#374151", linewidth=2,
+    )
+    fig.patches.append(arrow)
+    fig.text(
+        0.48, 0.54, f"im2col({R}\u00d7{S})",
+        ha="center", va="bottom", fontsize=11, fontweight="bold",
+        color="#374151", family="monospace", transform=fig.transFigure,
+    )
+
+    plt.tight_layout()
+    fig.savefig(path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+
+
 def main():
     IMAGES.mkdir(exist_ok=True)
 
@@ -254,6 +399,9 @@ def main():
 
     # -- intile / oftile (applications.ipynb §3.3.5) --
     _generate_intile_oftile(IMAGES / "intile_oftile.png")
+
+    # -- im2col (algorithms.ipynb §CONV) --
+    _generate_im2col(IMAGES / "im2col.png")
 
     print(f"Generated {len(list(IMAGES.glob('*.png')))} figures in {IMAGES}")
 
