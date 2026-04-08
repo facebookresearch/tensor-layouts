@@ -1565,6 +1565,32 @@ def test_oracle_compose_truncation():
             pass  # pycute may also raise for these cases
 
 
+def test_oracle_left_inverse_padded():
+    """left_inverse for padded layouts must satisfy L†(L(k)) = k.
+
+    Regression: left_inverse((4,8):(1,5)) returned 4:1 instead of (5,8):(1,4).
+    pycute also returns 4:1 (bug), so we validate against the functional
+    property rather than pycute output.
+    """
+    cases = [
+        ((4, 8), (1, 5)),
+        ((4, 8), (1, 4)),
+        ((4, 8), (8, 1)),
+        ((3, 7, 5), (5, 15, 1)),
+        ((4, 8), (1, 8)),
+    ]
+    for shape, stride in cases:
+        ours_l = our_layout(shape, stride)
+        ours_li = left_inverse(ours_l)
+
+        # Functional property: Li(L(k)) == k for injective layouts
+        for k in range(size(ours_l)):
+            lk = ours_l(k)
+            assert ours_li(lk) == k, (
+                f"left_inverse({shape}:{stride}): Li(L({k}))=Li({lk})={ours_li(lk)} != {k}"
+            )
+
+
 if __name__ == "__main__":
     import traceback
     test_funcs = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]

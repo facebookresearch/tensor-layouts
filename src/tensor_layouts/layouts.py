@@ -1719,27 +1719,74 @@ def right_inverse(layout: Any) -> Layout:
 def left_inverse(layout: Any) -> Layout:
     """Compute the left-inverse of a layout.
 
-    For a layout L, the left-inverse R satisfies: R(L(i)) == i
-    for all i in range(size(L)).
+    For an injective layout L, the left-inverse R satisfies:
+        R(L(i)) == i for all i in range(size(L))
 
-    Computed as: right_inverse(Layout(L, complement(L)))
+    For a general layout L, the weaker property holds:
+        L(R(L(i))) == L(i) for all i in range(size(L))
+
+    Algorithm matches CuTe C++ (layout.hpp:1324):
+      1. Coalesce the layout
+      2. Compute prefix product of shapes
+      3. Sort modes by stride (ascending)
+      4. Build inverse by filling gaps between strides
 
     Examples:
         left_inverse(Layout(4, 1)) -> Layout(4, 1)
         left_inverse(Layout(4, 2)) -> Layout((2, 4), (0, 1))
         left_inverse(Layout((8, 4), (1, 8))) -> Layout(32, 1)
+        left_inverse(Layout((4, 8), (1, 5))) -> Layout((5, 8), (1, 4))
     """
     if layout is None:
         return None
     if isinstance(layout, int):
         return Layout(layout)
 
-    comp = complement(layout)
-    combined = Layout(
-        (layout.shape, comp.shape),
-        (layout.stride, comp.stride),
-    )
-    return right_inverse(combined)
+    flat = coalesce(layout)
+
+    # Get shapes and strides as lists
+    if is_int(flat.shape):
+        flat_shapes = [flat.shape]
+        flat_strides = [flat.stride]
+    else:
+        flat_shapes = list(flat.shape)
+        flat_strides = list(flat.stride)
+
+    R = len(flat_shapes)
+
+    # Prefix product of shapes: [1, S0, S0*S1, ...]
+    preprod = [1]
+    for s in flat_shapes:
+        preprod.append(preprod[-1] * s)
+
+    # Sort mode indices by stride (ascending), filtering stride-0
+    nonzero_indices = [(flat_strides[i], i) for i in range(R) if flat_strides[i] != 0]
+    nonzero_indices.sort()  # sort by stride
+
+    if not nonzero_indices:
+        # All strides are 0: trivial inverse
+        return Layout(size(layout), 0)
+
+    # Build the inverse: CuTe C++ layout.hpp:1340-1360
+    # For each mode (sorted by stride, skipping stride-0):
+    #   new_shape = istride / size(result_shape_so_far)
+    #   new_stride = prefix_product[original_mode_index]
+    # Then append the shape of the last sorted mode.
+    result_shapes = []
+    result_strides = [0]  # initial stride-0 sentinel (matches C++ tuple<_0>)
+    result_size = 1  # product of result_shapes so far
+
+    for stride_val, idx in nonzero_indices:
+        new_shape = stride_val // result_size
+        result_shapes.append(new_shape)
+        result_strides.append(preprod[idx])
+        result_size *= new_shape
+
+    # Append the shape of the last sorted mode
+    _, last_idx = nonzero_indices[-1]
+    result_shapes.append(flat_shapes[last_idx])
+
+    return coalesce(Layout(as_shape(result_shapes), as_shape(result_strides)))
 
 
 def nullspace(layout: Layout) -> Layout:

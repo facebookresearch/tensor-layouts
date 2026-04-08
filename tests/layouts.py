@@ -489,6 +489,36 @@ def test_compose_truncates_unreachable_modes():
         assert C3(i) == A3(Layout(3, 3)(i))
 
 
+def test_left_inverse_padded_layout():
+    """left_inverse of padded (non-contiguous) layouts must cover the full
+    codomain and satisfy L†(L(k)) = k for all k.
+
+    Regression: left_inverse((4,8):(1,5)) was returning 4:1 instead of
+    (5,8):(1,4).  The old implementation used right_inverse(Layout(L,
+    complement(L))) which failed because complement coalesced away stride
+    information.  The new implementation follows the CuTe C++ algorithm
+    (layout.hpp:1324) directly.
+    """
+    # Padded column-major
+    L = Layout((4, 8), (1, 5))
+    Li = left_inverse(L)
+    assert Li == Layout((5, 8), (1, 4))
+    for k in range(size(L)):
+        assert Li(L(k)) == k
+
+    # All Table 6 cases
+    cases = [
+        (Layout((4, 8), (1, 4)), Layout(32, 1)),
+        (Layout((4, 8), (8, 1)), Layout((8, 4), (4, 1))),
+        (Layout((3, 7, 5), (5, 15, 1)), Layout((5, 21), (21, 1))),
+    ]
+    for L, expected in cases:
+        Li = left_inverse(L)
+        assert Li == expected, f"left_inverse({L}) = {Li}, expected {expected}"
+        for k in range(size(L)):
+            assert Li(L(k)) == k
+
+
 def test_complement_rejects_negative_strides():
     """complement rejects negative strides (matches CuTe/pycute assertions)."""
     with pytest.raises(ValueError, match="negative stride"):
