@@ -466,7 +466,14 @@ def test_oracle_right_inverse():
 
 
 def test_oracle_left_inverse():
-    """Cross-validate left_inverse() against pycute."""
+    """Cross-validate left_inverse() against pycute.
+
+    For contiguous (bijective) layouts, we compare against pycute directly.
+    For non-contiguous layouts, pycute's left_inverse has a known bug
+    (it uses right_inverse(Layout(L, complement(L))) which produces wrong
+    results when complement coalesces away stride info). In those cases
+    we validate the functional property Li(L(i)) == i instead.
+    """
     for shape, stride in iter_corpus():
         if stride is None:
             continue
@@ -476,14 +483,31 @@ def test_oracle_left_inverse():
         ours_r = left_inverse(ours_l)
         ref_r = pycute.left_inverse(ref_l)
 
-        # Functional equivalence: both should map L(i) -> i
         n = size(ours_l)
+        injective = is_injective(ours_l)
+        contiguous = is_bijective(ours_l)
+
         for i in range(n):
             li = ours_l(i)
-            assert ours_r(li) == ref_r(li), (
-                f"left_inverse({shape}:{stride})(L({i})={li}): "
-                f"ours={ours_r(li)} vs pycute={ref_r(li)}"
-            )
+            if contiguous:
+                # Contiguous: compare against pycute (both should agree)
+                assert ours_r(li) == ref_r(li), (
+                    f"left_inverse({shape}:{stride})(L({i})={li}): "
+                    f"ours={ours_r(li)} vs pycute={ref_r(li)}"
+                )
+            elif injective:
+                # Injective but non-contiguous: validate Li(L(i)) == i
+                # (pycute has a known bug for these cases)
+                assert ours_r(li) == i, (
+                    f"left_inverse({shape}:{stride})(L({i})={li}): "
+                    f"ours={ours_r(li)} != {i}"
+                )
+            else:
+                # Non-injective: validate weak property L(Li(L(i))) == L(i)
+                assert ours_l(ours_r(li)) == li, (
+                    f"left_inverse({shape}:{stride}): "
+                    f"L(Li(L({i})))={ours_l(ours_r(li))} != L({i})={li}"
+                )
 
 
 def test_oracle_logical_divide():
@@ -1517,12 +1541,23 @@ def test_oracle_logical_divide_layout_tilers_in_tuples():
         tiler_layouts = tuple(our_layout(ts, td) for ts, td in tilers)
         ours_r = logical_divide(ours_l, tiler_layouts)
 
-        # Same set of offsets as original
-        R_offsets = sorted(ours_r(i) for i in range(size(ours_r)))
-        A_offsets = sorted(ours_l(i) for i in range(size(ours_l)))
-        assert R_offsets == A_offsets, (
-            f"logical_divide({ls}:{ld}, {tilers}) offsets differ"
-        )
+        # Validate per-mode against pycute
+        ours_shapes = as_tuple(ours_l.shape)
+        ours_strides = as_tuple(ours_l.stride)
+        for i, (ts, td) in enumerate(tilers):
+            ref_mode = pycute.Layout(ours_shapes[i], ours_strides[i])
+            ref_tiler = pycute.Layout(ts, td)
+            ref_divided = pycute.logical_divide(ref_mode, ref_tiler)
+            ours_mode = mode(ours_r, i)
+            assert size(ours_mode) == pycute.size(ref_divided), (
+                f"logical_divide({ls}:{ld}, {tilers}) mode {i} size mismatch: "
+                f"ours={size(ours_mode)} vs pycute={pycute.size(ref_divided)}"
+            )
+            for j in range(size(ours_mode)):
+                assert ours_mode(j) == ref_divided(j), (
+                    f"logical_divide({ls}:{ld}, {tilers}) mode {i}({j}): "
+                    f"ours={ours_mode(j)} vs pycute={ref_divided(j)}"
+                )
 
 
 def test_oracle_compose_truncation():
