@@ -55,8 +55,10 @@ the correct position in the flat storage buffer.
 | `Tensor(layout, data=buf)` | Data-backed, offset 0 |
 | `Tensor(layout, offset, data=buf)` | Data-backed with explicit base offset |
 
-The storage must satisfy `len(data) >= cosize(layout)`.  It is stored
-by reference (no copy).  Storage that is too small raises `ValueError`.
+The storage must cover every index addressed by the `(offset, layout)`
+pair.  For the common zero-offset, nonnegative-stride case this reduces
+to `len(data) >= cosize(layout)`.  It is stored by reference (no copy).
+Storage that is too small raises `ValueError`.
 
 ```python
 from tensor_layouts import Layout, Tensor
@@ -214,9 +216,8 @@ t.data = list(range(100, 132))  # swap to new storage
 t[0, 0]                         # 100
 ```
 
-The new storage must satisfy `len(new_data) >= cosize(layout)`.
-Assigning `None` removes storage and returns the Tensor to algebraic
-mode.
+The new storage must satisfy the same addressed-range requirement.
+Assigning `None` removes storage and returns the Tensor to algebraic mode.
 
 ### View aliasing
 

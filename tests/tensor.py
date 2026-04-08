@@ -1169,7 +1169,7 @@ class TestTensorStorage:
     def test_data_too_small_raises(self):
         """Storage smaller than cosize raises ValueError."""
         layout = Layout((4, 8), (8, 1))  # cosize = 32
-        with pytest.raises(ValueError, match="smaller than layout cosize"):
+        with pytest.raises(ValueError, match="addressed range"):
             Tensor(layout, data=list(range(10)))
 
     def test_data_larger_than_cosize(self):
@@ -1198,8 +1198,49 @@ class TestTensorStorage:
         """Setting data too small raises ValueError."""
         layout = Layout((4, 8), (8, 1))  # cosize = 32
         t = Tensor(layout)
-        with pytest.raises(ValueError, match="smaller than layout cosize"):
+        with pytest.raises(ValueError, match="addressed range"):
             t.data = list(range(10))
+
+    def test_data_with_positive_offset_needs_full_address_range(self):
+        """Construction validates the full addressed range, not just cosize(layout)."""
+        buf = list(range(14))
+        t = Tensor(Layout(4, 1), offset=10, data=buf)
+
+        assert [t[i] for i in range(4)] == [10, 11, 12, 13]
+
+    def test_data_with_positive_offset_and_short_storage_raises(self):
+        """A nonzero base offset must still fit in the backing storage."""
+        with pytest.raises(ValueError, match="addressed range"):
+            Tensor(Layout(4, 1), offset=10, data=[0] * 4)
+
+    def test_negative_stride_requires_nonnegative_address_range(self):
+        """Negative strides without a compensating offset are rejected."""
+        with pytest.raises(ValueError, match="addressed range"):
+            Tensor(Layout(4, -1), data=list(range(10)))
+
+    def test_negative_stride_with_offset_reads_correct_data(self):
+        """Negative strides work when the base offset keeps accesses in-bounds."""
+        t = Tensor(Layout(4, -1), offset=3, data=list(range(8)))
+        assert [t[i] for i in range(4)] == [3, 2, 1, 0]
+
+    def test_negative_stride_slice_preserves_valid_address_range(self):
+        """Slicing a valid negative-stride tensor stays within the shared storage."""
+        t = Tensor(Layout((2, 4), (4, -1)), offset=3, data=list(range(8)))
+        row1 = t[1, :]
+
+        assert row1.data is t.data
+        assert [row1[j] for j in range(4)] == [7, 6, 5, 4]
+
+    def test_data_setter_validates_offset_and_signed_stride(self):
+        """Assigning data uses the same addressed-range validation as construction."""
+        t = Tensor(Layout(4, -1), offset=3)
+
+        with pytest.raises(ValueError, match="addressed range"):
+            t.data = list(range(3))
+
+        buf = list(range(4))
+        t.data = buf
+        assert [t[i] for i in range(4)] == [3, 2, 1, 0]
 
     def test_data_setter_accepts_none(self):
         """Setting data to None removes storage."""

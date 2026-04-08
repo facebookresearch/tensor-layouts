@@ -44,6 +44,56 @@ offset, and the swizzle is applied at the final call.
 from .layouts import *
 
 
+def _linear_offset_bounds(shape, stride) -> tuple[int, int]:
+    """Return the min/max linear offsets reachable by a shape/stride pair."""
+    if is_tuple(shape):
+        min_offset = 0
+        max_offset = 0
+        for sub_shape, sub_stride in zip(shape, stride):
+            sub_min, sub_max = _linear_offset_bounds(sub_shape, sub_stride)
+            min_offset += sub_min
+            max_offset += sub_max
+        return min_offset, max_offset
+
+    extent = (shape - 1) * stride
+    if extent < 0:
+        return extent, 0
+    return 0, extent
+
+
+def _address_bounds(layout: Layout, offset: int) -> tuple[int, int]:
+    """Return the min/max storage indices addressed by a Tensor."""
+    if layout.swizzle is None:
+        min_linear, max_linear = _linear_offset_bounds(layout.shape, layout.stride)
+        return offset + min_linear, offset + max_linear
+
+    min_offset = None
+    max_offset = None
+    for flat_idx in range(size(layout)):
+        linear = offset + crd2offset(flat_idx, layout.shape, layout.stride)
+        actual = layout.swizzle(linear)
+        if min_offset is None:
+            min_offset = actual
+            max_offset = actual
+        else:
+            min_offset = min(min_offset, actual)
+            max_offset = max(max_offset, actual)
+
+    if min_offset is None:
+        return offset, offset
+    return min_offset, max_offset
+
+
+def _validate_storage(layout: Layout, offset: int, data) -> None:
+    """Validate that storage covers every index addressed by (offset, layout)."""
+    min_offset, max_offset = _address_bounds(layout, offset)
+    if min_offset < 0 or max_offset >= len(data):
+        raise ValueError(
+            f"Storage length {len(data)} does not cover addressed range "
+            f"[{min_offset}, {max_offset}] for offset={offset} and layout {layout}"
+        )
+
+
 class Tensor:
     """A Tensor combines a base offset and optional storage with a Layout.
 
@@ -69,8 +119,10 @@ class Tensor:
         layout: The Layout describing the coordinate-to-offset mapping
         offset: The base offset in linear (pre-swizzle) space (default 0)
         data:   Optional storage (any indexable object — list, numpy array,
-                torch tensor, etc.).  Must satisfy ``len(data) >= cosize(layout)``.
-                Stored by reference (no copy).
+                torch tensor, etc.). It must cover every index addressed by
+                ``offset + layout(coords)`` (or the swizzled equivalent).
+                For zero-offset, nonnegative-stride layouts this reduces to
+                ``len(data) >= cosize(layout)``. Stored by reference (no copy).
 
     Examples:
         Algebraic (no storage)::
@@ -92,11 +144,8 @@ class Tensor:
     def __init__(self, layout: Layout, offset: int = 0, data=None):
         self._layout = layout
         self._offset = offset
-        if data is not None and len(data) < cosize(self._layout):
-            raise ValueError(
-                f"Storage length {len(data)} is smaller than "
-                f"layout cosize {cosize(self._layout)}"
-            )
+        if data is not None:
+            _validate_storage(self._layout, self._offset, data)
         self._data = data
 
     @property
@@ -120,7 +169,7 @@ class Tensor:
         """The backing storage, or None if this is a purely algebraic Tensor.
 
         Assignable: ``tensor.data = new_array`` replaces the storage reference.
-        The new storage must satisfy ``len(new_data) >= cosize(layout)``.
+        The new storage must cover every index addressed by this Tensor.
 
         Note: sub-Tensors produced by slicing hold their own reference to the
         storage object.  Reassigning ``parent.data`` does *not* update existing
@@ -131,11 +180,8 @@ class Tensor:
 
     @data.setter
     def data(self, value):
-        if value is not None and len(value) < cosize(self._layout):
-            raise ValueError(
-                f"Storage length {len(value)} is smaller than "
-                f"layout cosize {cosize(self._layout)}"
-            )
+        if value is not None:
+            _validate_storage(self._layout, self._offset, value)
         self._data = value
 
     def view(self, layout: Layout) -> "Tensor":
