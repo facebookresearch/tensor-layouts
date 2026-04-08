@@ -458,6 +458,37 @@ def test_logical_divide_layout_tilers_in_tuples():
     assert Z_offsets == A_offsets
 
 
+def test_compose_truncates_unreachable_modes():
+    """compose truncates modes beyond B's reach before checking divisibility.
+
+    When (remaining_shape-1)*remaining_stride < curr_shape, all of B fits
+    within the current mode. Modes beyond are unreachable and should not
+    trigger divisibility errors.
+
+    Regression: compose((4,2,8):(3,12,97), 3:3) raised ValueError instead
+    of returning 3:9.
+    """
+    # Paper §3.3.3 "apparent violation" example
+    A = Layout((4, 2, 8), (3, 12, 97))
+    B = Layout(3, 3)
+    C = compose(A, B)
+    assert C == Layout(3, 9)
+    for i in range(3):
+        assert C(i) == A(B(i))
+
+    # Same after manual coalescing
+    A2 = Layout((8, 8), (3, 97))
+    C2 = compose(A2, B)
+    assert C2 == Layout(3, 9)
+
+    # Row-major case: compose((8,8):(8,1), 3:3) = 3:24
+    A3 = Layout((8, 8), (8, 1))
+    C3 = compose(A3, Layout(3, 3))
+    assert C3 == Layout(3, 24)
+    for i in range(3):
+        assert C3(i) == A3(Layout(3, 3)(i))
+
+
 def test_complement_rejects_negative_strides():
     """complement rejects negative strides (matches CuTe/pycute assertions)."""
     with pytest.raises(ValueError, match="negative stride"):

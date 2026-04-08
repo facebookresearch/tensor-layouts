@@ -534,14 +534,13 @@ def test_composition_truncation():
     # Layout((4, 6, 8, 10), (2, 3, 5, 7)) o Layout(6, 12)
     _test_composition_properties(Layout((4, 6, 8, 10), (2, 3, 5, 7)), Layout(6, 12))
 
-    # Layout((8, 8), (8, 1)) o Layout(2, 3) - invalid: stride 3 doesn't satisfy
-    # the divisibility requirement with coalesced shape 64. pycute also asserts.
-    with pytest.raises(ValueError):
-        _test_composition_properties(Layout((8, 8), (8, 1)), Layout(2, 3))
+    # Layout((8, 8), (8, 1)) o Layout(2, 3) - stride 3 doesn't divide shape 8,
+    # but (2-1)*3 = 3 < 8, so B fits within mode 0 and the composition
+    # succeeds via truncation (§3.3.2 of arXiv:2603.02298v1).
+    _test_composition_properties(Layout((8, 8), (8, 1)), Layout(2, 3))
 
-    # Layout((8, 8), (8, 1)) o Layout(3, 3) - same issue
-    with pytest.raises(ValueError):
-        _test_composition_properties(Layout((8, 8), (8, 1)), Layout(3, 3))
+    # Layout((8, 8), (8, 1)) o Layout(3, 3) - same truncation applies
+    _test_composition_properties(Layout((8, 8), (8, 1)), Layout(3, 3))
 
     # Layout(3, 1) o Layout(4)
     _test_composition_properties(Layout(3, 1), Layout(4))

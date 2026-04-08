@@ -2461,9 +2461,16 @@ def _composition_1d(layout_a: "Layout", b_shape: int, b_stride: int) -> "Layout"
 
     # Process all modes except the last
     for curr_shape, curr_stride in zip(flat_shapes[:-1], flat_strides[:-1]):
+        # §3.3.2 truncation: if (remaining_shape-1)*remaining_stride < curr_shape,
+        # then all of B fits within this mode — absorb and stop.
+        if remaining_shape > 1 and (remaining_shape - 1) * remaining_stride < curr_shape:
+            result_shape.append(remaining_shape)
+            result_stride.append(remaining_stride * curr_stride)
+            remaining_shape = 1
+            break
         if curr_shape % remaining_stride != 0 and remaining_stride % curr_shape != 0:
             raise ValueError(
-                f"complement: shape {curr_shape} and stride {remaining_stride} are not divisible"
+                f"compose: shape {curr_shape} and stride {remaining_stride} are not divisible"
             )
         new_shape = min(max(1, curr_shape // remaining_stride), remaining_shape)
         if new_shape != 1:

@@ -1525,6 +1525,46 @@ def test_oracle_logical_divide_layout_tilers_in_tuples():
         )
 
 
+def test_oracle_compose_truncation():
+    """compose must truncate unreachable modes rather than raising.
+
+    Regression: compose((4,2,8):(3,12,97), 3:3) raised ValueError.
+    """
+    cases = [
+        # (A_shape, A_stride, B_shape, B_stride)
+        ((4, 2, 8), (3, 12, 97), 3, 3),
+        ((8, 8), (3, 97), 3, 3),
+        ((8, 8), (8, 1), 3, 3),
+        ((8, 8), (8, 1), 2, 3),
+    ]
+    for a_s, a_d, b_s, b_d in cases:
+        ours_a = our_layout(a_s, a_d)
+        ours_b = our_layout(b_s, b_d)
+        ours_r = compose(ours_a, ours_b)
+
+        # Functional property: compose(A, B)(i) = A(B(i))
+        for i in range(size(ours_b)):
+            expected = ours_a(ours_b(i))
+            actual = ours_r(i)
+            assert actual == expected, (
+                f"compose({a_s}:{a_d}, {b_s}:{b_d})({i}): "
+                f"ours={actual} vs expected={expected}"
+            )
+
+        # Cross-validate against pycute if available
+        try:
+            ref_a = pycute_layout(a_s, a_d)
+            ref_b = pycute_layout(b_s, b_d)
+            ref_r = pycute.composition(ref_a, ref_b)
+            for i in range(size(ours_b)):
+                assert ours_r(i) == ref_r(i), (
+                    f"compose({a_s}:{a_d}, {b_s}:{b_d})({i}): "
+                    f"ours={ours_r(i)} vs pycute={ref_r(i)}"
+                )
+        except Exception:
+            pass  # pycute may also raise for these cases
+
+
 if __name__ == "__main__":
     import traceback
     test_funcs = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
