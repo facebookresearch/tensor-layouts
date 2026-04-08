@@ -1497,6 +1497,34 @@ def test_oracle_idx2crd():
             assert idx2crd(idx, s) == pycute.idx2crd(idx, s)
 
 
+###############################################################################
+## Regression oracle tests for bugs found via arXiv:2603.02298v1
+###############################################################################
+
+
+def test_oracle_logical_divide_layout_tilers_in_tuples():
+    """logical_divide with tuple of Layout tilers must match pycute by-mode.
+
+    Regression: (Layout(4,1), Layout(8,2)) as a tiler caused TypeError.
+    """
+    cases = [
+        ((8, 16), (20, 1), [(4, 1), (8, 2)]),
+        ((8, 16), (1, 8), [(4, 1), (8, 1)]),
+        ((6, 12), (1, 6), [(3, 1), (4, 2)]),
+    ]
+    for ls, ld, tilers in cases:
+        ours_l = our_layout(ls, ld)
+        tiler_layouts = tuple(our_layout(ts, td) for ts, td in tilers)
+        ours_r = logical_divide(ours_l, tiler_layouts)
+
+        # Same set of offsets as original
+        R_offsets = sorted(ours_r(i) for i in range(size(ours_r)))
+        A_offsets = sorted(ours_l(i) for i in range(size(ours_l)))
+        assert R_offsets == A_offsets, (
+            f"logical_divide({ls}:{ld}, {tilers}) offsets differ"
+        )
+
+
 if __name__ == "__main__":
     import traceback
     test_funcs = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]

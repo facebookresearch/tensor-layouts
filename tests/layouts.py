@@ -437,6 +437,27 @@ def test_complement_layouts():
     assert complement(Layout(4, 4), 32) == Layout((4, 2), (1, 16))
 
 
+def test_logical_divide_layout_tilers_in_tuples():
+    """logical_divide with tuple of Layout tilers dispatches each mode
+    through the compose/complement path.
+
+    Regression: (Layout(4,1), Layout(8,2)) as a tiler caused TypeError.
+    """
+    A = Layout((8, 16), (20, 1))
+    R = logical_divide(A, (Layout(4, 1), Layout(8, 2)))
+    assert R == Layout(((4, 2), (8, 2)), ((20, 80), (2, 1)))
+    # Same set of offsets
+    R_offsets = sorted(R(i) for i in range(size(R)))
+    A_offsets = sorted(A(i) for i in range(size(A)))
+    assert R_offsets == A_offsets
+
+    # zipped_divide should work too
+    Z = zipped_divide(A, (Layout(4, 1), Layout(8, 2)))
+    assert Z == Layout(((4, 8), (2, 2)), ((20, 2), (80, 1)))
+    Z_offsets = sorted(Z(i) for i in range(size(Z)))
+    assert Z_offsets == A_offsets
+
+
 def test_complement_rejects_negative_strides():
     """complement rejects negative strides (matches CuTe/pycute assertions)."""
     with pytest.raises(ValueError, match="negative stride"):

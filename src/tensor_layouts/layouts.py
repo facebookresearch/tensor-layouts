@@ -2753,6 +2753,16 @@ def _logical_divide_by_shape(layout: Layout, tiler_shape: Any) -> Layout:
             continue
 
         tile_size = tiler_sizes[i]
+
+        # Layout tilers use the compose/complement path per mode,
+        # matching CuTe C++ which treats tiler elements as Layouts.
+        if isinstance(tile_size, Layout):
+            mode_layout = Layout(s, d)
+            divided = logical_divide(mode_layout, tile_size)
+            result_shapes.append(divided.shape)
+            result_strides.append(divided.stride)
+            continue
+
         mode_size = size(s)
 
         # Hierarchical strides can't be handled by the simple shortcut.
