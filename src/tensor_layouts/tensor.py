@@ -273,19 +273,39 @@ class Tensor:
     def __setitem__(self, key, value):
         """Write a value to storage at the given coordinates.
 
-        Only supports fully-fixed coordinates (all modes specified as
-        integers).  Requires storage to be present and mutable.
+        Only supports fully-fixed coordinates.  Free coordinates such as
+        ``:`` or ``None`` are rejected; to write through a slice, first
+        create the slice and then index that sub-Tensor.
+
+        For hierarchical modes, a fully-fixed coordinate may be a tuple of
+        integers for that mode.
 
         Examples:
             tensor[2, 3] = 42   # writes data[tensor(2, 3)] = 42
             tensor[5] = 99      # rank-1 tensor
+            tensor[2, :][3] = 7  # write through a sliced sub-Tensor
         """
         if self._data is None:
             raise TypeError("Cannot assign to a Tensor with no storage")
+        if self._contains_free_coordinates(key):
+            raise TypeError(
+                "Tensor assignment requires fully-fixed coordinates "
+                "(no ':' or None in the key)"
+            )
         if isinstance(key, tuple):
+            if len(key) != rank(self._layout):
+                raise IndexError(
+                    f"Expected {rank(self._layout)} indices, got {len(key)}"
+                )
             offset = self(*key)
-        else:
+        elif isinstance(key, int):
             offset = self(key)
+        else:
+            raise TypeError(
+                "Tensor assignment requires a fully-fixed coordinate: "
+                "use an int for flat indexing or a tuple with one fixed "
+                "coordinate per mode"
+            )
         self._data[offset] = value
 
     def _get_linear_mode_offset(self, mode_idx: int, coord) -> int:
@@ -360,6 +380,20 @@ class Tensor:
                 return True
             if isinstance(item, tuple) and Tensor._has_nested_none(item):
                 return True
+        return False
+
+    @staticmethod
+    def _contains_free_coordinates(key) -> bool:
+        """Return True when a key contains slicing markers.
+
+        Assignment only accepts fully-fixed coordinates, so ``None`` and any
+        ``slice`` object are rejected wherever they appear, including inside
+        hierarchical coordinate tuples.
+        """
+        if key is None or isinstance(key, slice):
+            return True
+        if isinstance(key, tuple):
+            return any(Tensor._contains_free_coordinates(item) for item in key)
         return False
 
     def _build_remaining_layout(self, mode_indices) -> Layout:

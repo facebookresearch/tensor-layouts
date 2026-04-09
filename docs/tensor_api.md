@@ -161,8 +161,27 @@ t[2, 3] = 'X'     # writes buf[19] = 'X'
 t[2, 3]            # 'X'
 ```
 
-Only fully-fixed coordinates are supported (all modes must be
-integers).  Attempting to write without storage raises `TypeError`.
+Only fully-fixed coordinates are supported. Free coordinates such as
+`:` and `None` are rejected with a clear `TypeError`, and attempting
+to write without storage also raises `TypeError`.
+
+For hierarchical modes, a fully-fixed coordinate may itself be a tuple
+of integers for that mode.
+
+To write through a slice, first create the slice and then index the
+resulting sub-Tensor:
+
+```python
+row2 = t[2, :]
+row2[3] = 999      # same as t[2, 3] = 999
+```
+
+These are rejected:
+
+```python
+t[:, 3] = 999      # error: mode 0 is still free
+t[None, 3] = 999   # error: None means "keep this mode free"
+```
 
 ## Slicing
 

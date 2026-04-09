@@ -1305,6 +1305,36 @@ class TestTensorStorage:
         t[3] = 42
         assert buf[6] == 42  # offset = 3*2 = 6
 
+    @pytest.mark.parametrize(
+        "key",
+        [
+            (slice(None), 1),
+            (None, 1),
+            ((0, None), 1),
+            slice(None),
+        ],
+    )
+    def test_setitem_rejects_free_coordinates(self, key):
+        """Assignment must reject any key that leaves a mode free."""
+        buf = list(range(32))
+        t = Tensor(Layout((4, 8), (8, 1)), data=buf)
+
+        with pytest.raises(TypeError, match="fully-fixed coordinates"):
+            t[key] = 999
+
+        assert buf == list(range(32))
+
+    def test_setitem_hierarchical_fixed_coordinate_writes_to_data(self):
+        """A fully-fixed hierarchical coordinate is still a valid assignment key."""
+        layout = Layout(((2, 4), 8), ((1, 2), 8))
+        buf = list(range(cosize(layout)))
+        t = Tensor(layout, data=buf)
+
+        t[(1, 3), 5] = 999
+
+        assert buf[t((1, 3), 5)] == 999
+        assert t[(1, 3), 5] == 999
+
     def test_setitem_without_data_raises(self):
         """Writing to a tensor with no storage raises TypeError."""
         t = Tensor(Layout((4, 8), (8, 1)))
