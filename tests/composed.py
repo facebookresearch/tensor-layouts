@@ -27,6 +27,7 @@ import dataclasses
 import pytest
 
 from tensor_layouts import *
+from tensor_layouts.tensor import Tensor
 
 
 def _assert_pointwise_equal(a, b):
@@ -137,3 +138,34 @@ def test_slice_and_offset_on_composed_layout_keeps_offset_internal():
 
     for j in range(8):
         assert sub(j) == composed(2, j)
+
+
+def test_tensor_accepts_composed_layout_with_storage():
+    composed = ComposedLayout(Swizzle(2, 0, 2), Layout(16, 1), preoffset=4)
+    tensor = Tensor(composed, offset=100, data=list(range(256)))
+
+    for i in range(size(composed)):
+        assert tensor(i) == 100 + composed(i)
+        assert tensor[i] == tensor.data[tensor(i)]
+
+
+def test_tensor_slice_on_composed_layout_keeps_external_offset():
+    composed = compose(
+        Layout((4, 4), (4, 1)),
+        compose(Swizzle(3, 0, 3), Layout((8, 8), (8, 1))),
+    )
+    tensor = Tensor(composed, offset=100)
+
+    row = tensor[2, :]
+    assert isinstance(row, Tensor)
+    assert row.offset == 100
+    assert isinstance(row.layout, ComposedLayout)
+
+    for j in range(8):
+        assert row(j) == tensor(2, j)
+
+
+def test_tensor_stride_rejects_composed_layout():
+    tensor = Tensor(ComposedLayout(Swizzle(2, 0, 2), Layout(16, 1), preoffset=4))
+    with pytest.raises(TypeError, match="ComposedLayout|affine"):
+        _ = tensor.stride
