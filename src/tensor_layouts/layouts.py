@@ -2894,23 +2894,22 @@ def _logical_divide_by_shape(layout: Layout, tiler_shape: Any) -> Layout:
 
 
 def _split_divided_modes(layout: Layout, tiler: Any):
-    """Divide a layout by a tiler and split the result into tile and rest parts.
+    """Split logical_divide() results for shape-like tilers.
 
     Performs logical_divide, then separates each divided mode into its tile
     portion and its remainder portion. Undivided modes go into the rest lists.
+    This helper intentionally accepts only shape-like tilers (`int` or tuples);
+    true `Layout` tilers follow CuTe's terminal `tile_unzip` path instead.
 
     Returns:
         (tile_shapes, tile_strides, rest_shapes, rest_strides) - four lists
     """
-    # Normalize tiler to a shape tuple
-    if isinstance(tiler, Layout):
-        tiler_shape = tiler.shape
-    elif isinstance(tiler, int):
+    if isinstance(tiler, int):
         tiler_shape = (tiler,)
     elif is_tuple(tiler):
         tiler_shape = tiler
     else:
-        raise TypeError(f"Tiler must be int, tuple, or Layout, got {type(tiler)}")
+        raise TypeError(f"_split_divided_modes expects an int or tuple tiler, got {type(tiler)}")
 
     divided = logical_divide(layout, tiler_shape)
 
@@ -2940,6 +2939,26 @@ def _split_divided_modes(layout: Layout, tiler: Any):
     return tile_shapes, tile_strides, rest_shapes, rest_strides
 
 
+def _unpack_grouped_mode(grouped_mode: Layout) -> list[Layout]:
+    """Return a grouped mode's members, or the mode itself if already scalar.
+
+    CuTe's tiled/flat divide variants unpack the grouped modes of
+    zipped_divide(). When the grouped mode is itself a scalar layout, it is
+    left unchanged.
+    """
+    if is_tuple(grouped_mode.shape):
+        return [mode(grouped_mode, i) for i in range(rank(grouped_mode))]
+    return [grouped_mode]
+
+
+def _layout_from_modes(modes: list[Layout]) -> Layout:
+    """Build a layout from a sequence of mode layouts."""
+    return Layout(
+        as_shape([m.shape for m in modes]),
+        as_shape([m.stride for m in modes]),
+    )
+
+
 def zipped_divide(layout: Layout, tiler: Any) -> Layout:
     """Divide a layout and zip the tile/rest modes together.
 
@@ -2960,6 +2979,11 @@ def zipped_divide(layout: Layout, tiler: Any) -> Layout:
     Examples:
         zipped_divide(Layout((4,8)), (2,4)) -> Layout(((2,4),(2,2)), ((1,4),(2,16)))
     """
+    # True Layout tilers are terminals in CuTe's tile_unzip(). Preserve their
+    # stride semantics instead of reducing them to tiler.shape.
+    if isinstance(tiler, Layout):
+        return logical_divide(layout, tiler)
+
     tile_shapes, tile_strides, rest_shapes, rest_strides = _split_divided_modes(layout, tiler)
 
     tiles_shape = as_shape(tile_shapes)
@@ -2992,15 +3016,10 @@ def tiled_divide(layout: Layout, tiler: Any) -> Layout:
     Examples:
         tiled_divide(Layout((8,8)), (2,2)) -> Layout(((2,2), 4, 4), ...)
     """
-    tile_shapes, tile_strides, rest_shapes, rest_strides = _split_divided_modes(layout, tiler)
-
-    tiles_shape = as_shape(tile_shapes)
-    tiles_stride = as_shape(tile_strides)
-
-    all_shapes = [tiles_shape] + rest_shapes
-    all_strides = [tiles_stride] + rest_strides
-
-    return Layout(tuple(all_shapes), tuple(all_strides))
+    result = zipped_divide(layout, tiler)
+    modes = [mode(result, 0)]
+    modes.extend(_unpack_grouped_mode(mode(result, 1)))
+    return _layout_from_modes(modes)
 
 
 def flat_divide(layout: Layout, tiler: Any) -> Layout:
@@ -3021,12 +3040,10 @@ def flat_divide(layout: Layout, tiler: Any) -> Layout:
     Examples:
         flat_divide(Layout((8,8)), (2,2)) -> Layout((2, 2, 4, 4), ...)
     """
-    tile_shapes, tile_strides, rest_shapes, rest_strides = _split_divided_modes(layout, tiler)
-
-    all_shapes = tile_shapes + rest_shapes
-    all_strides = tile_strides + rest_strides
-
-    return Layout(tuple(all_shapes), tuple(all_strides))
+    result = zipped_divide(layout, tiler)
+    modes = _unpack_grouped_mode(mode(result, 0))
+    modes.extend(_unpack_grouped_mode(mode(result, 1)))
+    return _layout_from_modes(modes)
 
 
 # =============================================================================

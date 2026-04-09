@@ -465,6 +465,50 @@ def test_logical_divide_layout_tilers_in_tuples():
     assert Z_offsets == A_offsets
 
 
+def test_divide_variants_preserve_true_layout_tilers_1d():
+    """True Layout tilers stay Layout tilers in the divide variants.
+
+    Regression: zipped/tiled/flat_divide reduced Layout(4, 2) to its shape 4.
+    """
+    A = Layout(8, 1)
+    T = Layout(4, 2)
+    expected = Layout((4, 2), (2, 1))
+
+    assert logical_divide(A, T) == expected
+    assert zipped_divide(A, T) == expected
+    assert tiled_divide(A, T) == expected
+    assert flat_divide(A, T) == expected
+
+
+def test_divide_variants_preserve_true_layout_tilers_2d():
+    """Layout tilers preserve their internal stride structure.
+
+    Validated against CuTe C++:
+      logical_divide -> ((_2,_2),(_2,_8)):((_1,_4),(_2,_8))
+      zipped_divide  -> same
+      tiled_divide   -> ((_2,_2),_2,_8):((_1,_4),_2,_8)
+      flat_divide    -> (_2,_2,_2,_8):(_1,_4,_2,_8)
+    """
+    A = Layout((8, 8), (1, 8))
+    T = Layout((2, 2), (1, 4))
+
+    logical = logical_divide(A, T)
+    assert logical == Layout(((2, 2), (2, 8)), ((1, 4), (2, 8)))
+
+    zipped = zipped_divide(A, T)
+    assert zipped == logical
+
+    tiled = tiled_divide(A, T)
+    assert tiled == Layout(((2, 2), 2, 8), ((1, 4), 2, 8))
+
+    flat = flat_divide(A, T)
+    assert flat == Layout((2, 2, 2, 8), (1, 4, 2, 8))
+
+    expected_offsets = sorted(A(i) for i in range(size(A)))
+    for result in (logical, zipped, tiled, flat):
+        assert sorted(result(i) for i in range(size(result))) == expected_offsets
+
+
 def test_compose_truncates_unreachable_modes():
     """compose truncates modes beyond B's reach before checking divisibility.
 
