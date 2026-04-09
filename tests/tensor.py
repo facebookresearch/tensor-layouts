@@ -542,6 +542,22 @@ class TestSwizzledTensorSlicing:
             for i in range(8):
                 assert col(i) == tensor(i, j)
 
+    def test_swizzled_hierarchical_partial_slice(self):
+        """Partial hierarchical slices keep swizzle semantics."""
+        sw_layout = compose(Swizzle(2, 0, 2), Layout(((2, 2), 4), ((1, 2), 4)))
+        tensor = Tensor(sw_layout)
+
+        sub = tensor[((None, 1), None)]
+        assert isinstance(sub, Tensor)
+        assert sub.offset == 2
+        assert sub.layout.shape == (2, 4)
+        assert sub.layout.stride == (1, 4)
+        assert sub.layout.swizzle == sw_layout.swizzle
+
+        for i0 in range(2):
+            for j in range(4):
+                assert sub(i0, j) == tensor((i0, 1), j)
+
     def test_swizzle_2_1_3(self):
         """Different swizzle parameters: Swizzle(2, 1, 3)."""
         sw_layout = compose(Swizzle(2, 1, 3), Layout((4, 8), (8, 1)))

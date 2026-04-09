@@ -1587,6 +1587,24 @@ def test_offset_swizzled_layout_basic():
         assert row_slice(j) == tensor(3, j)
 
 
+def test_slice_and_offset_preserves_swizzle_for_partial_hierarchical_slice():
+    from tensor_layouts import Tensor
+
+    sw_layout = compose(Swizzle(2, 0, 2), Layout(((2, 2), 4), ((1, 2), 4)))
+    sublayout, offset = slice_and_offset(((None, 1), None), sw_layout)
+
+    assert sublayout.shape == (2, 4)
+    assert sublayout.stride == (1, 4)
+    assert sublayout.swizzle == sw_layout.swizzle
+    assert offset == 2
+
+    parent = Tensor(sw_layout)
+    sliced = Tensor(sublayout, offset)
+    for i0 in range(2):
+        for j in range(4):
+            assert sliced(i0, j) == parent((i0, 1), j)
+
+
 def test_offset_swizzled_layout_repr():
     from tensor_layouts import Tensor
 

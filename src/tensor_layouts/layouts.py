@@ -1937,6 +1937,7 @@ def slice_and_offset(crd, layout: Layout):
     sublayout = Layout(
         sliced_shape if sliced_shape else (),
         sliced_stride if sliced_stride else (),
+        swizzle=layout.swizzle,
     )
     offset = crd2offset(crd, layout.shape, layout.stride)
     return (sublayout, offset)
