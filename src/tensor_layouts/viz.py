@@ -72,8 +72,6 @@ from matplotlib.font_manager import FontProperties
 from matplotlib.textpath import TextToPath
 
 from .layouts import *
-from .tensor import Tensor
-
 __all__ = [
     # draw_* (save to file or display inline)
     "draw_layout",
@@ -910,8 +908,6 @@ def _build_gemm_figure(
     B is automatically transposed for display so its K dimension aligns
     vertically with A's K columns.
     """
-    import matplotlib.gridspec as gridspec
-
     a_layout, a_fn, a_labels = _unwrap_tensor(A)
     b_layout, b_fn, b_labels = _unwrap_tensor(B)
     c_layout, c_fn, c_labels = _unwrap_tensor(C)
@@ -3309,4 +3305,3 @@ def draw_copy_atom(
         thr_id_layout=atom.thr_id,
         col_major=col_major,
     )
-

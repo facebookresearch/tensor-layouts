@@ -8,7 +8,7 @@ Xe-HPG DPAS atom definitions using algebraic invariants — no hardware required
 
 import pytest
 
-from tensor_layouts import Layout, size, rank, cosize
+from tensor_layouts import size, rank, cosize
 from tensor_layouts.atoms_xe import *
 
 

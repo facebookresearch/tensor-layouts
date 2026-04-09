@@ -83,7 +83,7 @@ def example_storage():
 
     # Storage can be larger than the layout's codomain
     big_buf = list(range(100))
-    t_big = Tensor(layout, data=big_buf)
+    Tensor(layout, data=big_buf)
     print(f"\n  Storage length {len(big_buf)} >= cosize {cosize(layout)}: OK")
 
     # Storage too small raises ValueError

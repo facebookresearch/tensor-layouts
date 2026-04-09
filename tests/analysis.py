@@ -134,7 +134,6 @@ def test_bank_conflicts_swizzled():
 
     # Also verify via bank_conflicts: each row as a 1D layout
     for thread in range(8):
-        row = Layout(8, 1)  # value indices 0..7
         # Build a layout mapping value -> swizzled offset for this thread
         offsets = [sw_layout(thread, v) for v in range(8)]
         result = bank_conflicts(
@@ -624,7 +623,6 @@ def test_operand_analysis_sm80():
 def test_operand_analysis_bad_coverage():
     """operand_analysis detects malformed operand coverage."""
     from tensor_layouts.atoms import MMAAtom
-    import dataclasses
     base = MMAAtom(
         name="test_bad_operand",
         ptx="test",

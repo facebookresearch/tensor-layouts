@@ -8,10 +8,9 @@ WMMA atom definitions using algebraic invariants — no hardware required.
 
 import pytest
 
-from tensor_layouts import Layout, size, rank, cosize
+from tensor_layouts import size, rank, cosize
 from tensor_layouts.atoms_amd import (
     MMA_ATOMS_RDNA3, MMA_ATOMS_RDNA4,
-    RDNA3_16x16x16_F32F16F16_WMMA,
 )
 
 
