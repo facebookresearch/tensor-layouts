@@ -136,6 +136,22 @@ int main() {
   auto swizzled_inner = composition(Swizzle<3,0,3>{}, make_layout(_16{}, _1{}));
   auto outer_on_swizzled = composition(outer_layout, swizzled_inner);
   print_offsets("compose_outer_layout_swizzled_offsets", outer_on_swizzled);
+
+  auto composed_for_slice = composition(
+      outer_layout,
+      composition(Swizzle<3,0,3>{}, double_swizzle_base));
+  auto sliced_pair = slice_and_offset(make_coord(_2{}, _), composed_for_slice);
+  auto sliced_layout = get<0>(sliced_pair);
+  auto sliced_offset = get<1>(sliced_pair);
+  std::cout << "compose_slice_row=" << sliced_offset << "|";
+  auto sliced_n = static_cast<int>(size(sliced_layout));
+  for (int i = 0; i < sliced_n; ++i) {
+    if (i) {
+      std::cout << ",";
+    }
+    std::cout << sliced_layout(i);
+  }
+  std::cout << "\n";
 }
 """
 
@@ -188,6 +204,17 @@ PYTHON_POINTWISE_CASES = {
     "compose_outer_layout_swizzled_offsets": lambda: ",".join(
         str(compose(Layout((4, 4), (4, 1)), compose(Swizzle(3, 0, 3), Layout(16, 1)))(i))
         for i in range(16)
+    ),
+    "compose_slice_row": lambda: (
+        lambda sliced: f"{sliced[1]}|" + ",".join(str(sliced[0](i)) for i in range(size(sliced[0])))
+    )(
+        slice_and_offset(
+            (2, None),
+            compose(
+                Layout((4, 4), (4, 1)),
+                compose(Swizzle(3, 0, 3), Layout((8, 8), (8, 1))),
+            ),
+        )
     ),
 }
 

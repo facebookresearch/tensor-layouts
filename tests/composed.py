@@ -123,3 +123,17 @@ def test_logical_product_forwards_through_composed_layout():
 
     assert isinstance(result, ComposedLayout)
     _assert_pointwise_equal(result, expected)
+
+
+def test_slice_and_offset_on_composed_layout_keeps_offset_internal():
+    composed = compose(
+        Layout((4, 4), (4, 1)),
+        compose(Swizzle(3, 0, 3), Layout((8, 8), (8, 1))),
+    )
+
+    sub, offset = slice_and_offset((2, None), composed)
+    assert offset == 0
+    assert isinstance(sub, ComposedLayout)
+
+    for j in range(8):
+        assert sub(j) == composed(2, j)
