@@ -252,6 +252,39 @@ class OffsetGrid:
         return self.cell_coords is not None
 
 
+_IDENTITY_LAYOUT = Layout(1, 1)
+
+
+def _normalize_display_layout(layout):
+    if isinstance(layout, Layout):
+        return Layout(unwrap(layout.shape), unwrap(layout.stride), swizzle=layout.swizzle)
+    return layout
+
+
+def _eval_layout_with_offset(layout, offset: int, *args):
+    """Evaluate a sliced layout with an external offset, matching tensor semantics."""
+    coord = args[0] if len(args) == 1 else args
+    if isinstance(layout, Layout):
+        linear = crd2offset(coord, layout.shape, layout.stride)
+        total_linear = offset + linear
+        if layout.swizzle is not None:
+            return layout.swizzle(total_linear)
+        return total_linear
+    return offset + layout(coord)
+
+
+def _layout_expr_with_offset(layout, offset: int):
+    """Internalize an external offset into a layout expression for direct eval."""
+    layout = _normalize_display_layout(as_layout_expr(layout))
+    if offset == 0:
+        return layout
+    if isinstance(layout, Layout):
+        if layout.swizzle is None:
+            return ComposedLayout(_IDENTITY_LAYOUT, Layout(layout.shape, layout.stride), preoffset=offset)
+        return ComposedLayout(layout.swizzle, Layout(layout.shape, layout.stride), preoffset=offset)
+    return ComposedLayout(_IDENTITY_LAYOUT, layout, preoffset=offset)
+
+
 def _prepare_offset_grid(
     layout, color_layout=None, slice_spec=None, hierarchical: bool = False, eval_fn=None
 ) -> OffsetGrid:
@@ -265,7 +298,7 @@ def _prepare_offset_grid(
         eval_fn: Callable mapping coordinates to offset values. Defaults to
             layout.__call__. Pass tensor.__call__ for Tensor visualization.
     """
-    layout = as_layout(layout)
+    layout = as_layout_expr(layout)
     cell_coords = None
     row_shape = None
     col_shape = None
@@ -334,7 +367,7 @@ def _get_indices_2d(layout, eval_fn=None) -> np.ndarray:
         eval_fn: Callable mapping coordinates to offset values. Defaults to
             layout.__call__. Pass tensor.__call__ for Tensor visualization.
     """
-    layout = as_layout(layout)
+    layout = as_layout_expr(layout)
     if eval_fn is None:
         eval_fn = layout
     r = rank(layout)
@@ -384,6 +417,9 @@ def _get_color_indices_2d(layout, color_layout) -> Optional[np.ndarray]:
     """
     if color_layout is None:
         return None
+
+    layout = as_layout_expr(layout)
+    color_layout = as_layout_expr(color_layout)
 
     indices = _get_indices_2d(layout)
     rows, cols = indices.shape
@@ -723,7 +759,7 @@ def _build_composite_figure(
             opts = p[1] if isinstance(p, tuple) else {}
             if hasattr(lay, 'layout'):
                 lay = lay.layout
-            lay = as_layout(lay)
+            lay = as_layout_expr(lay)
             # Per-panel grid overrides take priority, then defaults
             gr = opts.get("grid_rows", default_gr)
             gc = opts.get("grid_cols", default_gc)
@@ -890,7 +926,7 @@ def _unwrap_tensor(panel):
         eval_fn = tensor.__call__
         labels = tensor.data if tensor.data is not None else True
         return layout, eval_fn, labels
-    return as_layout(panel), None, True
+    return as_layout_expr(panel), None, True
 
 
 def _build_gemm_figure(
@@ -911,6 +947,9 @@ def _build_gemm_figure(
     a_layout, a_fn, a_labels = _unwrap_tensor(A)
     b_layout, b_fn, b_labels = _unwrap_tensor(B)
     c_layout, c_fn, c_labels = _unwrap_tensor(C)
+    a_layout = as_affine_layout(a_layout)
+    b_layout = as_affine_layout(b_layout)
+    c_layout = as_affine_layout(c_layout)
 
     # Get M, K, N from flattened sizes (for grid proportions)
     M = size(mode(a_layout, 0))
@@ -1755,6 +1794,7 @@ def _build_layout_figure(
     # Unwrap Tensor: use its layout for shape/structure, its __call__ for values
     # (duck-typed to avoid class-identity mismatches after editable-install reloads)
     eval_fn = None
+    tensor = None
     if hasattr(layout, 'layout') and hasattr(layout, 'data') and callable(layout):
         tensor = layout
         eval_fn = tensor.__call__
@@ -1764,6 +1804,10 @@ def _build_layout_figure(
         # Auto-label cells with data values when storage is present
         if tensor.data is not None and cell_labels is True:
             cell_labels = tensor.data
+
+    layout = as_layout_expr(layout)
+    if color_layout is not None:
+        color_layout = as_layout_expr(color_layout)
 
     # Resolve color_by shorthand to a color_layout
     if color_by is not None:
@@ -1791,52 +1835,40 @@ def _build_layout_figure(
         n_panels = 1
         for s in outer_sizes:
             n_panels *= s
-        inner_shape = as_shape(tuple(mode(layout.shape, i) for i in range(2)))
-        inner_stride = as_shape(tuple(mode(layout.stride, i) for i in range(2)))
 
         # Build per-panel sub-layouts and eval functions
         sub_layouts = []
         sub_evals = []
+        sub_color_layouts = []
         panel_titles = []
         for flat_idx in range(n_panels):
             outer_coord = idx2crd(flat_idx, as_shape(outer_sizes))
             if not isinstance(outer_coord, tuple):
                 outer_coord = (outer_coord,)
+            slice_spec = (None, None) + tuple(outer_coord)
 
-            # Offset contribution from fixed outer modes
-            offset = 0
-            for dim_idx, coord_val in enumerate(outer_coord):
-                m = mode(layout, 2 + dim_idx)
-                offset += crd2offset(coord_val, m.shape, m.stride)
-
-            sub = Layout(inner_shape, inner_stride, swizzle=layout.swizzle)
-            sub_layouts.append(sub)
-
-            # Eval function: offset + sub_layout(coord), optionally with swizzle
-            _off = offset
-            _sub = sub
-            if layout.swizzle is not None:
-                _sw = layout.swizzle
-
-                def _make_eval(o, s, sw):
-                    def fn(*args):
-                        coord = args[0] if len(args) == 1 else args
-                        linear = o + crd2offset(coord, s.shape, s.stride)
-                        return sw(linear)
-
-                    return fn
-
-                sub_evals.append(_make_eval(_off, _sub, _sw))
+            if tensor is not None:
+                panel = tensor[slice_spec]
+                sub_layouts.append(panel.layout)
+                sub_evals.append(panel.__call__)
             else:
+                sub, offset = slice_and_offset(slice_spec, as_layout_expr(layout))
+                sub = _normalize_display_layout(sub)
+                sub_layouts.append(sub)
 
-                def _make_eval_plain(o, s):
+                def _make_eval(o, s):
                     def fn(*args):
-                        coord = args[0] if len(args) == 1 else args
-                        return o + crd2offset(coord, s.shape, s.stride)
+                        return _eval_layout_with_offset(s, o, *args)
 
                     return fn
 
-                sub_evals.append(_make_eval_plain(_off, _sub))
+                sub_evals.append(_make_eval(offset, sub))
+
+            if color_layout is not None and rank(color_layout) == r:
+                color_sub, color_offset = slice_and_offset(slice_spec, as_layout_expr(color_layout))
+                sub_color_layouts.append(_layout_expr_with_offset(color_sub, color_offset))
+            else:
+                sub_color_layouts.append(color_layout)
 
             if len(outer_sizes) == 1:
                 panel_titles.append(f"mode[2]={outer_coord[0]}")
@@ -1861,7 +1893,7 @@ def _build_layout_figure(
 
         for idx in range(n_panels):
             grid = _prepare_offset_grid(
-                sub_layouts[idx], color_layout=color_layout, eval_fn=sub_evals[idx]
+                sub_layouts[idx], color_layout=sub_color_layouts[idx], eval_fn=sub_evals[idx]
             )
             _draw_grid(
                 axes[idx],
@@ -2058,7 +2090,7 @@ def _infer_tv_grid_shape(layout, grid_shape=None, grid_rows=None, grid_cols=None
 
 def _tv_output_bounds(layout) -> tuple[int, int]:
     """Return the minimum and maximum offsets produced by a TV layout."""
-    layout = as_layout(layout)
+    layout = as_layout_expr(layout)
     t_shape = mode(layout.shape, 0)
     v_shape = mode(layout.shape, 1)
 
@@ -2115,7 +2147,7 @@ def _compute_tv_mapping(
     the mapping fills the addressed footprint rather than assuming the image
     starts at 0.
     """
-    layout = as_layout(layout)
+    layout = as_layout_expr(layout)
     t_shape = mode(layout.shape, 0)
     v_shape = mode(layout.shape, 1)
 
@@ -3208,10 +3240,13 @@ def _build_slice_figure(
         figsize = (grid.cols * 0.5 + 1, grid.rows * 0.5 + 1)
 
     if title is None:
-        sub, offset = slice_and_offset(slice_spec, as_layout(layout))
-        # Unwrap single-mode results for cleaner display
-        display_sub = Layout(unwrap(sub.shape), unwrap(sub.stride))
-        title = f"{{{offset}}}∘{display_sub}"
+        sub, offset = slice_and_offset(slice_spec, as_layout_expr(layout))
+        if isinstance(sub, Layout):
+            display_sub = _normalize_display_layout(sub)
+            title = str(display_sub) if offset == 0 else f"{{{offset}}}\u2218{display_sub}"
+        else:
+            display_sub = _layout_expr_with_offset(sub, offset)
+            title = str(display_sub)
 
     fig, ax = plt.subplots(figsize=figsize)
     _draw_grid(
