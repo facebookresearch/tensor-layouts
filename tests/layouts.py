@@ -956,6 +956,22 @@ def test_logical_divide_2d():
         assert divided(i) == L(i)
 
 
+@pytest.mark.parametrize(
+    ("layout", "tiler", "expected"),
+    [
+        (Layout(2, 5), 1, Layout((1, 2), (0, 5))),
+        (Layout(4, 3), 4, Layout((4, 1), (3, 0))),
+        (Layout(2, 5), 4, Layout((4, 1), (5, 0))),
+    ],
+)
+def test_logical_divide_canonicalizes_unit_extent_modes(layout, tiler, expected):
+    """CuTe canonicalizes every extent-1 tile/rest mode to stride 0."""
+    divided = logical_divide(layout, tiler)
+    assert divided == expected
+    for i in range(size(layout)):
+        assert divided(i) == layout(i)
+
+
 def test_logical_divide_hierarchical_stride():
     # Shape tiler with hierarchical strides should not crash.
     # CuTe C++ always uses compose/complement (no shortcut), so this
@@ -979,7 +995,7 @@ def test_logical_divide_nested_tuple_tiler_recurses_mode_by_mode():
     )
 
     assert result == expected
-    assert result.shape == (((2, 1), (3, 1)), (4, 2))
+    assert result == Layout((((2, 1), (3, 1)), (4, 2)), (((1, 0), (2, 0)), (6, 24)))
     assert sorted(result(i) for i in range(size(result))) == \
         sorted(a(i) for i in range(size(a)))
     assert functionally_equal(result, expected)

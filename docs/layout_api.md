@@ -262,6 +262,9 @@ Split L into `(tile, rest)` — the core tiling operation.
 logical_divide(Layout(16, 1), 4)  # Layout((4, 4), (1, 4))
 # 4-element tiles, 4 tiles total
 
+logical_divide(Layout(4, 3), 4)   # Layout((4, 1), (3, 0))
+# CuTe canonicalizes any extent-1 tile/rest mode to stride 0.
+
 logical_divide(Layout(((2, 3), 8), ((1, 2), 6)), ((2, 3), 4))
 # Divide mode 0 recursively by (2, 3), and mode 1 by 4.
 ```
