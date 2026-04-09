@@ -289,6 +289,11 @@ def has_none(a) -> bool:
     return fold(a, False, lambda acc, v: acc or v is None)
 
 
+def coords_all_none(a) -> bool:
+    """Return True if every terminal coordinate is None."""
+    return fold(a, True, lambda acc, v: acc and v is None)
+
+
 # =============================================================================
 # Shape conversions
 # =============================================================================
@@ -1928,7 +1933,7 @@ def max_common_vector(layout_a: Layout, layout_b: Layout) -> int:
     return size(max_common_layout(layout_a, layout_b))
 
 
-def slice_and_offset(crd, layout: Layout):
+def slice_and_offset(crd, layout: LayoutExpr):
     """Slice a layout by a coordinate and return (sublayout, offset).
 
     Given a coordinate with None values marking sliced (free) dimensions
@@ -1947,6 +1952,10 @@ def slice_and_offset(crd, layout: Layout):
         slice_and_offset((None, 3), Layout((4, 8), (1, 4)))
         -> (Layout((4,), (1,)), 12)  # sublayout over dim 0, offset = 3*4
     """
+    if isinstance(layout, ComposedLayout):
+        sublayout, offset = _slice_for_composition(crd, layout)
+        return (sublayout, offset)
+
     sliced_shape = slice_modes(crd, layout.shape)
     sliced_stride = slice_modes(crd, layout.stride)
     # When slicing drops some top-level modes, a single surviving hierarchical
@@ -1963,6 +1972,40 @@ def slice_and_offset(crd, layout: Layout):
     )
     offset = crd2offset(crd, layout.shape, layout.stride)
     return (sublayout, offset)
+
+
+def _slice_for_composition(crd, layout: LayoutExpr):
+    """Slice a layout expression for use inside an outer composition.
+
+    Returns (sublayout_expr, delta) such that the original sliced expression is
+    equivalent to:
+
+        delta + sublayout_expr(free_coord)
+
+    for affine layouts, or to just ``sublayout_expr(free_coord)`` when the
+    sliced contribution must remain inside a nonlinear inner expression.
+    """
+    if isinstance(layout, ComposedLayout):
+        inner_slice, delta = _slice_for_composition(crd, layout.inner)
+        return (ComposedLayout(layout.outer, inner_slice, preoffset=layout.preoffset + delta), 0)
+
+    sliced_shape = slice_modes(crd, layout.shape)
+    sliced_stride = slice_modes(crd, layout.stride)
+    if len(sliced_shape) == 1 and is_tuple(sliced_shape[0]):
+        sliced_shape = sliced_shape[0]
+        sliced_stride = sliced_stride[0]
+    sublayout = Layout(
+        sliced_shape if sliced_shape else (),
+        sliced_stride if sliced_stride else (),
+        swizzle=layout.swizzle,
+    )
+    offset = crd2offset(crd, layout.shape, layout.stride)
+
+    if layout.swizzle is None or coords_all_none(crd):
+        return (sublayout, offset)
+
+    exact = ComposedLayout(layout.swizzle, Layout(sublayout.shape, sublayout.stride), preoffset=offset)
+    return (exact, 0)
 
 
 # =============================================================================
