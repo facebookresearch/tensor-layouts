@@ -43,9 +43,24 @@ from tensor_layouts import *
 
 CPP_SOURCE = r"""
 #include <cute/layout.hpp>
+#include <cute/layout_composed.hpp>
+#include <cute/swizzle_layout.hpp>
 #include <iostream>
 
 using namespace cute;
+
+template <class Layout>
+void print_offsets(char const* name, Layout const& layout) {
+  std::cout << name << "=";
+  auto n = static_cast<int>(size(layout));
+  for (int i = 0; i < n; ++i) {
+    if (i) {
+      std::cout << ",";
+    }
+    std::cout << layout(i);
+  }
+  std::cout << "\n";
+}
 
 int main() {
   auto compose_nested_tuple_tiler = composition(
@@ -110,6 +125,17 @@ int main() {
 
   auto slice_full_scalar = slice(_, make_layout(_4{}, _1{}));
   std::cout << "slice_full_scalar=" << slice_full_scalar << "\n";
+
+  auto double_swizzle_base =
+      make_layout(make_shape(_8{}, _8{}), make_stride(_8{}, _1{}));
+  auto double_swizzle_inner = composition(Swizzle<3,0,3>{}, double_swizzle_base);
+  auto double_swizzle = composition(Swizzle<1,0,3>{}, double_swizzle_inner);
+  print_offsets("compose_double_swizzle_offsets", double_swizzle);
+
+  auto outer_layout = make_layout(make_shape(_4{}, _4{}), make_stride(_4{}, _1{}));
+  auto swizzled_inner = composition(Swizzle<3,0,3>{}, make_layout(_16{}, _1{}));
+  auto outer_on_swizzled = composition(outer_layout, swizzled_inner);
+  print_offsets("compose_outer_layout_swizzled_offsets", outer_on_swizzled);
 }
 """
 
@@ -151,6 +177,18 @@ PYTHON_CASES = {
     ),
     "slice_full_rank2": lambda: Layout((4, 8), (1, 4))(None),
     "slice_full_scalar": lambda: Layout(4, 1)(None),
+}
+
+
+PYTHON_POINTWISE_CASES = {
+    "compose_double_swizzle_offsets": lambda: ",".join(
+        str(compose(Swizzle(1, 0, 3), compose(Swizzle(3, 0, 3), Layout((8, 8), (8, 1))))(i))
+        for i in range(size(Layout((8, 8), (8, 1))))
+    ),
+    "compose_outer_layout_swizzled_offsets": lambda: ",".join(
+        str(compose(Layout((4, 4), (4, 1)), compose(Swizzle(3, 0, 3), Layout(16, 1)))(i))
+        for i in range(16)
+    ),
 }
 
 
@@ -241,3 +279,8 @@ def cute_cpp_oracle() -> dict[str, str]:
 def test_cute_cpp_oracle(case_name, cute_cpp_oracle):
     result = PYTHON_CASES[case_name]()
     assert _normalize_layout_repr(str(result)) == _normalize_layout_repr(cute_cpp_oracle[case_name])
+
+
+@pytest.mark.parametrize("case_name", sorted(PYTHON_POINTWISE_CASES))
+def test_cute_cpp_pointwise_oracle(case_name, cute_cpp_oracle):
+    assert PYTHON_POINTWISE_CASES[case_name]() == cute_cpp_oracle[case_name]

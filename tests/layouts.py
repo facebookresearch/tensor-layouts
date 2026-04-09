@@ -1632,16 +1632,14 @@ def test_offset_swizzled_layout_eq():
 
 
 def test_compose_layout_with_swizzled_layout():
-    # compose(Layout, SwizzledLayout) should transform the swizzle through
-    # the outer layout, matching CuTe C++ composition(Layout, ComposedLayout).
-    # See layout_composed.hpp:379 and swizzle_layout.hpp:327.
+    # compose(Layout, swizzled Layout) is not safely reducible in general.
+    # It should preserve exact semantics via ComposedLayout rather than
+    # guessing a replacement single swizzle.
     swizzled = compose(Swizzle(3, 0, 3), Layout((8, 8), (8, 1)))
 
-    # Identity layout preserves the swizzle exactly
     result = compose(Layout(64, 1), swizzled)
-    assert result.swizzle == Swizzle(3, 0, 3)
+    assert isinstance(result, ComposedLayout)
     assert result.shape == (8, 8)
-    assert result.stride == (8, 1)
 
     # Verify point-wise correctness: result(i) == Layout(64,1)(swizzled(i))
     for i in range(size(result)):
@@ -1649,20 +1647,17 @@ def test_compose_layout_with_swizzled_layout():
 
 
 def test_compose_layout_with_swizzled_layout_nontrivial():
-    # Non-identity outer layout should transform the swizzle
+    # Non-identity outer layout also remains exact via ComposedLayout.
     swizzled = compose(Swizzle(2, 0, 2), Layout(16, 1))
 
     # Compose with a layout that doubles strides
     outer = Layout(16, 2)
     result = compose(outer, swizzled)
+    assert isinstance(result, ComposedLayout)
 
     # Verify point-wise: result(i) == outer(swizzled(i)) for all i in domain
     for i in range(size(result)):
         assert result(i) == outer(swizzled(i)), f"Mismatch at i={i}"
-
-    # The result should have a swizzle (transformed through outer)
-    assert result.swizzle is not None
-
 
 def test_make_layout_like_basic():
     # For a column-major layout, extracting a sub-shape preserves strides
