@@ -144,6 +144,16 @@ pip install -e ".[test]"
 pytest tests/
 ```
 
+For local linting, install the dev extras and run Ruff on the Python sources:
+
+```bash
+pip install -e ".[dev]"
+ruff check src/ tests/ examples/
+```
+
+The default Ruff configuration excludes `*.ipynb`; notebooks are treated as
+worked material rather than part of the Python lint surface.
+
 Oracle tests cross-validate against vendor reference implementations and are
 skipped automatically if the corresponding tool is unavailable:
 

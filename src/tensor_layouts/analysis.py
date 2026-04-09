@@ -863,9 +863,9 @@ def atom_summary(atom: MMAAtom) -> dict:
         f'  C covers M*N:     {c_coverage_ok}',
     ]
     if a_broadcast:
-        lines.append(f'  A has broadcast (stride-0) modes')
+        lines.append('  A has broadcast (stride-0) modes')
     if b_broadcast:
-        lines.append(f'  B has broadcast (stride-0) modes')
+        lines.append('  B has broadcast (stride-0) modes')
 
     text = '\n'.join(lines)
     print(text)
@@ -963,8 +963,8 @@ def explain(fn, *args):
         actual = logical_divide(L, T)
 
         if is_layout(T):
-            lines.append(f'  = compose(L, Layout(T, complement(T, size(L))))')
-            lines.append(f'')
+            lines.append('  = compose(L, Layout(T, complement(T, size(L))))')
+            lines.append('')
             lines.append(f'  L = {L}')
             lines.append(f'  T = {T}')
             lines.append(f'  size(L) = {size(L)}')
@@ -975,12 +975,12 @@ def explain(fn, *args):
             result = compose(L, intermediate)
             lines.append(f'  compose(L, {intermediate}) = {result}')
         else:
-            lines.append(f'  Divides each mode of L by the corresponding tiler element.')
-            lines.append(f'')
+            lines.append('  Divides each mode of L by the corresponding tiler element.')
+            lines.append('')
             lines.append(f'  L = {L}')
             lines.append(f'  T = {T}')
 
-        lines.append(f'')
+        lines.append('')
         lines.append(f'  result = {actual}')
 
     elif name == 'logical_product':
@@ -990,8 +990,8 @@ def explain(fn, *args):
         lines.append(f'logical_product({A}, {B})')
 
         if is_layout(B):
-            lines.append(f'  = Layout(A, compose(complement(A, size(A)*cosize(B)), B))')
-            lines.append(f'')
+            lines.append('  = Layout(A, compose(complement(A, size(A)*cosize(B)), B))')
+            lines.append('')
             lines.append(f'  A = {A}')
             lines.append(f'  B = {B}')
             lines.append(f'  size(A) = {size(A)}')
@@ -1006,8 +1006,8 @@ def explain(fn, *args):
             lines.append(f'  Layout(A, {comp_b}) = {result}')
         else:
             # Tuple tiler: mode-by-mode decomposition
-            lines.append(f'  For tuple tilers, applies logical_product mode-by-mode.')
-            lines.append(f'')
+            lines.append('  For tuple tilers, applies logical_product mode-by-mode.')
+            lines.append('')
             lines.append(f'  A = {A}')
             lines.append(f'  B = {B}')
             for i in range(len(B)):
@@ -1016,7 +1016,7 @@ def explain(fn, *args):
                 ri = logical_product(mi, bi)
                 lines.append(f'  mode {i}: logical_product({mi}, {bi}) = {ri}')
 
-        lines.append(f'')
+        lines.append('')
         actual = logical_product(A, B)
         lines.append(f'  result = {actual}')
 
@@ -1029,7 +1029,7 @@ def explain(fn, *args):
             lines.append(f'complement({L})')
             bound = cosize(L)
         lines.append(f'  Fills the gaps in L\'s codomain up to bound={bound}.')
-        lines.append(f'')
+        lines.append('')
         lines.append(f'  L = {L}')
         lines.append(f'  image(L) = {image(L)}')
         lines.append(f'  codomain = [0, {bound})')
@@ -1090,13 +1090,13 @@ def explain(fn, *args):
     elif name == 'left_inverse':
         L = args[0]
         lines.append(f'left_inverse({L})')
-        lines.append(f'  R such that R(L(i)) == i')
-        lines.append(f'')
+        lines.append('  R such that R(L(i)) == i')
+        lines.append('')
         R = left_inverse(L)
         lines.append(f'  L = {L}')
         lines.append(f'  R = {R}')
         n = min(size(L), 8)
-        lines.append(f'')
+        lines.append('')
         lines.append(f'  Verification (first {n}):')
         for i in range(n):
             lines.append(f'    L({i})={L(i)}, R(L({i}))={R(L(i))}')
@@ -1104,15 +1104,15 @@ def explain(fn, *args):
     elif name == 'blocked_product':
         A, B = args
         lines.append(f'blocked_product({A}, {B})')
-        lines.append(f'  Like logical_product, but interleaves corresponding modes:')
-        lines.append(f'  ((A0, B0), (A1, B1), ...) — A varies fastest (block-first).')
-        lines.append(f'')
+        lines.append('  Like logical_product, but interleaves corresponding modes:')
+        lines.append('  ((A0, B0), (A1, B1), ...) — A varies fastest (block-first).')
+        lines.append('')
         lp = logical_product(A, B)
         lines.append(f'  logical_product(A, B) = {lp}')
         actual = blocked_product(A, B)
         lines.append(f'  blocked_product(A, B) = {actual}')
-        lines.append(f'')
-        lines.append(f'  Mode structure:')
+        lines.append('')
+        lines.append('  Mode structure:')
         for i in range(max(1, len(actual.shape) if isinstance(actual.shape, tuple) else 1)):
             m = mode(actual, i) if isinstance(actual.shape, tuple) else actual
             lines.append(f'    mode {i}: {m.shape} : {m.stride}')
@@ -1120,15 +1120,15 @@ def explain(fn, *args):
     elif name == 'raked_product':
         A, B = args
         lines.append(f'raked_product({A}, {B})')
-        lines.append(f'  Like blocked_product, but B varies fastest (rake-first):')
-        lines.append(f'  ((B0, A0), (B1, A1), ...) — elements are interleaved.')
-        lines.append(f'')
+        lines.append('  Like blocked_product, but B varies fastest (rake-first):')
+        lines.append('  ((B0, A0), (B1, A1), ...) — elements are interleaved.')
+        lines.append('')
         bp = blocked_product(A, B)
         lines.append(f'  blocked_product(A, B) = {bp}')
         actual = raked_product(A, B)
         lines.append(f'  raked_product(A, B)   = {actual}')
-        lines.append(f'')
-        lines.append(f'  Compare first 8 offsets:')
+        lines.append('')
+        lines.append('  Compare first 8 offsets:')
         n = min(size(actual), 8)
         bp_vals = [bp(i) for i in range(n)]
         rp_vals = [actual(i) for i in range(n)]
@@ -1138,28 +1138,28 @@ def explain(fn, *args):
     elif name in ('zipped_divide', 'tiled_divide', 'flat_divide'):
         L, T = args
         lines.append(f'{name}({L}, {T})')
-        lines.append(f'  Rearrangement of logical_divide result.')
-        lines.append(f'')
+        lines.append('  Rearrangement of logical_divide result.')
+        lines.append('')
         ld = logical_divide(L, T)
         lines.append(f'  logical_divide({L}, {T})')
         lines.append(f'    = {ld}')
         actual = fn(L, T)
         lines.append(f'  {name}:')
         lines.append(f'    = {actual}')
-        lines.append(f'')
+        lines.append('')
         if name == 'zipped_divide':
-            lines.append(f'  Structure: ((tiles), (rests))')
+            lines.append('  Structure: ((tiles), (rests))')
         elif name == 'tiled_divide':
-            lines.append(f'  Structure: ((tiles), rest0, rest1, ...)')
+            lines.append('  Structure: ((tiles), rest0, rest1, ...)')
         else:
-            lines.append(f'  Structure: (tile0, tile1, ..., rest0, rest1, ...)')
+            lines.append('  Structure: (tile0, tile1, ..., rest0, rest1, ...)')
 
     else:
         lines.append(f'explain() does not support {name}.')
-        lines.append(f'Supported: logical_divide, logical_product, complement,')
-        lines.append(f'           compose, right_inverse, left_inverse,')
-        lines.append(f'           blocked_product, raked_product,')
-        lines.append(f'           zipped_divide, tiled_divide, flat_divide.')
+        lines.append('Supported: logical_divide, logical_product, complement,')
+        lines.append('           compose, right_inverse, left_inverse,')
+        lines.append('           blocked_product, raked_product,')
+        lines.append('           zipped_divide, tiled_divide, flat_divide.')
 
     text = '\n'.join(lines)
     print(text)

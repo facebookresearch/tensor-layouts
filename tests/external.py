@@ -1450,7 +1450,6 @@ def test_elem_scale():
     assert elem_scale((2, 3), (4, 5)) == (8, 15)
     assert elem_scale((1, 1), (7, 8)) == (7, 8)
     # Tuple x scalar -> error
-    import pytest
     with pytest.raises(TypeError):
         elem_scale((2, 3), 4)
 
