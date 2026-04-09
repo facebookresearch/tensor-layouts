@@ -289,6 +289,32 @@ explain(complement, Layout(4, 2), 16)
 #   image(complement) = [0, 1, 8, 9]
 ```
 
+`explain(compose, ...)` also handles tuple tilers directly and shows the
+mode-by-mode decomposition CuTe uses:
+
+```python
+explain(compose, Layout((4, 8), (8, 1)), (2, 4))
+# compose((4, 8) : (8, 1), (2, 4))
+#   For tuple tilers, composition is applied mode-by-mode.
+#
+#   A = (4, 8) : (8, 1)
+#   B = (2, 4)
+#   result = (2, 4) : (8, 1)
+#   mode 0: compose(4 : 8, 2 : 1) = 2 : 8
+#   mode 1: compose(8 : 1, 4 : 1) = 4 : 1
+```
+
+For true `Layout` tilers, the `logical_product` explanation follows CuTe's
+actual bound `size(A) * cosize(B)` rather than `size(A) * size(B)`:
+
+```python
+explain(logical_product, Layout(4, 1), Layout(3, 2))
+# ...
+#   size(A) = 4
+#   cosize(B) = 5
+#   size(A) * cosize(B) = 20
+```
+
 ## F2 Linear Layout Matrix
 
 `to_F2_matrix(layout)` converts a layout with power-of-2 shapes to its
