@@ -155,7 +155,10 @@ PYTHON_CASES = {
 
 
 def _module_root(module_name: str) -> Path | None:
-    spec = importlib.util.find_spec(module_name)
+    try:
+        spec = importlib.util.find_spec(module_name)
+    except (ModuleNotFoundError, ValueError):
+        return None
     if spec is None:
         return None
     if spec.submodule_search_locations:
