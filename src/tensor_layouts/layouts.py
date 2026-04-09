@@ -2589,6 +2589,21 @@ def _compose_with_tiler(layout_a: Layout, tiler) -> Layout:
     return Layout(tuple(result_shapes), tuple(result_strides))
 
 
+def _normalize_compose_tiler_element(elem):
+    """Normalize a compose tiler element while preserving nested tuple structure.
+
+    Leaf integers become stride-1 Layouts. Nested tuples stay nested so
+    composition recurses mode-by-mode, matching CuTe's tuple-tiler semantics.
+    """
+    if isinstance(elem, Layout):
+        return elem
+    if isinstance(elem, int):
+        return Layout(elem, 1)
+    if is_tuple(elem):
+        return tuple(_normalize_compose_tiler_element(e) for e in elem)
+    raise TypeError(f"Invalid tiler element: {type(elem)}")
+
+
 def compose(layout_a: Any, layout_b: Any) -> Any:
     """The fundamental operation of CuTe layout algebra: function composition.
 
@@ -2608,6 +2623,7 @@ def compose(layout_a: Any, layout_b: Any) -> Any:
     1. A Layout - composition between two functions from integers to integers
     2. A tuple of Tilers - mode-by-mode composition until case (1) is found
     3. A Shape (tuple of ints) - interpreted as tuple of Layout(n, 1)
+       at the leaves, while nested tuples recurse mode-by-mode
 
     When B is a tuple of Tilers, composition is done mode-by-mode:
         compose(A, (B0, B1, ...)) = Layout(compose(mode(A,0), B0),
@@ -2676,21 +2692,9 @@ def compose(layout_a: Any, layout_b: Any) -> Any:
             )
         return _compose_with_tiler(layout_a, layout_b)
 
-    # Tuple tiler - convert elements and recurse
+    # Tuple tiler - recurse mode-by-mode, preserving nested tuple structure
     if is_tuple(layout_b):
-
-        def to_layout(elem):
-            if isinstance(elem, Layout):
-                return elem
-            if isinstance(elem, int):
-                return Layout(elem, 1)
-            if is_tuple(elem):
-                if is_pure_shape(elem):
-                    return Layout(elem, 1)
-                return elem  # Mixed tuple, keep for recursive processing
-            raise TypeError(f"Invalid tiler element: {type(elem)}")
-
-        tiler = [to_layout(e) for e in layout_b]
+        tiler = tuple(_normalize_compose_tiler_element(e) for e in layout_b)
         if all(isinstance(e, Layout) for e in tiler):
             tiler = Tile(*tiler)
 
@@ -2738,7 +2742,8 @@ def logical_divide(layout: Layout, tiler: Any) -> Layout:
 
     The result has the structure: (Tile, Rest)
 
-    For multi-mode tilers (tuples), each mode is divided independently:
+    For tuple tilers, each top-level mode is divided independently and nested
+    tuple tilers recurse within that mode:
         ((TileM, RestM), (TileN, RestN), L, ...)
 
     The tiler can be:
@@ -2781,10 +2786,35 @@ def logical_divide(layout: Layout, tiler: Any) -> Layout:
             return logical_divide(layout, Layout(tiler, 1))
         return _logical_divide_by_shape(layout, (tiler,))
     elif is_tuple(tiler):
-        # Tuple tiler: mode-by-mode division
-        return _logical_divide_by_shape(layout, tiler)
+        # Tuple tiler: recurse mode-by-mode, preserving nested tuple structure
+        return _logical_divide_with_tiler(layout, tiler)
     else:
         raise TypeError(f"Tiler must be int, tuple, or Layout, got {type(tiler)}")
+
+
+def _logical_divide_with_tiler(layout: Layout, tiler) -> Layout:
+    """Divide a layout mode-by-mode with a possibly nested tuple tiler."""
+    if len(tiler) > rank(layout):
+        raise ValueError(
+            f"logical_divide: tiler has more modes ({len(tiler)}) "
+            f"than layout ({rank(layout)})"
+        )
+
+    result_shapes = []
+    result_strides = []
+
+    for i, elem in enumerate(tiler):
+        mode_layout = mode(layout, i)
+        divided = logical_divide(mode_layout, elem)
+        result_shapes.append(unwrap(divided.shape))
+        result_strides.append(unwrap(divided.stride))
+
+    for i in range(len(tiler), rank(layout)):
+        mode_layout = mode(layout, i)
+        result_shapes.append(unwrap(mode_layout.shape))
+        result_strides.append(unwrap(mode_layout.stride))
+
+    return Layout(as_shape(result_shapes), as_shape(result_strides))
 
 
 def _logical_divide_by_shape(layout: Layout, tiler_shape: Any) -> Layout:

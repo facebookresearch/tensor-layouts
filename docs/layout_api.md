@@ -234,6 +234,11 @@ compose(Layout(8, 2), Layout(4, 1))  # Layout(4, 2)
 
 compose(Layout((4, 8), (8, 1)), (2, 4))  # Layout((2, 4), (8, 1))
 # Select the top-left 2x4 subblock (mode-by-mode with shape tiler)
+
+compose(Layout(((2, 3), 8), ((1, 2), 6)), ((2, 3), 4))
+# Layout(((2, 3), 4), ((1, 2), 6))
+# Nested tuple tilers recurse within the corresponding mode instead of
+# being flattened into a single stride-1 layout.
 ```
 
 When `A` is a `Swizzle`, the result is a `Layout` with an embedded swizzle.
@@ -256,6 +261,9 @@ Split L into `(tile, rest)` — the core tiling operation.
 ```python
 logical_divide(Layout(16, 1), 4)  # Layout((4, 4), (1, 4))
 # 4-element tiles, 4 tiles total
+
+logical_divide(Layout(((2, 3), 8), ((1, 2), 6)), ((2, 3), 4))
+# Divide mode 0 recursively by (2, 3), and mode 1 by 4.
 ```
 
 Variants control result organization:

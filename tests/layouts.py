@@ -923,6 +923,24 @@ def test_logical_divide_hierarchical_stride():
         assert divided(i) == L(i)
 
 
+def test_logical_divide_nested_tuple_tiler_recurses_mode_by_mode():
+    """Nested tuple tilers should divide each nested mode recursively."""
+    a = Layout(((2, 3), 8), ((1, 2), 6))
+    tiler = ((2, 3), 4)
+
+    result = logical_divide(a, tiler)
+    expected = Layout(
+        logical_divide(mode(a, 0), (2, 3)),
+        logical_divide(mode(a, 1), 4),
+    )
+
+    assert result == expected
+    assert result.shape == (((2, 1), (3, 1)), (4, 2))
+    assert sorted(result(i) for i in range(size(result))) == \
+        sorted(a(i) for i in range(size(a)))
+    assert functionally_equal(result, expected)
+
+
 def test_tiled_divide():
     # tiled_divide: ((TileM,TileN), RestM, RestN, L, ...)
     # Mode 0 is the grouped tiles, remaining modes are individual rests
@@ -1192,6 +1210,21 @@ def test_compose_shape_tiler_variants():
     assert result.shape[0] == 2
     assert result.shape[1] == 4  # Mode 1 unchanged
     assert result.stride[1] == 16  # Mode 1 stride unchanged
+
+
+def test_compose_nested_tuple_tiler_recurses_mode_by_mode():
+    """Nested tuple tilers should recurse instead of collapsing to Layout(..., 1)."""
+    a = Layout(((2, 3), 8), ((1, 2), 6))
+    tiler = ((2, 3), 4)
+
+    result = compose(a, tiler)
+    expected = Layout(compose(mode(a, 0), (2, 3)), compose(mode(a, 1), Layout(4, 1)))
+
+    assert result == expected
+    assert result == Layout(((2, 3), 4), ((1, 2), 6))
+
+    for i in range(size(result)):
+        assert result(i) == expected(i)
 
 
 def test_compose_mixed_tiler():
