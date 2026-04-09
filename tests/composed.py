@@ -27,7 +27,14 @@ import dataclasses
 import pytest
 
 from tensor_layouts import *
+from tensor_layouts.analysis import (
+    contiguity,
+    mode_contiguity,
+    slice_contiguity,
+    to_F2_matrix,
+)
 from tensor_layouts.tensor import Tensor
+from tensor_layouts.viz import draw_layout, draw_slice
 
 
 def _assert_pointwise_equal(a, b):
@@ -169,3 +176,29 @@ def test_tensor_stride_rejects_composed_layout():
     tensor = Tensor(ComposedLayout(Swizzle(2, 0, 2), Layout(16, 1), preoffset=4))
     with pytest.raises(TypeError, match="ComposedLayout|affine"):
         _ = tensor.stride
+
+
+def test_affine_only_boundaries_reject_composed_layout():
+    composed = compose(Layout(16, 2), compose(Swizzle(2, 0, 2), Layout(16, 1)))
+
+    with pytest.raises(TypeError, match="ComposedLayout|affine"):
+        as_affine_layout(composed)
+    with pytest.raises(TypeError, match="ComposedLayout|affine"):
+        to_F2_matrix(composed)
+    with pytest.raises(TypeError, match="ComposedLayout|affine"):
+        contiguity(composed)
+    with pytest.raises(TypeError, match="ComposedLayout|affine"):
+        mode_contiguity(composed)
+    with pytest.raises(TypeError, match="ComposedLayout|affine"):
+        slice_contiguity(composed, (None,))
+
+
+def test_draw_layout_and_draw_slice_smoke_for_composed_layout(tmp_path):
+    composed = compose(Layout(16, 2), compose(Swizzle(2, 0, 2), Layout((4, 4), (4, 1))))
+
+    fig1 = draw_layout(composed, tmp_path / "composed_layout.png")
+    fig2 = draw_slice(composed, (None, 1), tmp_path / "composed_slice.png")
+    assert fig1 is None
+    assert fig2 is None
+    assert (tmp_path / "composed_layout.png").exists()
+    assert (tmp_path / "composed_slice.png").exists()
