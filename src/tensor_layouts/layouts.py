@@ -2338,8 +2338,16 @@ def shape_div(shape: Any, divisor: int) -> Any:
     in CuTe's column-major convention). When the divisor exceeds a mode's size,
     that mode becomes 1 and the remaining divisor carries to the next mode.
 
-    For scalars: shape_div(a, b) = ceil(a / b), which equals a/b when b|a
-    and 1 when a|b (i.e., a/gcd(a,b) when one divides the other).
+    For scalars, this implementation only supports the exact-factor cases
+    needed by the complementary ``shape_mod`` algebra: either ``b`` divides
+    ``a`` or ``a`` divides ``b``. In those supported cases,
+    ``shape_div(a, b)`` equals ``ceil(a / b)`` (``a // b`` when ``b | a``,
+    and ``1`` when ``a | b``). If neither divides the other,
+    ``shape_div`` raises ``ValueError``.
+
+    This is intentionally stricter than dynamic CuTe C++, which may return
+    ``ceil_div(a, b)`` for non-divisible scalar pairs such as
+    ``shape_div(6, 4) -> 2``.
 
     The key identity: size(shape_div(s, d)) * size(shape_mod(s, d)) == size(s)
 
@@ -2350,6 +2358,7 @@ def shape_div(shape: Any, divisor: int) -> Any:
         shape_div((4, 3), 4) -> (1, 3)  # First mode consumed: 4/4=1
         shape_div((4, 6), 8) -> (1, 3)  # Carries into second mode: 8/4=2, 6/2=3
         shape_div((4, 3), 12) -> (1, 1) # All consumed
+        shape_div(6, 4) -> ValueError    # intentional strict policy
     """
     if divisor == 1:
         return shape

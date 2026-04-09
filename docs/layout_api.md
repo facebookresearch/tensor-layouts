@@ -219,6 +219,36 @@ These operate on the nested integer tuples that make up shapes and strides.
 `prefix_product` computes column-major strides; `suffix_product` computes
 row-major strides.
 
+## Shape Factorization
+
+`shape_div(shape, d)` and `shape_mod(shape, d)` factor a hierarchical shape
+into the part that remains and the part that was consumed, proceeding from
+the innermost modes first.
+
+```python
+shape_div((6, 2), 3)  # (2, 2)
+shape_mod((6, 2), 3)  # (3, 1)
+
+# Complementary size identity for supported inputs:
+size(shape_div((6, 2), 3)) * size(shape_mod((6, 2), 3))  # 12
+```
+
+Policy note: this Python implementation intentionally uses a stricter scalar
+rule than dynamic CuTe C++. At each scalar recursive step, either the shape
+must divide the divisor or the divisor must divide the shape. If neither is
+true, `shape_div` raises `ValueError`:
+
+```python
+shape_div(12, 4)  # 3
+shape_div(4, 12)  # 1
+shape_div(6, 4)   # ValueError
+shape_div(4, 6)   # ValueError
+```
+
+This differs from dynamic CuTe C++, which may return `2` and `1` for the
+last two cases. The stricter Python rule matches `pycute` and keeps
+`shape_div`/`shape_mod` complementary for the educational runtime algebra.
+
 ## Core Algebra
 
 ### compose(A, B)
