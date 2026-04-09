@@ -209,7 +209,7 @@ def as_layout(obj):
         raise TypeError("Expected affine Layout, got ComposedLayout")
     if hasattr(obj, "shape") and hasattr(obj, "stride"):
         return Layout(obj.shape, obj.stride)
-    raise TypeError(f"Expected Layout-like object with shape/stride, got {type(obj).__name__}")
+    raise TypeError(f"Expected Layout, got {type(obj).__name__}")
 
 
 def as_layout_expr(obj):
@@ -1675,7 +1675,7 @@ def complement(layout: Layout, cosize_bound: Any = None) -> Layout:
     return coalesce(Layout(as_shape(result_shapes), as_shape(result_strides)))
 
 
-def right_inverse(layout: Any) -> Layout:
+def right_inverse(layout: Any) -> Any:
     """Compute the right-inverse of a layout.
 
     For a layout L, the right-inverse R satisfies: L(R(i)) == i
@@ -1704,6 +1704,16 @@ def right_inverse(layout: Any) -> Layout:
 
     if layout is None:
         return None
+    if isinstance(layout, Swizzle):
+        return layout
+    if isinstance(layout, ComposedLayout):
+        if isinstance(layout.outer, Swizzle) and layout.preoffset == 0:
+            return compose(right_inverse(layout.inner), layout.outer)
+        return ComposedLayout(
+            right_inverse(layout.inner),
+            right_inverse(layout.outer),
+            preoffset=-layout.preoffset,
+        )
     if isinstance(layout, int):
         return Layout(layout)
 
@@ -1745,7 +1755,7 @@ def right_inverse(layout: Any) -> Layout:
     return coalesce(Layout(tuple(result_shape), tuple(result_stride)))
 
 
-def left_inverse(layout: Any) -> Layout:
+def left_inverse(layout: Any) -> Any:
     """Compute the left-inverse of a layout.
 
     For an injective layout L, the left-inverse R satisfies:
@@ -1768,6 +1778,16 @@ def left_inverse(layout: Any) -> Layout:
     """
     if layout is None:
         return None
+    if isinstance(layout, Swizzle):
+        return layout
+    if isinstance(layout, ComposedLayout):
+        if isinstance(layout.outer, Swizzle) and layout.preoffset == 0:
+            return compose(left_inverse(layout.inner), layout.outer)
+        return ComposedLayout(
+            left_inverse(layout.inner),
+            left_inverse(layout.outer),
+            preoffset=-layout.preoffset,
+        )
     if isinstance(layout, int):
         return Layout(layout)
 
@@ -1866,7 +1886,7 @@ def nullspace(layout: Layout) -> Layout:
     return Layout(as_shape(zero_shapes), as_shape(zero_strides))
 
 
-def max_common_layout(layout_a: Layout, layout_b: Layout) -> Layout:
+def max_common_layout(layout_a: LayoutExpr, layout_b: LayoutExpr) -> Layout:
     """Return a layout pointing to the maximum contiguous elements common to both.
 
     Two layouts "logically correspond" when indexing through one produces the
@@ -1889,6 +1909,18 @@ def max_common_layout(layout_a: Layout, layout_b: Layout) -> Layout:
         max_common_layout(Layout((4,2), (2,1)), Layout(8,1)) -> 1:0
         max_common_layout(Layout(8, 1), Layout((4,2), (1,4))) -> 4:1
     """
+    if isinstance(layout_a, ComposedLayout) and isinstance(layout_a.outer, Swizzle):
+        layout_b = as_affine_layout(layout_b)
+        common = max_common_layout(layout_a.inner, layout_b)
+        swizzle_cap = 1 << layout_a.outer.base
+        if swizzle_cap < size(common):
+            return compose(common, Layout(swizzle_cap, 1))
+        return common
+    if isinstance(layout_b, ComposedLayout) and isinstance(layout_b.outer, Swizzle):
+        return max_common_layout(layout_b, layout_a)
+
+    layout_a = as_affine_layout(layout_a)
+    layout_b = as_affine_layout(layout_b)
     inv_b = right_inverse(layout_b)
     common = coalesce(compose(layout_a, inv_b))
 
@@ -1911,7 +1943,7 @@ def max_common_layout(layout_a: Layout, layout_b: Layout) -> Layout:
         return Layout(1, 0)
 
 
-def max_common_vector(layout_a: Layout, layout_b: Layout) -> int:
+def max_common_vector(layout_a: LayoutExpr, layout_b: LayoutExpr) -> int:
     """Return the number of contiguous elements that logically correspond in both layouts.
 
     This is the size of max_common_layout(a, b) — the length of the longest
@@ -1930,6 +1962,15 @@ def max_common_vector(layout_a: Layout, layout_b: Layout) -> int:
         max_common_vector(Layout((4,2), (2,1)), Layout(8,1)) -> 1
         max_common_vector(Layout(8, 1), Layout((4,2), (1,4))) -> 4
     """
+    if isinstance(layout_a, ComposedLayout) and isinstance(layout_a.outer, Swizzle):
+        if isinstance(layout_b, ComposedLayout) and isinstance(layout_b.outer, Swizzle):
+            vec = max_common_vector(layout_a.inner, layout_b.inner)
+            if layout_a.outer == layout_b.outer:
+                return vec
+            return min(vec, 1 << layout_a.outer.base, 1 << layout_b.outer.base)
+        return min(max_common_vector(layout_a.inner, layout_b), 1 << layout_a.outer.base)
+    if isinstance(layout_b, ComposedLayout) and isinstance(layout_b.outer, Swizzle):
+        return max_common_vector(layout_b, layout_a)
     return size(max_common_layout(layout_a, layout_b))
 
 
@@ -2768,6 +2809,15 @@ def compose(layout_a: Any, layout_b: Any) -> Any:
             return Layout(inner_composed.shape, inner_composed.stride, swizzle=layout_a.swizzle)
         return ComposedLayout(layout_a.swizzle, inner_composed)
 
+    if isinstance(layout_b, Swizzle):
+        if not isinstance(layout_a, Layout):
+            raise TypeError(
+                f"When composing with Swizzle, first argument must be Layout, got {type(layout_a).__name__}"
+            )
+        active_Y = layout_a(layout_b.yyy_msk)
+        active_Z = layout_a(layout_b.zzz_msk)
+        return compose(make_swizzle(active_Y, active_Z), layout_a)
+
     # Layout-with-Layout composition
     if isinstance(layout_b, Layout):
         if not isinstance(layout_a, Layout):
@@ -2785,6 +2835,10 @@ def compose(layout_a: Any, layout_b: Any) -> Any:
                 f"When composing with ComposedLayout, first argument must be Layout, "
                 f"Swizzle, or ComposedLayout, got {type(layout_a).__name__}"
             )
+        if layout_b.preoffset == 0 and (
+            isinstance(layout_b.outer, Swizzle) or is_layout(layout_b.outer)
+        ):
+            return compose(compose(layout_a, layout_b.outer), layout_b.inner)
         return ComposedLayout(layout_a, layout_b)
 
     # Tiler composition (Tile or tuple)
