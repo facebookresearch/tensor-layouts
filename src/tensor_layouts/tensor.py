@@ -44,6 +44,17 @@ offset, and the swizzle is applied at the final call.
 from .layouts import *
 
 
+def _tensor_address(offset: int, layout: LayoutExpr, coords) -> int:
+    """Resolve a tensor address from an external offset and a layout expression."""
+    if isinstance(layout, Layout):
+        linear_result = crd2offset(coords, layout.shape, layout.stride)
+        total_linear = offset + linear_result
+        if layout.swizzle is not None:
+            return layout.swizzle(total_linear)
+        return total_linear
+    return offset + layout(coords)
+
+
 def _linear_offset_bounds(shape, stride) -> tuple[int, int]:
     """Return the min/max linear offsets reachable by a shape/stride pair."""
     if is_tuple(shape):
@@ -61,17 +72,16 @@ def _linear_offset_bounds(shape, stride) -> tuple[int, int]:
     return 0, extent
 
 
-def _address_bounds(layout: Layout, offset: int) -> tuple[int, int]:
+def _address_bounds(layout: LayoutExpr, offset: int) -> tuple[int, int]:
     """Return the min/max storage indices addressed by a Tensor."""
-    if layout.swizzle is None:
+    if is_affine_layout(layout) and layout.swizzle is None:
         min_linear, max_linear = _linear_offset_bounds(layout.shape, layout.stride)
         return offset + min_linear, offset + max_linear
 
     min_offset = None
     max_offset = None
     for flat_idx in range(size(layout)):
-        linear = offset + crd2offset(flat_idx, layout.shape, layout.stride)
-        actual = layout.swizzle(linear)
+        actual = _tensor_address(offset, layout, flat_idx)
         if min_offset is None:
             min_offset = actual
             max_offset = actual
@@ -84,7 +94,7 @@ def _address_bounds(layout: Layout, offset: int) -> tuple[int, int]:
     return min_offset, max_offset
 
 
-def _validate_storage(layout: Layout, offset: int, data) -> None:
+def _validate_storage(layout: LayoutExpr, offset: int, data) -> None:
     """Validate that storage covers every index addressed by (offset, layout)."""
     min_offset, max_offset = _address_bounds(layout, offset)
     if min_offset < 0 or max_offset >= len(data):
@@ -141,15 +151,15 @@ class Tensor:
             t.data = list(range(100, 132))  # swap storage
     """
 
-    def __init__(self, layout: Layout, offset: int = 0, data=None):
-        self._layout = layout
+    def __init__(self, layout: LayoutExpr, offset: int = 0, data=None):
+        self._layout = as_layout_expr(layout)
         self._offset = offset
         if data is not None:
             _validate_storage(self._layout, self._offset, data)
         self._data = data
 
     @property
-    def layout(self) -> Layout:
+    def layout(self) -> LayoutExpr:
         return self._layout
 
     @property
@@ -162,7 +172,7 @@ class Tensor:
 
     @property
     def stride(self):
-        return self._layout.stride
+        return as_affine_layout(self._layout).stride
 
     @property
     def data(self):
@@ -184,7 +194,7 @@ class Tensor:
             _validate_storage(self._layout, self._offset, value)
         self._data = value
 
-    def view(self, layout: Layout) -> "Tensor":
+    def view(self, layout: LayoutExpr) -> "Tensor":
         """Return a new Tensor sharing this storage with a different layout.
 
         The new view preserves this Tensor's base offset and must satisfy
@@ -223,22 +233,14 @@ class Tensor:
     def __call__(self, *args) -> int:
         """Map coordinates to a memory offset.
 
-        For non-swizzled layouts: offset + layout(coords)
-        For swizzled layouts: swizzle(offset + linear_layout(coords))
-
-        The key insight is that the swizzle applies to the TOTAL linear
-        offset (base + coordinate contribution), not to each separately.
+        The tensor offset is external pointer/base state. For affine layouts
+        with an embedded swizzle, that external offset participates in the
+        pre-swizzle linear address exactly as CuTe tensor slicing requires.
+        For ComposedLayout, the layout's own preoffset remains internal and the
+        tensor offset is added only after the layout expression evaluates.
         """
-        # Get linear offset from coordinates (without swizzle)
-        # Handle single arg (rank-1) vs multiple args
         coords = args[0] if len(args) == 1 else args
-        linear_result = crd2offset(coords, self._layout.shape, self._layout.stride)
-        total_linear = self._offset + linear_result
-
-        # Apply swizzle to total if present
-        if self._layout.swizzle is not None:
-            return self._layout.swizzle(total_linear)
-        return total_linear
+        return _tensor_address(self._offset, self._layout, coords)
 
     def __getitem__(self, key):
         """Access a data element or slice the tensor.
@@ -273,7 +275,7 @@ class Tensor:
         elif isinstance(key, slice) and key == slice(None):
             return Tensor(self._layout, self._offset, data=self._data)
         else:
-            return self._slice_single(key, 0)
+            raise TypeError(f"Invalid tensor index: {key!r}")
 
     def __setitem__(self, key, value):
         """Write a value to storage at the given coordinates.
@@ -302,9 +304,9 @@ class Tensor:
                 raise IndexError(
                     f"Expected {rank(self._layout)} indices, got {len(key)}"
                 )
-            offset = self(*key)
+            offset = _tensor_address(self._offset, self._layout, key)
         elif isinstance(key, int):
-            offset = self(key)
+            offset = _tensor_address(self._offset, self._layout, key)
         else:
             raise TypeError(
                 "Tensor assignment requires a fully-fixed coordinate: "
@@ -312,26 +314,6 @@ class Tensor:
                 "coordinate per mode"
             )
         self._data[offset] = value
-
-    def _get_linear_mode_offset(self, mode_idx: int, coord) -> int:
-        """Get the linear offset contribution from a mode (without swizzle)."""
-        m = mode(self._layout, mode_idx)
-        # Compute linear offset using shape and stride directly
-        return crd2offset(coord, m.shape, m.stride)
-
-    def _slice_single(self, key, mode_idx: int) -> "Tensor | int":
-        """Slice a single mode of the tensor."""
-        if isinstance(key, slice) and key == slice(None):
-            # Slice with : (all elements) - return tensor for this mode
-            mode_layout = mode(self._layout, mode_idx)
-            return Tensor(Layout(mode_layout.shape, mode_layout.stride,
-                                swizzle=self._layout.swizzle), self._offset,
-                         data=self._data)
-        elif isinstance(key, (int, tuple)):
-            # Fixed coordinate - compute the linear offset contribution
-            return self._fix_mode(mode_idx, key)
-        else:
-            raise TypeError(f"Invalid slice key: {key}")
 
     def _slice_multi(self, keys: tuple) -> "Tensor | int":
         """Handle multi-dimensional slicing like tensor[i, :] or tensor[i, ((0, None), None)].
@@ -346,34 +328,31 @@ class Tensor:
                 f"Expected {rank(self._layout)} indices, got {len(keys)}"
             )
 
-        # Check if any key is a partial hierarchical slice (tuple with Nones).
-        # If so, delegate to slice_and_offset which handles this correctly.
-        if any(self._has_nested_none(k) for k in keys):
-            sub, offset = slice_and_offset(keys, self._layout)
-            return Tensor(sub, self._offset + offset, data=self._data)
-
-        fixed_modes = []
-        sliced_modes = []
+        normalized = []
+        has_free = False
         for i, key in enumerate(keys):
-            if isinstance(key, (int, tuple)):
-                fixed_modes.append((i, key))
-            elif key is None or (isinstance(key, slice) and key == slice(None)):
-                sliced_modes.append(i)
+            if key is None or (isinstance(key, slice) and key == slice(None)):
+                normalized.append(None)
+                has_free = True
+            elif isinstance(key, (int, tuple)):
+                normalized.append(key)
+                if self._has_nested_none(key):
+                    has_free = True
             else:
                 raise TypeError(f"Invalid slice key at position {i}: {key}")
+        normalized = tuple(normalized)
 
-        if not sliced_modes:
+        if not has_free:
             # All modes fixed - return data element or computed offset
-            offset = self(*keys)
+            offset = _tensor_address(self._offset, self._layout, normalized)
             if self._data is not None:
                 return self._data[offset]
             return offset
 
-        # Compute LINEAR offset contribution from fixed modes (no swizzle)
-        fixed_offset = sum(self._get_linear_mode_offset(i, coord) for i, coord in fixed_modes)
-
-        new_layout = self._build_remaining_layout(sliced_modes)
-        return Tensor(new_layout, self._offset + fixed_offset, data=self._data)
+        sub, offset = slice_and_offset(normalized, self._layout)
+        if isinstance(sub, Layout):
+            sub = Layout(unwrap(sub.shape), unwrap(sub.stride), swizzle=sub.swizzle)
+        return Tensor(sub, self._offset + offset, data=self._data)
 
     @staticmethod
     def _has_nested_none(key) -> bool:
@@ -400,32 +379,3 @@ class Tensor:
         if isinstance(key, tuple):
             return any(Tensor._contains_free_coordinates(item) for item in key)
         return False
-
-    def _build_remaining_layout(self, mode_indices) -> Layout:
-        """Build a Layout from selected modes."""
-        remaining_shapes = []
-        remaining_strides = []
-        for idx in mode_indices:
-            m = mode(self._layout, idx)
-            remaining_shapes.append(unwrap(m.shape))
-            remaining_strides.append(unwrap(m.stride))
-        return Layout(as_shape(remaining_shapes), as_shape(remaining_strides),
-                     swizzle=self._layout.swizzle)
-
-    def _fix_mode(self, mode_idx: int, coord) -> "Tensor | int":
-        """Fix one mode to a specific coordinate value."""
-        # Get LINEAR offset contribution (no swizzle)
-        offset_contrib = self._get_linear_mode_offset(mode_idx, coord)
-        remaining = [i for i in range(rank(self._layout)) if i != mode_idx]
-        if not remaining:
-            # No modes left - return data element or computed offset
-            total_linear = self._offset + offset_contrib
-            if self._layout.swizzle is not None:
-                offset = self._layout.swizzle(total_linear)
-            else:
-                offset = total_linear
-            if self._data is not None:
-                return self._data[offset]
-            return offset
-        new_layout = self._build_remaining_layout(remaining)
-        return Tensor(new_layout, self._offset + offset_contrib, data=self._data)
