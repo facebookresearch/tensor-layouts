@@ -1033,6 +1033,38 @@ class TestCuTeCompatibility:
         assert Ts_none.offset == Ts_colon.offset
         assert Ts_none.layout == Ts_colon.layout
 
+    def test_tensor_full_slice_matches_explicit_full_slice(self):
+        """A bare full slice returns the whole tensor view."""
+        layout = Layout((4, 8), (1, 4))
+        buf = list(range(32))
+        tensor = Tensor(layout, data=buf)
+
+        full = tensor[:]
+        explicit = tensor[:, :]
+
+        assert isinstance(full, Tensor)
+        assert full == explicit
+        assert full.layout == layout
+        assert full.offset == 0
+        assert full.data is buf
+
+    def test_swizzled_tensor_full_slice_matches_explicit_full_slice(self):
+        """A bare full slice preserves swizzled whole-tensor semantics."""
+        sw_layout = compose(Swizzle(3, 0, 3), Layout((8, 8), (8, 1)))
+        tensor = Tensor(sw_layout, offset=16)
+
+        full = tensor[:]
+        explicit = tensor[:, :]
+
+        assert isinstance(full, Tensor)
+        assert full == explicit
+        assert full.layout.swizzle == sw_layout.swizzle
+        assert full.offset == tensor.offset
+
+        for i in range(8):
+            for j in range(8):
+                assert full(i, j) == tensor(i, j)
+
 
 # =============================================================================
 # Flat 1D Evaluation and Copy Algorithm

@@ -249,12 +249,15 @@ class Tensor:
         and is consistent with ``__setitem__``, enabling the canonical
         copy loop ``dst[i] = src[i]`` on any-rank tensor.
 
+        A bare full slice (``tensor[:]``) returns a view of the whole tensor.
+
         A tuple key performs **slicing**: fixed coordinates (ints) contribute
         to the offset; free coordinates (``:`` / ``None``) remain in the
         resulting sub-Tensor's layout.
 
         Examples:
             tensor[5]     -- flat 1D evaluation → data element or offset
+            tensor[:]     -- full slice → Tensor view of the whole tensor
             tensor[2, 3]  -- fix all modes → data element or offset
             tensor[3, :]  -- fix mode 0 to 3, keep mode 1 → sub-Tensor
             tensor[:, 5]  -- keep mode 0, fix mode 1 to 5 → sub-Tensor
@@ -267,6 +270,8 @@ class Tensor:
             if self._data is not None:
                 return self._data[offset]
             return offset
+        elif isinstance(key, slice) and key == slice(None):
+            return Tensor(self._layout, self._offset, data=self._data)
         else:
             return self._slice_single(key, 0)
 

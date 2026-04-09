@@ -103,6 +103,7 @@ offset is computed.  This matches CuTe C++ `Tensor::operator()(int)`.
 | Key | Returns |
 |-----|---------|
 | `tensor[i]` | Flat 1D evaluation — data element or offset |
+| `tensor[:]` | Full slice — a sub-Tensor view of the whole tensor |
 | `tensor[i, j]` | All modes fixed — data element or offset |
 | `tensor[i, :]` | Slicing — sub-Tensor (see [Slicing](#slicing)) |
 
