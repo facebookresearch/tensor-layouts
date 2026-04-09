@@ -233,6 +233,14 @@ def test_coalescing_tv_layout():
     assert result['efficiency'] == pytest.approx(1.0)
 
 
+def test_coalescing_negative_stride_rebases_footprint():
+    """Dense reverse layouts should analyze like translated dense runs."""
+    result = coalescing_efficiency(Layout(4, -1), element_bytes=4)
+    assert result['transactions'] == 1
+    assert result['efficiency'] == pytest.approx(16.0 / 128)
+    assert result['cache_lines'] == [0]
+
+
 ## segment_analysis
 
 
@@ -273,6 +281,18 @@ def test_segment_analysis_tv_layout():
     assert result['segments'] == 8
     assert result['cache_lines'] == 2
     assert result['requested_bytes'] == 256  # 32 * 4 * 2
+
+
+def test_segment_analysis_negative_stride_rebases_footprint():
+    """Segment analysis should use the addressed footprint, not signed origin."""
+    result = segment_analysis(Layout((4, 2), (-1, 4)), element_bytes=4)
+    assert result['segments'] == 1
+    assert result['cache_lines'] == 1
+    assert result['unique_bytes'] == 32
+    assert result['transferred_bytes'] == 32
+    assert result['segment_efficiency'] == pytest.approx(1.0)
+    assert result['first_byte_addr'] == 12
+    assert result['first_alignment'] == 12
 
 
 ## per-group analysis
@@ -316,6 +336,16 @@ def test_per_group_coalescing_tv_layout():
     assert result['groups'][0]['transactions'] == 2
 
 
+def test_per_group_coalescing_negative_stride_rebases_each_group():
+    """Each group should analyze its own dense reversed footprint."""
+    result = per_group_coalescing(Layout(64, -1), element_bytes=4, group_size=32)
+    assert len(result['groups']) == 2
+    for group in result['groups']:
+        assert group['transactions'] == 1
+        assert group['efficiency'] == pytest.approx(1.0)
+        assert group['cache_lines'] == [0]
+
+
 ## cycles
 
 
@@ -353,6 +383,17 @@ def test_cycles_not_bijective():
         cycles(Layout(4, 2))
 
 
+def test_cycles_negative_stride_rebases_dense_image():
+    """Dense shifted images should still yield a meaningful permutation."""
+    assert cycles(Layout(4, -1)) == [[0, 3], [1, 2]]
+
+
+def test_cycles_negative_stride_with_gaps_raises():
+    """A gappy negative-stride image is not a permutation."""
+    with pytest.raises(ValueError, match="dense interval"):
+        cycles(Layout((4, 2), (-1, -8)))
+
+
 ## fixed_points
 
 
@@ -371,6 +412,11 @@ def test_fixed_points_broadcast():
     """Broadcast layout: only offset 0 maps to itself."""
     fp = fixed_points(Layout(4, 0))
     assert fp == [0]
+
+
+def test_fixed_points_negative_stride_uses_absolute_offsets():
+    """fixed_points remains an absolute offset check, not a rebased one."""
+    assert fixed_points(Layout(4, -1)) == [0]
 
 
 ## order
@@ -402,6 +448,11 @@ def test_order_not_bijective():
     """Non-bijective layout raises ValueError."""
     with pytest.raises(ValueError):
         order(Layout(4, 2))
+
+
+def test_order_negative_stride_rebases_dense_image():
+    """Reverse dense layouts have order 2 after rebasing their image."""
+    assert order(Layout(4, -1)) == 2
 
 
 ## contiguity
@@ -814,12 +865,26 @@ def test_F2_matrix_non_power_of_2_raises():
         to_F2_matrix(Layout(6, 1))
 
 
+def test_F2_matrix_negative_stride_raises():
+    """Negative-stride layouts are affine after rebasing, not F2-linear."""
+    with pytest.raises(ValueError, match="does not support negative strides"):
+        to_F2_matrix(Layout(4, -1))
+
+
 def test_F2_matrix_stride_2():
     """Strided layout: 4:2 maps coord bits to offset bits with a shift."""
     M = to_F2_matrix(Layout(4, 2))
     # stride 2 = 0b10: bit 0 of coord maps to bit 1 of offset
     assert M == [[0, 0], [1, 0], [0, 1]]
     _verify_F2_matrix(Layout(4, 2))
+
+
+def test_F2_matrix_negative_shift_swizzle():
+    """Negative-shift swizzles should update the higher output bits."""
+    L = compose(Swizzle(1, 0, -1), Layout(4, 1))
+    M = to_F2_matrix(L)
+    assert M == [[1, 0], [1, 1]]
+    _verify_F2_matrix(L)
 
 
 def test_F2_matrix_swizzle_8x8_structure():
