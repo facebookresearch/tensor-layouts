@@ -195,6 +195,55 @@ def test_draw_layout_smoke():
 
 
 @requires_viz
+def test_draw_layout_negative_offset_list_labels_do_not_wrap():
+    """Negative offsets must not wrap around explicit cell_labels lists."""
+    fig = _build_layout_figure(Layout(4, -1), cell_labels=["a", "b", "c", "d"])
+    try:
+        ax = fig.axes[0]
+        texts = [
+            (round(t.get_position()[0], 1), round(t.get_position()[1], 1), t.get_text())
+            for t in ax.texts
+            if t.get_position()[0] > 0 and t.get_position()[1] > 0
+        ]
+        assert texts == [
+            (0.5, 0.5, "a"),
+            (1.5, 0.5, "-1"),
+            (2.5, 0.5, "-2"),
+            (3.5, 0.5, "-3"),
+        ]
+    finally:
+        plt.close(fig)
+
+
+
+@requires_viz
+def test_draw_layout_hierarchical_negative_offset_labels_do_not_wrap():
+    """Hierarchical grids must also avoid Python negative-index wraparound."""
+    layout = Layout(((2, 1), (2, 1)), ((-1, 0), (-2, 0)))
+    fig = _build_layout_figure(
+        layout,
+        flatten_hierarchical=False,
+        cell_labels=["a", "b", "c", "d"],
+    )
+    try:
+        ax = fig.axes[0]
+        texts = [
+            (round(t.get_position()[0], 1), round(t.get_position()[1], 1), t.get_text())
+            for t in ax.texts
+            if 0 < t.get_position()[0] < 2.1 and 0 < t.get_position()[1] < 2.1
+        ]
+        assert texts == [
+            (0.5, 0.5, "a"),
+            (1.5, 0.5, "-2"),
+            (0.5, 1.5, "-1"),
+            (1.5, 1.5, "-3"),
+        ]
+    finally:
+        plt.close(fig)
+
+
+
+@requires_viz
 def test_color_by_row_matches_color_layout():
     """color_by='row' produces the same color indices as the manual color_layout."""
     layout = Layout((4, 8), (8, 1))
@@ -505,6 +554,30 @@ def test_draw_tv_layout_returns_figure():
     fig = _build_tv_figure(Layout((4, 2), (2, 1)))
     try:
         assert isinstance(fig, matplotlib.figure.Figure)
+    finally:
+        plt.close(fig)
+
+
+
+@requires_viz
+def test_draw_tv_layout_negative_stride_returns_figure():
+    """Dense negative-stride TV layouts should render after rebasing."""
+    fig = _build_tv_figure(Layout((4, 2), (-1, 4)), grid_shape=(4, 2))
+    try:
+        assert isinstance(fig, matplotlib.figure.Figure)
+    finally:
+        plt.close(fig)
+
+
+
+@requires_viz
+def test_draw_tv_layout_negative_stride_with_holes_renders_questions():
+    """Gappy negative-stride TV layouts should render holes rather than fail."""
+    fig = _build_tv_figure(Layout((4, 2), (-1, -8)))
+    try:
+        ax = fig.axes[0]
+        hole_texts = [t.get_text() for t in ax.texts if t.get_text() == "?"]
+        assert len(hole_texts) == 4
     finally:
         plt.close(fig)
 
@@ -1342,6 +1415,24 @@ def test_compute_tv_mapping_uses_first_wins_for_duplicate_cells():
     layout = Layout((2, 2), (0, 0))
     tv_map = _compute_tv_mapping(layout, grid_rows=1, grid_cols=1)
     assert tv_map == {(0, 0): (0, 0, 0)}
+
+
+
+@requires_viz
+def test_compute_tv_mapping_rebases_negative_offsets():
+    """TV mapping should place shifted dense images into the rebased footprint."""
+    layout = Layout((4, 2), (-1, 4))
+    tv_map = _compute_tv_mapping(layout, grid_rows=4, grid_cols=2)
+    assert tv_map == {
+        (3, 0): (0, 0, 0),
+        (3, 1): (0, 1, 0),
+        (2, 0): (1, 0, 1),
+        (2, 1): (1, 1, 1),
+        (1, 0): (2, 0, 2),
+        (1, 1): (2, 1, 2),
+        (0, 0): (3, 0, 3),
+        (0, 1): (3, 1, 3),
+    }
 
 
 
