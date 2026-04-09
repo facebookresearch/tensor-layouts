@@ -103,3 +103,23 @@ def test_compose_swizzled_layout_outer_preserves_exactness():
     assert isinstance(result, Layout)
     assert result.swizzle == outer.swizzle
     _assert_pointwise_equal(result, lambda i: outer(inner(i)))
+
+
+def test_logical_divide_forwards_through_composed_layout():
+    composed = compose(Layout(16, 2), compose(Swizzle(2, 0, 2), Layout(16, 1)))
+    result = logical_divide(composed, 4)
+    expected = ComposedLayout(composed.outer, logical_divide(composed.inner, 4), preoffset=0)
+
+    assert isinstance(result, ComposedLayout)
+    assert result.outer == composed.outer
+    assert result.preoffset == 0
+    _assert_pointwise_equal(result, expected)
+
+
+def test_logical_product_forwards_through_composed_layout():
+    composed = compose(Layout(8, 2), compose(Swizzle(2, 0, 2), Layout(8, 1)))
+    result = logical_product(composed, Layout(3, 1))
+    expected = ComposedLayout(composed.outer, logical_product(composed.inner, Layout(3, 1)))
+
+    assert isinstance(result, ComposedLayout)
+    _assert_pointwise_equal(result, expected)

@@ -698,9 +698,28 @@ class ComposedLayout:
 LayoutExpr = Layout | ComposedLayout
 
 
+_NO_FORWARD = object()
+
+
 def _affine_inner(layout: Layout) -> Layout:
     """Return the affine portion of a possibly swizzled Layout."""
     return Layout(layout.shape, layout.stride)
+
+
+def _forward_layout_domain(layout, transform):
+    """Apply a domain-only transform to the inner layout of a layout expression.
+
+    Swizzled Layout stays on the canonical embedded-swizzle fast path when the
+    transformed inner result is affine. ComposedLayout always stays composed.
+    """
+    if isinstance(layout, ComposedLayout):
+        return ComposedLayout(layout.outer, transform(layout.inner), preoffset=layout.preoffset)
+    if isinstance(layout, Layout) and layout.swizzle is not None:
+        inner_result = transform(_affine_inner(layout))
+        if isinstance(inner_result, Layout) and inner_result.swizzle is None:
+            return Layout(inner_result.shape, inner_result.stride, swizzle=layout.swizzle)
+        return ComposedLayout(layout.swizzle, inner_result)
+    return _NO_FORWARD
 
 
 def compute_col_major_strides(shape: IntOrIntTuple) -> IntOrIntTuple:
@@ -976,28 +995,37 @@ def iter_layout(layout: Layout):
 #
 
 
-def append(a: Layout, b: Layout) -> Layout:
+def append(a: LayoutExpr, b: Layout) -> LayoutExpr:
     """Appends layout b as a new mode at the end of layout a.
 
     append(3:1, 4:3) -> (3,4):(1,3)
     append((3,4):(1,3), (3,4):(1,3)) -> (3,4,(3,4)):(1,3,(1,3))
     """
+    forwarded = _forward_layout_domain(a, lambda inner: append(inner, b))
+    if forwarded is not _NO_FORWARD:
+        return forwarded
     return Layout(as_tuple(a.shape) + (b.shape,), as_tuple(a.stride) + (b.stride,))
 
 
-def prepend(a: Layout, b: Layout) -> Layout:
+def prepend(a: LayoutExpr, b: Layout) -> LayoutExpr:
     """Prepends layout b as a new mode at the beginning of layout a.
 
     prepend(3:1, 4:3) -> (4,3):(3,1)
     """
+    forwarded = _forward_layout_domain(a, lambda inner: prepend(inner, b))
+    if forwarded is not _NO_FORWARD:
+        return forwarded
     return Layout((b.shape,) + as_tuple(a.shape), (b.stride,) + as_tuple(a.stride))
 
 
-def replace(layout: Layout, idx: int, new_layout: Layout) -> Layout:
+def replace(layout: LayoutExpr, idx: int, new_layout: Layout) -> LayoutExpr:
     """Replaces the mode at index idx with new_layout.
 
     replace((3,4,(3,4)):(1,3,(1,3)), 2, 4:3) -> (3,4,4):(1,3,3)
     """
+    forwarded = _forward_layout_domain(layout, lambda inner: replace(inner, idx, new_layout))
+    if forwarded is not _NO_FORWARD:
+        return forwarded
     shapes = list(as_tuple(layout.shape))
     strides = list(as_tuple(layout.stride))
 
@@ -1007,12 +1035,15 @@ def replace(layout: Layout, idx: int, new_layout: Layout) -> Layout:
     return Layout(tuple(shapes), tuple(strides))
 
 
-def group(layout: Layout, start: int, end: int) -> Layout:
+def group(layout: LayoutExpr, start: int, end: int) -> LayoutExpr:
     """Groups modes from index start to end (exclusive) into a nested tuple.
 
     group((2,3,5,7):(1,2,6,30), 0, 2) -> ((2,3),5,7):((1,2),6,30)
     group(((2,3),5,7):((1,2),6,30), 1, 3) -> ((2,3),(5,7)):((1,2),(6,30))
     """
+    forwarded = _forward_layout_domain(layout, lambda inner: group(inner, start, end))
+    if forwarded is not _NO_FORWARD:
+        return forwarded
     r = rank(layout)
     if start < 0 or end > r or start >= end:
         raise ValueError(f"Invalid group range [{start}, {end}) for layout of rank {r}")
@@ -1050,9 +1081,14 @@ def flatten(obj: Any) -> Any:
         return (obj,)
     if is_tuple(obj):
         return _flatten(obj)
-    if hasattr(obj, 'layout') and not isinstance(obj, Layout):
+    if hasattr(obj, 'layout') and not is_layout(obj):
         return flatten(obj.layout)
+    elif isinstance(obj, ComposedLayout):
+        return ComposedLayout(obj.outer, flatten(obj.inner), preoffset=obj.preoffset)
     elif isinstance(obj, Layout):
+        if obj.swizzle is not None:
+            flat_inner = flatten(_affine_inner(obj))
+            return Layout(flat_inner.shape, flat_inner.stride, swizzle=obj.swizzle)
         flat_shape = _flatten(obj.shape)
         flat_stride = _flatten(obj.stride)
         return Layout(as_shape(list(flat_shape)), as_shape(list(flat_stride)))
@@ -1142,8 +1178,11 @@ def product_each(shape: Any) -> tuple:
     return tuple(size(s) for s in shape)
 
 
-def sort(obj: Layout) -> Layout:
+def sort(obj: LayoutExpr) -> LayoutExpr:
     """Returns a new Layout with modes sorted by stride."""
+    forwarded = _forward_layout_domain(obj, sort)
+    if forwarded is not _NO_FORWARD:
+        return forwarded
     if rank(obj) <= 1:
         return obj
 
@@ -1405,7 +1444,7 @@ def suffix_product(a: Any, init: Any = 1) -> Any:
 #
 
 
-def coalesce(obj: Layout, profile: Any = None) -> Layout:
+def coalesce(obj: LayoutExpr, profile: Any = None) -> LayoutExpr:
     """Returns a new Layout where contiguous dimensions are merged.
 
     Args:
@@ -1418,6 +1457,9 @@ def coalesce(obj: Layout, profile: Any = None) -> Layout:
         coalesce(Layout((2,4), (1,2))) -> Layout(8, 1)
         coalesce(Layout((2,4,2,2), (1,2,8,16)), (4,4)) -> Layout((8,4), (1,8))
     """
+    forwarded = _forward_layout_domain(obj, lambda inner: coalesce(inner, profile))
+    if forwarded is not _NO_FORWARD:
+        return forwarded
     if rank(obj) == 0:
         if is_int(obj.shape):
             return Layout(1, 0) if obj.shape == 1 else obj
@@ -2742,7 +2784,7 @@ def compose(layout_a: Any, layout_b: Any) -> Any:
 #
 
 
-def logical_divide(layout: Layout, tiler: Any) -> Layout:
+def logical_divide(layout: LayoutExpr, tiler: Any) -> LayoutExpr:
     """Divide a layout into (tile, rest) --- the core tiling operation.
 
     Division answers: "if I want to process this layout in tiles of size T,
@@ -2780,6 +2822,9 @@ def logical_divide(layout: Layout, tiler: Any) -> Layout:
         logical_divide(Layout(16), 4) -> Layout((4, 4), (1, 4))
         logical_divide(Layout((4,2,3), (2,1,8)), Layout(4, 2)) -> ((2,2),(2,3)):((4,1),(2,8))
     """
+    forwarded = _forward_layout_domain(layout, lambda inner: logical_divide(inner, tiler))
+    if forwarded is not _NO_FORWARD:
+        return forwarded
     if isinstance(tiler, Layout):
         # Layout tiler: use CuTe formula
         # logical_divide(A, B) = compose(A, Layout(B, complement(B, size(A))))
@@ -2976,7 +3021,7 @@ def _layout_from_modes(modes: list[Layout]) -> Layout:
     )
 
 
-def zipped_divide(layout: Layout, tiler: Any) -> Layout:
+def zipped_divide(layout: LayoutExpr, tiler: Any) -> LayoutExpr:
     """Divide a layout and zip the tile/rest modes together.
 
     Result structure: ((TileM, TileN), (RestM, RestN, L, ...))
@@ -2996,6 +3041,9 @@ def zipped_divide(layout: Layout, tiler: Any) -> Layout:
     Examples:
         zipped_divide(Layout((4,8)), (2,4)) -> Layout(((2,4),(2,2)), ((1,4),(2,16)))
     """
+    forwarded = _forward_layout_domain(layout, lambda inner: zipped_divide(inner, tiler))
+    if forwarded is not _NO_FORWARD:
+        return forwarded
     # True Layout tilers are terminals in CuTe's tile_unzip(). Preserve their
     # stride semantics instead of reducing them to tiler.shape.
     if isinstance(tiler, Layout):
@@ -3016,7 +3064,7 @@ def zipped_divide(layout: Layout, tiler: Any) -> Layout:
     return Layout((tiles_shape, rests_shape), (tiles_stride, rests_stride))
 
 
-def tiled_divide(layout: Layout, tiler: Any) -> Layout:
+def tiled_divide(layout: LayoutExpr, tiler: Any) -> LayoutExpr:
     """Divide a layout into tiles and tile indices.
 
     Result structure: ((TileM, TileN), RestM, RestN, L, ...)
@@ -3033,13 +3081,16 @@ def tiled_divide(layout: Layout, tiler: Any) -> Layout:
     Examples:
         tiled_divide(Layout((8,8)), (2,2)) -> Layout(((2,2), 4, 4), ...)
     """
+    forwarded = _forward_layout_domain(layout, lambda inner: tiled_divide(inner, tiler))
+    if forwarded is not _NO_FORWARD:
+        return forwarded
     result = zipped_divide(layout, tiler)
     modes = [mode(result, 0)]
     modes.extend(_unpack_grouped_mode(mode(result, 1)))
     return _layout_from_modes(modes)
 
 
-def flat_divide(layout: Layout, tiler: Any) -> Layout:
+def flat_divide(layout: LayoutExpr, tiler: Any) -> LayoutExpr:
     """Divide a layout and flatten all modes.
 
     Result structure: (TileM, TileN, RestM, RestN, L, ...)
@@ -3057,6 +3108,9 @@ def flat_divide(layout: Layout, tiler: Any) -> Layout:
     Examples:
         flat_divide(Layout((8,8)), (2,2)) -> Layout((2, 2, 4, 4), ...)
     """
+    forwarded = _forward_layout_domain(layout, lambda inner: flat_divide(inner, tiler))
+    if forwarded is not _NO_FORWARD:
+        return forwarded
     result = zipped_divide(layout, tiler)
     modes = _unpack_grouped_mode(mode(result, 0))
     modes.extend(_unpack_grouped_mode(mode(result, 1)))
@@ -3082,7 +3136,7 @@ def flat_divide(layout: Layout, tiler: Any) -> Layout:
 #
 
 
-def zipped_product(layout_a: Layout, layout_b) -> Layout:
+def zipped_product(layout_a: LayoutExpr, layout_b) -> LayoutExpr:
     """Apply logical_product hierarchically and gather split modes into two modes.
 
     Like zipped_divide but uses logical_product instead of logical_divide.
@@ -3094,10 +3148,13 @@ def zipped_product(layout_a: Layout, layout_b) -> Layout:
     Returns:
         A rank-2 Layout with ((A-modes), (product-modes)) structure
     """
+    forwarded = _forward_layout_domain(layout_a, lambda inner: zipped_product(inner, layout_b))
+    if forwarded is not _NO_FORWARD:
+        return forwarded
     return hier_unzip(logical_product, layout_a, layout_b)
 
 
-def tiled_product(layout_a: Layout, layout_b) -> Layout:
+def tiled_product(layout_a: LayoutExpr, layout_b) -> LayoutExpr:
     """Apply logical_product hierarchically and flatten the second mode.
 
     Like tiled_divide but uses logical_product instead of logical_divide.
@@ -3109,6 +3166,9 @@ def tiled_product(layout_a: Layout, layout_b) -> Layout:
     Returns:
         A Layout with ((A-modes), rest0, rest1, ...) structure
     """
+    forwarded = _forward_layout_domain(layout_a, lambda inner: tiled_product(inner, layout_b))
+    if forwarded is not _NO_FORWARD:
+        return forwarded
     result = zipped_product(layout_a, layout_b)
     second = mode(result, 1)
     all_modes = [mode(result, 0)]
@@ -3177,7 +3237,7 @@ def hier_unzip(splitter, layout_a: Layout, layout_b) -> Layout:
     return splitter(layout_a, layout_b)
 
 
-def logical_product(layout_a: Layout, layout_b: Layout) -> Layout:
+def logical_product(layout_a: LayoutExpr, layout_b: Layout) -> LayoutExpr:
     """Reproduce layout A's pattern at each position B describes.
 
     Product is the reverse of division. If division splits A into tiles,
@@ -3198,6 +3258,9 @@ def logical_product(layout_a: Layout, layout_b: Layout) -> Layout:
     Examples:
         logical_product(Layout(4,1), Layout(3,1)) -> Layout((4,3), (1,4))
     """
+    forwarded = _forward_layout_domain(layout_a, lambda inner: logical_product(inner, layout_b))
+    if forwarded is not _NO_FORWARD:
+        return forwarded
     if layout_b is None:
         return layout_a
     if isinstance(layout_b, int):
@@ -3269,7 +3332,7 @@ def _product_interleave(layout_a: Layout, layout_b: Layout) -> Layout:
     return Layout(tuple(result_shapes), tuple(result_strides))
 
 
-def blocked_product(layout_a: Layout, layout_b: Layout) -> Layout:
+def blocked_product(layout_a: LayoutExpr, layout_b: Layout) -> LayoutExpr:
     """Compute a blocked product of two layouts.
 
     Unlike logical_product which concatenates (A, B) for 1D, blocked_product
@@ -3296,6 +3359,9 @@ def blocked_product(layout_a: Layout, layout_b: Layout) -> Layout:
     Examples:
         blocked_product((2,2):(1,2), (2,2):(1,2)) -> ((2,2),(2,2)):((1,4),(2,8))
     """
+    forwarded = _forward_layout_domain(layout_a, lambda inner: blocked_product(inner, layout_b))
+    if forwarded is not _NO_FORWARD:
+        return forwarded
     a_cosize_val = cosize(layout_a)
     a_rank = rank(layout_a)
     b_rank = rank(layout_b)
@@ -3390,7 +3456,7 @@ def _zip_layouts(layout_a: Layout, layout_b: Layout) -> Layout:
     return Layout(tuple(result_shapes), tuple(result_strides))
 
 
-def flat_product(block: Layout, tiler) -> Layout:
+def flat_product(block: LayoutExpr, tiler) -> LayoutExpr:
     """Compute a flat product: zipped_product with both modes unpacked.
 
     Like zipped_product, but flattens both the block modes and the product
@@ -3407,6 +3473,9 @@ def flat_product(block: Layout, tiler) -> Layout:
         flat_product(Layout((2,4), (1,2)), Layout(3,1))
             -> Layout with shape (2, 4, 3, ...) and appropriate strides
     """
+    forwarded = _forward_layout_domain(block, lambda inner: flat_product(inner, tiler))
+    if forwarded is not _NO_FORWARD:
+        return forwarded
     result = zipped_product(block, tiler)
 
     # Unpack both modes: result(repeat<R0>(_), repeat<R1>(_))
@@ -3438,7 +3507,7 @@ def flat_product(block: Layout, tiler) -> Layout:
     return Layout(tuple(shapes), tuple(strides))
 
 
-def raked_product(block: Layout, tiler: Layout) -> Layout:
+def raked_product(block: LayoutExpr, tiler: Layout) -> LayoutExpr:
     """Compute a raked product: block-interleaved reproduction.
 
     Like blocked_product, but with the tiler varying fastest within each mode.
@@ -3465,6 +3534,9 @@ def raked_product(block: Layout, tiler: Layout) -> Layout:
         # Compare with blocked_product which gives:
             -> ((2,2),(2,2)):((1,4),(2,8))
     """
+    forwarded = _forward_layout_domain(block, lambda inner: raked_product(inner, tiler))
+    if forwarded is not _NO_FORWARD:
+        return forwarded
     r = max(rank(block), rank(tiler))
     padded_block = _pad_to_rank(block, r)
     padded_tiler = _pad_to_rank(tiler, r)
