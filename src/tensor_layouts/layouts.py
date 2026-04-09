@@ -698,6 +698,11 @@ class ComposedLayout:
 LayoutExpr = Layout | ComposedLayout
 
 
+def _affine_inner(layout: Layout) -> Layout:
+    """Return the affine portion of a possibly swizzled Layout."""
+    return Layout(layout.shape, layout.stride)
+
+
 def compute_col_major_strides(shape: IntOrIntTuple) -> IntOrIntTuple:
     """Compute column-major (leftmost-fastest) strides for a shape.
 
@@ -2582,6 +2587,11 @@ def _normalize_compose_tiler_element(elem):
     """
     if isinstance(elem, Layout):
         return elem
+    if isinstance(elem, ComposedLayout):
+        raise TypeError(
+            "ComposedLayout tiler elements are not supported in tuple composition; "
+            "pass a single LayoutExpr as the second argument instead"
+        )
     if isinstance(elem, int):
         return Layout(elem, 1)
     if is_tuple(elem):
@@ -2646,28 +2656,51 @@ def compose(layout_a: Any, layout_b: Any) -> Any:
         # Swizzle composition (returns Layout with embedded swizzle):
         compose(Swizzle(3, 0, 3), Layout((8, 8), (8, 1))) -> Layout with swizzle
     """
+    # Push composition into the inner domain of an already-composed layout.
+    if isinstance(layout_a, ComposedLayout):
+        return ComposedLayout(
+            layout_a.outer,
+            compose(layout_a.inner, layout_b),
+            preoffset=layout_a.preoffset,
+        )
+
     # Swizzle composition
     if isinstance(layout_a, Swizzle):
-        if not isinstance(layout_b, Layout):
+        if not is_layout(layout_b):
             raise TypeError(
-                f"When composing with Swizzle, second argument must be Layout, got {type(layout_b).__name__}"
+                f"When composing with Swizzle, second argument must be a layout expression, "
+                f"got {type(layout_b).__name__}"
             )
-        return Layout(layout_b.shape, layout_b.stride, swizzle=layout_a)
+        if layout_a.bits == 0:
+            return layout_b
+        if isinstance(layout_b, Layout) and layout_b.swizzle is None:
+            return Layout(layout_b.shape, layout_b.stride, swizzle=layout_a)
+        return ComposedLayout(layout_a, layout_b)
+
+    if isinstance(layout_a, Layout) and layout_a.swizzle is not None:
+        inner_composed = compose(_affine_inner(layout_a), layout_b)
+        if isinstance(inner_composed, Layout) and inner_composed.swizzle is None:
+            return Layout(inner_composed.shape, inner_composed.stride, swizzle=layout_a.swizzle)
+        return ComposedLayout(layout_a.swizzle, inner_composed)
 
     # Layout-with-Layout composition
     if isinstance(layout_b, Layout):
-        if layout_b._swizzle is not None:
-            # CuTe C++: compose(A, Swizzle o B) = NewSwizzle o compose(A, B)
-            # where NewSwizzle = make_swizzle(A(yyy_msk), A(zzz_msk))
-            # See layout_composed.hpp:379 and swizzle_layout.hpp:327
-            swz = layout_b._swizzle
-            active_Y = layout_a(swz.yyy_msk)
-            active_Z = layout_a(swz.zzz_msk)
-            new_swizzle = make_swizzle(active_Y, active_Z)
-            inner_b = Layout(layout_b.shape, layout_b.stride)  # strip swizzle
-            composed = _compose_layouts(layout_a, inner_b)
-            return Layout(composed.shape, composed.stride, swizzle=new_swizzle)
+        if not isinstance(layout_a, Layout):
+            raise TypeError(
+                f"When composing with Layout, first argument must be Layout, Swizzle, "
+                f"or ComposedLayout, got {type(layout_a).__name__}"
+            )
+        if layout_b.swizzle is not None:
+            return ComposedLayout(layout_a, layout_b)
         return _compose_layouts(layout_a, layout_b)
+
+    if isinstance(layout_b, ComposedLayout):
+        if not isinstance(layout_a, Layout):
+            raise TypeError(
+                f"When composing with ComposedLayout, first argument must be Layout, "
+                f"Swizzle, or ComposedLayout, got {type(layout_a).__name__}"
+            )
+        return ComposedLayout(layout_a, layout_b)
 
     # Tiler composition (Tile or tuple)
     if isinstance(layout_b, Tile):
