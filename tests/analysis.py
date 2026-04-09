@@ -695,6 +695,18 @@ def test_explain_compose():
     assert 'i=0' in text
 
 
+def test_explain_compose_tuple_tiler():
+    """explain handles tuple tilers without assuming they are callable."""
+    A = Layout((4, 8), (8, 1))
+    B = (2, 4)
+    text = explain(compose, A, B)
+    assert 'For tuple tilers, composition is applied mode-by-mode.' in text
+    assert 'mode 0: compose(4 : 8, 2 : 1) = 2 : 8' in text
+    assert 'mode 1: compose(8 : 1, 4 : 1) = 4 : 1' in text
+    assert 'coord=(0, 0): result((0, 0))=0' in text
+    assert str(compose(A, B)) in text
+
+
 def test_explain_right_inverse():
     """explain shows right_inverse with verification."""
     text = explain(right_inverse, Layout(4, 2))

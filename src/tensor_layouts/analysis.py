@@ -56,6 +56,15 @@ __all__ = [
 ]
 
 
+def _normalize_explain_compose_tiler(tiler):
+    """Mirror compose()'s leaf-int normalization for explanation output."""
+    if isinstance(tiler, int):
+        return Layout(tiler)
+    if is_tuple(tiler):
+        return tuple(_normalize_explain_compose_tiler(elem) for elem in tiler)
+    return tiler
+
+
 # =============================================================================
 # Inverse mapping
 # =============================================================================
@@ -1031,28 +1040,49 @@ def explain(fn, *args):
     elif name == 'compose':
         A, B = args
         lines.append(f'compose({A}, {B})')
-        lines.append(f'  C(i) = A(B(i))')
-        lines.append(f'')
+        if is_layout(B):
+            lines.append('  C(i) = A(B(i))')
+        else:
+            lines.append('  For tuple tilers, composition is applied mode-by-mode.')
+        lines.append('')
         lines.append(f'  A = {A}')
         lines.append(f'  B = {B}')
         result = compose(A, B)
         lines.append(f'  result = {result}')
-        lines.append(f'')
-        n = min(size(result), 8)
-        lines.append(f'  First {n} values:')
-        for i in range(n):
-            lines.append(f'    i={i}: B({i})={B(i)}, A({B(i)})={result(i)}')
+        lines.append('')
+        if is_layout(B):
+            n = min(size(result), 8)
+            lines.append(f'  First {n} values:')
+            for i in range(n):
+                b_i = B(i)
+                lines.append(f'    i={i}: B({i})={b_i}, A({b_i})={result(i)}')
+        else:
+            for i in range(len(B)):
+                ai = mode(A, i)
+                bi = _normalize_explain_compose_tiler(B[i])
+                ri = compose(ai, bi)
+                lines.append(f'  mode {i}: compose({ai}, {bi}) = {ri}')
+            for i in range(len(B), rank(A)):
+                ai = mode(A, i)
+                lines.append(f'  mode {i}: unchanged = {ai}')
+
+            n = min(size(result), 8)
+            lines.append('')
+            lines.append(f'  First {n} output offsets:')
+            for i in range(n):
+                coord = idx2crd(i, result.shape)
+                lines.append(f'    coord={coord}: result({coord})={result(coord)}')
 
     elif name == 'right_inverse':
         L = args[0]
         lines.append(f'right_inverse({L})')
-        lines.append(f'  R such that L(R(i)) == i')
-        lines.append(f'')
+        lines.append('  R such that L(R(i)) == i')
+        lines.append('')
         R = right_inverse(L)
         lines.append(f'  L = {L}')
         lines.append(f'  R = {R}')
         n = min(size(R), 8)
-        lines.append(f'')
+        lines.append('')
         lines.append(f'  Verification (first {n}):')
         for i in range(n):
             lines.append(f'    R({i})={R(i)}, L(R({i}))={L(R(i))}')
