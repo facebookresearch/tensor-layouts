@@ -1449,20 +1449,31 @@ def test_draw_swizzle_delegates_to_shared_builder(monkeypatch):
     layout = Layout((8, 64), (64, 1))
     swizzle = Swizzle(3, 4, 3)
     fig = plt.figure()
+    seen = {}
 
     def fake_builder(*args, **kwargs):
         return fig
 
+    def fake_save(passed_fig, filename, dpi=150):
+        seen["fig"] = passed_fig
+        seen["filename"] = filename
+        plt.close(passed_fig)
+        return "saved"
+
     monkeypatch.setattr(viz_mod, "_build_swizzle_figure", fake_builder)
+    monkeypatch.setattr(viz_mod, "_save_figure", fake_save)
     try:
-        assert draw_swizzle(layout, swizzle) is fig
+        assert draw_swizzle(layout, swizzle) == "saved"
+        assert seen["fig"] is fig
+        assert seen["filename"] is None
     finally:
-        plt.close(fig)
+        if plt.fignum_exists(fig.number):
+            plt.close(fig)
 
 
 
 @requires_viz
-def test_draw_swizzle_delegates_to_shared_builder(monkeypatch):
+def test_draw_swizzle_saves_figure_from_shared_builder(monkeypatch):
     layout = Layout((8, 64), (64, 1))
     swizzle = Swizzle(3, 4, 3)
     fig = plt.figure()
