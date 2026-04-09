@@ -58,6 +58,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Iterable as IterableType
+from dataclasses import dataclass
 from typing import Any, Union
 
 try:
@@ -71,22 +72,27 @@ IntOrIntTuple = Union[int, tuple["IntOrIntTuple", ...]]
 __all__ = [
     # Type alias
     "IntOrIntTuple",
+    "LayoutExpr",
     # Type predicates
     "is_tuple",
     "is_int",
     "is_scalar",
     "is_iterable",
     "is_layout",
+    "is_affine_layout",
     "is_pure_shape",
     "has_none",
     # Shape conversions
     "as_tuple",
     "as_shape",
     "as_layout",
+    "as_layout_expr",
+    "as_affine_layout",
     "unwrap",
     "normalize",
     # Core types
     "Layout",
+    "ComposedLayout",
     "Tile",
     "Swizzle",
     "make_swizzle",
@@ -185,17 +191,45 @@ def is_int(x) -> bool:
 
 
 def as_layout(obj):
-    """Convert a Layout-like object to a Layout.
+    """Convert an affine Layout-like object to a Layout.
 
     Accepts our Layout, or any object with .shape and .stride attributes
     (e.g. pycute Layout). This allows viz and analysis functions to accept
-    foreign layout objects without requiring them as a dependency.
+    foreign affine layout objects without requiring them as a dependency.
+
+    ComposedLayout is intentionally rejected here because it has a logical
+    domain but no affine stride tree. Generic consumers should use
+    as_layout_expr() instead.
     """
+    if hasattr(obj, "layout") and not isinstance(obj, (Layout, ComposedLayout)):
+        return as_layout(obj.layout)
     if isinstance(obj, Layout):
+        return obj
+    if isinstance(obj, ComposedLayout):
+        raise TypeError("Expected affine Layout, got ComposedLayout")
+    if hasattr(obj, "shape") and hasattr(obj, "stride"):
+        return Layout(obj.shape, obj.stride)
+    raise TypeError(f"Expected Layout-like object with shape/stride, got {type(obj).__name__}")
+
+
+def as_layout_expr(obj):
+    """Convert a layout-like object to Layout or ComposedLayout.
+
+    Accepts our Layout / ComposedLayout, Tensor-like objects with a .layout
+    attribute, or foreign affine layout objects with .shape/.stride.
+    """
+    if hasattr(obj, "layout") and not isinstance(obj, (Layout, ComposedLayout)):
+        return as_layout_expr(obj.layout)
+    if isinstance(obj, (Layout, ComposedLayout)):
         return obj
     if hasattr(obj, "shape") and hasattr(obj, "stride"):
         return Layout(obj.shape, obj.stride)
-    raise TypeError(f"Expected Layout, got {type(obj).__name__}")
+    raise TypeError(f"Expected LayoutExpr, got {type(obj).__name__}")
+
+
+def as_affine_layout(obj):
+    """Convert an object to an affine Layout, rejecting composed layouts."""
+    return as_layout(obj)
 
 
 def is_scalar(x) -> bool:
@@ -209,7 +243,12 @@ def is_iterable(x) -> bool:
 
 
 def is_layout(x) -> bool:
-    """Check if x is a Layout (matches CuTe's is_layout convention)."""
+    """Check if x is a supported layout object (matches CuTe's is_layout trait)."""
+    return isinstance(x, (Layout, ComposedLayout))
+
+
+def is_affine_layout(x) -> bool:
+    """Check if x is an affine Layout with shape/stride access."""
     return isinstance(x, Layout)
 
 
@@ -227,7 +266,7 @@ def is_pure_shape(t) -> bool:
         is_pure_shape(Layout(4, 1)) -> False
         is_pure_shape((Layout(4, 1), 3)) -> False
     """
-    if isinstance(t, Layout):
+    if is_layout(t):
         return False
     if is_int(t):
         return True
@@ -593,6 +632,72 @@ class Layout:
             yield idx2crd(i, self._shape)
 
 
+@dataclass(frozen=True)
+class ComposedLayout:
+    """An exact layout-expression node for compositions that are not affine.
+
+    Semantics:
+        ComposedLayout(outer, inner, preoffset)(coord) ==
+            outer(preoffset + inner(coord))
+
+    The inner layout defines the logical domain (shape, size, rank, depth).
+    The preoffset remains inside the composition, before the outer nonlinear
+    map, which is why ComposedLayout intentionally does not expose .stride.
+    """
+
+    outer: Any
+    inner: "LayoutExpr"
+    preoffset: int = 0
+
+    def __post_init__(self):
+        if not callable(self.outer):
+            raise TypeError(
+                f"ComposedLayout outer must be callable, got {type(self.outer).__name__}"
+            )
+        if not is_layout(self.inner):
+            raise TypeError(
+                f"ComposedLayout inner must be Layout or ComposedLayout, "
+                f"got {type(self.inner).__name__}"
+            )
+        if not is_int(self.preoffset):
+            raise TypeError(
+                f"ComposedLayout preoffset must be int, got {type(self.preoffset).__name__}"
+            )
+
+    @property
+    def shape(self):
+        return self.inner.shape
+
+    def __repr__(self) -> str:
+        return f"ComposedLayout({self.outer!r}, {self.inner!r}, preoffset={self.preoffset!r})"
+
+    def __str__(self) -> str:
+        if self.preoffset:
+            return f"({self.outer}) o {{{self.preoffset}}} o ({self.inner})"
+        return f"({self.outer}) o ({self.inner})"
+
+    def __call__(self, *args):
+        if len(args) == 1:
+            coords = args[0]
+        else:
+            coords = args
+        if coords is None:
+            return self
+        if has_none(coords):
+            return slice_and_offset(coords, self)[0]
+        return self.outer(self.preoffset + self.inner(coords))
+
+    def __len__(self):
+        return size(self)
+
+    def __iter__(self):
+        for i in range(size(self)):
+            yield idx2crd(i, self.shape)
+
+
+LayoutExpr = Layout | ComposedLayout
+
+
 def compute_col_major_strides(shape: IntOrIntTuple) -> IntOrIntTuple:
     """Compute column-major (leftmost-fastest) strides for a shape.
 
@@ -655,7 +760,7 @@ def _zero_leading_unit_strides(shape, strides):
 
 def size(obj: Any) -> int:
     """Returns the logical number of elements (product of shape)."""
-    if isinstance(obj, Layout):
+    if is_layout(obj):
         return size(obj.shape)
     if hasattr(obj, 'layout'):  # Tensor or any layout-backed object
         return size(obj.layout)
@@ -664,10 +769,12 @@ def size(obj: Any) -> int:
     raise TypeError(f"Cannot calculate size of {type(obj).__name__}")
 
 
-def cosize(obj: Layout) -> int:
-    """Returns the memory span (max_offset + 1)."""
-    if hasattr(obj, 'layout') and not isinstance(obj, Layout):
+def cosize(obj: LayoutExpr) -> int:
+    """Returns the codomain size CuTe associates with a layout expression."""
+    if hasattr(obj, 'layout') and not is_layout(obj):
         return cosize(obj.layout)
+    if isinstance(obj, ComposedLayout):
+        return cosize(obj.inner)
     if is_int(obj.shape):
         return obj._calculate_max_offset(obj.shape, obj.stride) + 1
     if len(obj.shape) == 0:
@@ -676,11 +783,11 @@ def cosize(obj: Layout) -> int:
 
 
 def rank(obj: Any) -> int:
-    if hasattr(obj, 'layout') and not isinstance(obj, Layout):
+    if hasattr(obj, 'layout') and not is_layout(obj):
         return rank(obj.layout)
     if is_tuple(obj):
         return len(obj)
-    if isinstance(obj, Layout):
+    if is_layout(obj):
         if is_int(obj.shape):
             return 1
         return len(obj.shape)
@@ -696,7 +803,7 @@ def depth(obj: Any) -> int:
     - tuple has depth 1 + max depth of its elements
     - Layout delegates to its shape
     """
-    if isinstance(obj, Layout):
+    if is_layout(obj):
         return depth(obj.shape)
     if hasattr(obj, 'layout'):
         return depth(obj.layout)
@@ -710,18 +817,20 @@ def depth(obj: Any) -> int:
 
 
 def mode(obj: Any, idx):
-    if hasattr(obj, 'layout') and not isinstance(obj, Layout):
+    if hasattr(obj, 'layout') and not is_layout(obj):
         return mode(obj.layout, idx)
     if is_tuple(obj):
         if not obj:
             return ()
         return obj[idx]
+    if isinstance(obj, ComposedLayout):
+        return ComposedLayout(obj.outer, mode(obj.inner, idx), preoffset=obj.preoffset)
     if isinstance(obj, Layout):
         if is_int(obj.shape):
             if idx != 0:
                 raise IndexError(f"Index {idx} out of range for scalar layout")
             return obj
-        return Layout(obj.shape[idx], obj.stride[idx])
+        return Layout(obj.shape[idx], obj.stride[idx], swizzle=obj.swizzle)
     if is_int(obj):
         if idx != 0:
             raise IndexError(f"Index {idx} out of range for scalar")
