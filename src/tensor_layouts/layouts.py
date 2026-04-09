@@ -2868,13 +2868,12 @@ def _logical_divide_by_shape(layout: Layout, tiler_shape: Any) -> Layout:
             divided = logical_divide(mode_layout, Layout(tile_size, 1))
             result_shapes.append(divided.shape)
             result_strides.append(divided.stride)
-        elif tile_size == 1:
-            result_shapes.append((1, s))
-            result_strides.append((d, d))
         elif tile_size <= mode_size and mode_size % tile_size == 0:
             rest_size = mode_size // tile_size
+            tile_stride = 0 if tile_size == 1 else d
+            rest_stride = 0 if rest_size == 1 else elem_scale(d, tile_size)
             result_shapes.append((tile_size, rest_size))
-            result_strides.append((d, elem_scale(d, tile_size)))
+            result_strides.append((tile_stride, rest_stride))
         elif tile_size <= mode_size:
             # Non-divisible: fall through to compose/complement path,
             # matching CuTe C++ which always uses that path for int tilers
@@ -2887,7 +2886,7 @@ def _logical_divide_by_shape(layout: Layout, tiler_shape: Any) -> Layout:
             tile_s = unwrap(tile_part.shape) if is_tuple(tile_part.shape) else tile_part.shape
             tile_d = unwrap(tile_part.stride) if is_tuple(tile_part.stride) else tile_part.stride
             result_shapes.append((tile_s, 1))
-            result_strides.append((tile_d, elem_scale(d, mode_size)))
+            result_strides.append((tile_d, 0))
 
     # Use as_shape to unwrap single-element results back to scalar form
     return Layout(as_shape(result_shapes), as_shape(result_strides))
