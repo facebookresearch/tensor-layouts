@@ -512,6 +512,7 @@ class Layout:
         """Map a logical coordinate to a linear index, or slice the layout.
 
         If any coordinate is None, returns a sublayout (the sliced dimensions).
+        A bare None is a full slice and returns the layout unchanged.
         Otherwise returns the integer offset.
 
         For swizzled layouts, the swizzle function is applied after computing
@@ -519,12 +520,15 @@ class Layout:
 
         Examples:
             Layout((4,8))((2,3)) -> 26       # coordinate to index
+            Layout((4,8))(None) -> (4, 8) : (1, 4)  # full slice
             Layout((4,8))(None, 3) -> (4,) : (1,)  # slice: fix dim 1 to 3, keep dim 0
         """
         if len(args) == 1:
             coords = args[0]
         else:
             coords = args
+        if coords is None:
+            return self
         if has_none(coords):
             sliced_shape = slice_modes(coords, self.shape)
             sliced_stride = slice_modes(coords, self.stride)

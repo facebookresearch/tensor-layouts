@@ -103,6 +103,13 @@ int main() {
       make_layout(make_shape(_2{}, _2{}), make_stride(_1{}, _4{})),
       make_layout(make_shape(_2{}, _3{}), make_stride(_1{}, _4{})));
   std::cout << "logical_product_layout_tiler=" << logical_product_layout_tiler << "\n";
+
+  auto slice_full_rank2 =
+      slice(_, make_layout(make_shape(_4{}, _8{}), make_stride(_1{}, _4{})));
+  std::cout << "slice_full_rank2=" << slice_full_rank2 << "\n";
+
+  auto slice_full_scalar = slice(_, make_layout(_4{}, _1{}));
+  std::cout << "slice_full_scalar=" << slice_full_scalar << "\n";
 }
 """
 
@@ -142,6 +149,8 @@ PYTHON_CASES = {
         Layout((2, 2), (1, 4)),
         Layout((2, 3), (1, 4)),
     ),
+    "slice_full_rank2": lambda: Layout((4, 8), (1, 4))(None),
+    "slice_full_scalar": lambda: Layout(4, 1)(None),
 }
 
 

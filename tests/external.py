@@ -1512,6 +1512,10 @@ def test_layout_slice():
     """Test Layout.__call__ with None coordinates for slicing."""
     layout = Layout((4, 8), (1, 4))
 
+    # Bare None is the CuTe full-slice entry point
+    sub = layout(None)
+    assert sub == layout
+
     # Slice: keep dim 0, fix dim 1
     # Result preserves tuple structure (matching pycute behavior)
     sub = layout(None, 0)
@@ -1526,6 +1530,12 @@ def test_layout_slice():
     # Keep both (identity slice)
     sub = layout(None, None)
     assert size(sub) == size(layout)
+
+    scalar = Layout(4, 1)
+    assert scalar(None) == scalar
+
+    swizzled = compose(Swizzle(2, 0, 2), Layout((4, 4), (4, 1)))
+    assert swizzled(None) == swizzled
 
     # Verify sublayout indexing: use slice_and_offset for offset-aware check
     layout_3d = Layout((2, 3, 4), (1, 2, 6))
