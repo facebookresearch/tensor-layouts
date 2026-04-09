@@ -1284,3 +1284,202 @@ if __name__ == "__main__":
     import sys
 
     raise SystemExit(subprocess.call([sys.executable, "-m", "pytest", __file__, "-v"]))
+
+
+## image, is_injective, is_surjective, is_bijective
+
+
+def test_image_contiguous():
+    """Contiguous layout visits every offset in [0, size)."""
+    assert image(Layout(4, 1)) == [0, 1, 2, 3]
+    assert image(Layout((2, 3), (1, 2))) == [0, 1, 2, 3, 4, 5]
+
+
+def test_image_strided():
+    """Strided layout has gaps in its image."""
+    assert image(Layout(4, 2)) == [0, 2, 4, 6]
+
+
+def test_image_broadcast():
+    """Broadcast (stride-0) layout collapses to few offsets."""
+    assert image(Layout((4, 2), (0, 1))) == [0, 1]
+    assert image(Layout(4, 0)) == [0]
+
+
+def test_image_swizzled():
+    """Swizzled layout image contains permuted offsets."""
+    sw = compose(Swizzle(2, 0, 2), Layout((4, 4), (4, 1)))
+    img = image(sw)
+    assert len(img) == 16  # bijective swizzle
+    assert img == list(range(16))
+
+
+def test_is_injective_contiguous():
+    assert is_injective(Layout(4, 1))
+    assert is_injective(Layout((2, 3), (3, 1)))
+
+
+def test_is_injective_strided():
+    assert is_injective(Layout(4, 2))
+
+
+def test_is_injective_broadcast():
+    """Broadcast layouts are not injective."""
+    assert not is_injective(Layout((4, 2), (0, 1)))
+    assert not is_injective(Layout(4, 0))
+
+
+def test_is_surjective_contiguous():
+    assert is_surjective(Layout(4, 1))
+    assert is_surjective(Layout((2, 3), (1, 2)))
+
+
+def test_is_surjective_strided():
+    """Strided layout is not surjective onto [0, cosize)."""
+    assert not is_surjective(Layout(4, 2))
+
+
+def test_is_surjective_custom_codomain():
+    """With explicit codomain, surjectivity can change."""
+    layout = Layout(4, 2)
+    # Not surjective onto [0, 7) -- has gaps
+    assert not is_surjective(layout)
+    # Surjective if codomain is exactly the image size
+    assert is_surjective(layout, codomain_size=4)
+
+
+def test_is_bijective_contiguous():
+    """Contiguous layouts are bijective."""
+    assert is_bijective(Layout(4, 1))
+    assert is_bijective(Layout((2, 3), (1, 2)))
+    assert is_bijective(Layout((2, 3), (3, 1)))
+
+
+def test_is_bijective_strided():
+    """Strided layout is not bijective (has gaps)."""
+    assert not is_bijective(Layout(4, 2))
+
+
+def test_is_bijective_broadcast():
+    """Broadcast layout is not bijective (has aliasing)."""
+    assert not is_bijective(Layout((4, 2), (0, 1)))
+
+
+def test_is_bijective_swizzled():
+    """Swizzle permutation is bijective."""
+    sw = compose(Swizzle(3, 0, 3), Layout((8, 8), (8, 1)))
+    assert is_bijective(sw)
+
+
+def test_is_bijective_identity():
+    """Identity (size-1) layout is trivially bijective."""
+    assert is_bijective(Layout(1, 0))
+
+
+def test_is_bijective_negative_stride_dense():
+    """A dense reverse traversal is still bijective onto its codomain span."""
+    layout = Layout(4, -1)
+    assert image(layout) == [-3, -2, -1, 0]
+    assert is_surjective(layout)
+    assert is_bijective(layout)
+    assert is_contiguous(layout)
+
+
+def test_image_injectivity_consistency():
+    """image size equals domain size iff injective."""
+    layouts = [
+        Layout(8, 1),
+        Layout(4, 2),
+        Layout((4, 2), (0, 1)),
+        Layout((3, 3), (1, 3)),
+        Layout((2, 4), (4, 1)),
+    ]
+    for l in layouts:
+        img = image(l)
+        assert is_injective(l) == (len(img) == size(l))
+
+
+## is_contiguous
+
+
+def test_is_contiguous_basic():
+    """Contiguous layouts map to [0, size)."""
+    assert is_contiguous(Layout(4, 1))
+    assert is_contiguous(Layout((2, 3), (1, 2)))
+    assert is_contiguous(Layout((2, 3), (3, 1)))
+
+
+def test_is_contiguous_strided():
+    """Strided layout has gaps -- not contiguous."""
+    assert not is_contiguous(Layout(4, 2))
+
+
+def test_is_contiguous_broadcast():
+    """Broadcast layout has aliasing -- not contiguous."""
+    assert not is_contiguous(Layout((4, 2), (0, 1)))
+
+
+def test_is_contiguous_agrees_with_bijective():
+    """is_contiguous and is_bijective agree on all test layouts."""
+    layouts = [
+        Layout(4, 1),
+        Layout(4, -1),
+        Layout(4, 2),
+        Layout((4, 2), (0, 1)),
+        Layout((3, 3), (1, 3)),
+        Layout((2, 4), (4, 1)),
+        Layout((8, 8), (8, 1)),
+        Layout(1, 0),
+    ]
+    for l in layouts:
+        assert is_contiguous(l) == is_bijective(l)
+
+
+## functionally_equal
+
+
+def test_functionally_equal_identity():
+    """A layout is functionally equal to itself."""
+    layout = Layout((4, 8), (1, 4))
+    assert functionally_equal(layout, layout)
+
+
+def test_functionally_equal_coalesce():
+    """Coalescing preserves functional behavior."""
+    layout = Layout(((2, 2), (2, 4)), ((1, 4), (2, 8)))
+    assert functionally_equal(layout, coalesce(layout))
+
+
+def test_functionally_equal_flatten():
+    """Flattening preserves functional behavior."""
+    layout = Layout(((2, 2), (2, 4)), ((1, 4), (2, 8)))
+    assert functionally_equal(layout, flatten(layout))
+
+
+def test_functionally_equal_structurally_different():
+    """Different shapes/strides can produce the same mapping."""
+    a = Layout(((2, 2), 2), ((1, 4), 2))
+    b = coalesce(a)
+    assert a != b  # structurally different
+    assert functionally_equal(a, b)  # functionally same
+
+
+def test_functionally_equal_different_sizes():
+    """Different domain sizes are never functionally equal."""
+    assert not functionally_equal(Layout(4, 1), Layout(8, 1))
+
+
+def test_functionally_equal_broadcast():
+    """Broadcast layouts with same shape but different strides."""
+    a = Layout((4, 2), (0, 1))
+    b = Layout((4, 2), (0, 1))
+    assert functionally_equal(a, b)
+    c = Layout((4, 2), (1, 0))
+    assert not functionally_equal(a, c)
+
+
+def test_functionally_equal_row_col_major():
+    """Row-major and column-major are not functionally equal."""
+    col = Layout((3, 4), (1, 3))
+    row = Layout((3, 4), (4, 1))
+    assert not functionally_equal(col, row)

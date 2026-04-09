@@ -38,6 +38,7 @@ import sys
 import pytest
 
 from tensor_layouts import *
+from tensor_layouts.analysis import *
 
 
 # ---------------------------------------------------------------------------

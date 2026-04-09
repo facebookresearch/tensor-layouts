@@ -36,6 +36,14 @@ from .layouts import *  # noqa: F401,F403
 from .atoms import MMAAtom
 
 __all__ = [
+    # Image, injectivity, and functional equivalence
+    "image",
+    "is_injective",
+    "is_surjective",
+    "is_bijective",
+    "is_contiguous",
+    "functionally_equal",
+    # GPU analysis
     "offset_table",
     "footprint",
     "bank_conflicts",
@@ -54,6 +62,136 @@ __all__ = [
     "explain",
     "to_F2_matrix",
 ]
+
+
+# =============================================================================
+# Image and injectivity
+# =============================================================================
+#
+# These functions answer basic questions about a layout viewed as a function
+# from coordinates to offsets:
+#   image         -- the set of offsets actually produced
+#   is_injective  -- no two coordinates map to the same offset
+#   is_surjective -- every offset in the codomain is hit
+#   is_bijective  -- both (the layout is a permutation)
+#   is_contiguous -- maps to [0, size) with no gaps or aliasing (== bijective)
+#
+
+
+def image(layout: Layout) -> list:
+    """Return the sorted list of distinct offsets produced by the layout.
+
+    The image (or range) of a layout is the subset of offsets that are
+    actually hit --- as opposed to the codomain [0, cosize), which is the
+    full interval the layout *could* map into.  A surjective layout is
+    one whose image equals its codomain.
+
+    Examples:
+        image(Layout(4, 1))              # [0, 1, 2, 3]
+        image(Layout(4, 2))              # [0, 2, 4, 6]
+        image(Layout((4, 2), (0, 1)))    # [0, 1]  (broadcast)
+    """
+    if hasattr(layout, 'layout') and not isinstance(layout, Layout):
+        return image(layout.layout)
+    return sorted({layout(i) for i in range(size(layout))})
+
+
+def is_injective(layout: Layout) -> bool:
+    """True if every coordinate maps to a distinct offset.
+
+    An injective layout has no aliasing --- no two logical positions
+    share the same memory location.  Equivalently, the size of the
+    image equals the size of the domain.
+
+    Examples:
+        is_injective(Layout(4, 1))            # True
+        is_injective(Layout((4, 2), (0, 1)))  # False (broadcast)
+    """
+    return len(image(layout)) == size(layout)
+
+
+def is_surjective(layout: Layout, codomain_size: int = None) -> bool:
+    """True if every offset in [0, codomain_size) is produced.
+
+    A surjective layout has no gaps --- the image covers the entire
+    codomain.  The codomain defaults to the layout's own span, whose
+    size is ``cosize(layout)``. For nonnegative-stride layouts this is
+    ``[0, cosize(layout))``; for negative-stride layouts the interval
+    may be shifted below zero.
+
+    Args:
+        layout: The layout to check.
+        codomain_size: Size of the codomain.  Defaults to cosize(layout).
+
+    Examples:
+        is_surjective(Layout(4, 1))    # True  (image == codomain)
+        is_surjective(Layout(4, 2))    # False (image has gaps)
+    """
+    if codomain_size is None:
+        codomain_size = cosize(layout)
+    return len(image(layout)) == codomain_size
+
+
+def is_bijective(layout: Layout) -> bool:
+    """True if the layout is a bijection on [0, cosize).
+
+    A bijective layout is both injective (no aliasing) and surjective
+    (no gaps).  It defines a permutation of the codomain.
+
+    Examples:
+        is_bijective(Layout(4, 1))              # True
+        is_bijective(Layout((2, 2), (2, 1)))    # True (row-major 2x2)
+        is_bijective(Layout(4, 2))              # False (has gaps)
+        is_bijective(Layout((4, 2), (0, 1)))    # False (has aliasing)
+    """
+    img = image(layout)
+    return len(img) == size(layout) and len(img) == cosize(layout)
+
+
+def is_contiguous(layout: Layout) -> bool:
+    """True if the layout maps to a dense range of size ``size(layout)``.
+
+    A contiguous layout visits a dense run of memory offsets exactly
+    once. Equivalently, ``size == cosize`` and the layout is injective —
+    there are no gaps and no aliasing.
+
+    This is the same as :func:`is_bijective` but named for readability
+    when the question is "does this layout occupy one contiguous block
+    of memory?"
+
+    Examples:
+        is_contiguous(Layout(4, 1))              # True
+        is_contiguous(Layout((2, 2), (2, 1)))    # True (row-major 2x2)
+        is_contiguous(Layout(4, 2))              # False (gaps)
+        is_contiguous(Layout((4, 2), (0, 1)))    # False (aliasing)
+    """
+    return is_bijective(layout)
+
+
+# =============================================================================
+# Functional equivalence
+# =============================================================================
+
+
+def functionally_equal(a: Layout, b: Layout) -> bool:
+    """True if two layouts compute the same mapping for every flat index.
+
+    Layout.__eq__ checks structural equality (same shape and stride).
+    This function checks functional equality: whether a(i) == b(i)
+    for all i, regardless of internal representation.  Useful for
+    verifying that algebraic transformations like coalesce() and
+    flatten() preserve the layout's behavior.
+
+    Returns False if the layouts have different sizes.
+
+    Examples:
+        L = Layout(((2, 2), 2), ((1, 4), 2))
+        functionally_equal(L, coalesce(L))   # True
+        functionally_equal(L, flatten(L))    # True
+    """
+    if size(a) != size(b):
+        return False
+    return all(a(i) == b(i) for i in range(size(a)))
 
 
 def _normalize_explain_compose_tiler(tiler):

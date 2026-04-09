@@ -44,9 +44,49 @@ bijective layouts, and trace the algebra step by step.
 
 ```python
 from tensor_layouts.analysis import (
+    image, is_injective, is_surjective, is_bijective,
     offset_table, bank_conflicts, coalescing_efficiency,
     cycles, fixed_points, order, explain,
 )
+```
+
+---
+
+## Image and Injectivity
+
+These functions analyze a layout viewed as a function from coordinates to
+memory offsets.  They enumerate all coordinates, so their cost is O(size).
+
+| Function | Description |
+|----------|-------------|
+| `image(L)` | Sorted list of distinct offsets produced |
+| `is_injective(L)` | True if no two coordinates share an offset |
+| `is_surjective(L, codomain_size=None)` | True if every offset in `[0, codomain)` is hit |
+| `is_bijective(L)` | True if both injective and surjective (a permutation) |
+| `is_contiguous(L)` | Alias for `is_bijective` — reads as "one dense block?" |
+
+```python
+layout = Layout((4, 8), (1, 4))
+image(layout)           # [0, 1, 2, ..., 31]
+is_bijective(layout)    # True
+
+broadcast = Layout((4, 8), (0, 1))
+image(broadcast)        # [0, 1, 2, 3, 4, 5, 6, 7]
+is_injective(broadcast) # False (stride-0 causes aliasing)
+```
+
+## Functional Equivalence
+
+`functionally_equal(a, b)` returns True if two layouts compute the same
+offset for every flat index, even when they have different shapes or strides.
+This is useful for verifying that algebraic transformations like `coalesce()`
+and `flatten()` preserve behavior.  Cost is O(size).
+
+```python
+L = Layout(((2, 2), (2, 4)), ((1, 4), (2, 8)))
+coalesce(L) == L                     # False (structurally different)
+functionally_equal(L, coalesce(L))   # True  (same mapping)
+functionally_equal(L, flatten(L))    # True
 ```
 
 ---

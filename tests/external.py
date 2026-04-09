@@ -23,6 +23,7 @@
 import pytest
 
 from tensor_layouts import *
+from tensor_layouts.analysis import is_contiguous
 from tensor_layouts.layout_utils import round_up
 
 

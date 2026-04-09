@@ -31,6 +31,7 @@ invariants over all valid layouts up to a size bound.
 """
 
 from tensor_layouts import *
+from tensor_layouts.analysis import is_injective, is_bijective, is_contiguous
 from tensor_layouts.layout_utils import make_ordered_layout, tile_to_shape
 
 import pytest
