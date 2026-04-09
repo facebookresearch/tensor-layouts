@@ -1769,6 +1769,9 @@ def test_tile_to_shape_nested_block():
 def test_is_layout():
     assert is_layout(Layout(4, 1)) is True
     assert is_layout(Layout((2, 3), (1, 2))) is True
+    assert is_layout(ComposedLayout(Layout(4, 1), Layout(4, 1))) is True
+    assert is_affine_layout(Layout(4, 1)) is True
+    assert is_affine_layout(ComposedLayout(Layout(4, 1), Layout(4, 1))) is False
     assert is_layout(4) is False
     assert is_layout((4, 2)) is False
     assert is_layout(4) is False
