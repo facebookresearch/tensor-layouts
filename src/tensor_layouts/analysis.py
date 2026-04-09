@@ -232,6 +232,31 @@ def bank_conflicts(layout: Layout, *, element_bytes: int,
 # Coalescing analysis
 # =============================================================================
 
+
+def _group_access_offsets(layout: Layout, start_thread: int = 0,
+                          end_thread: int | None = None) -> tuple[list[int], int]:
+    """Return accessed offsets for a thread group and their minimum offset.
+
+    A bare Layout has no attached base pointer, so address-based analyses use
+    the group's minimum accessed offset as the local origin. This makes
+    translation-equivalent layouts, including dense negative-stride reversals,
+    analyze the same way.
+    """
+    thread_count, value_count = _tv_dimensions(layout)
+    if end_thread is None:
+        end_thread = thread_count
+
+    offsets = []
+    for t in range(start_thread, end_thread):
+        for v in range(value_count):
+            flat_idx = v * thread_count + t
+            offsets.append(layout(flat_idx))
+
+    if not offsets:
+        return [], 0
+    return offsets, min(offsets)
+
+
 def coalescing_efficiency(layout: Layout, *, element_bytes: int,
                           warp_size: int = 32,
                           cache_line_bytes: int = 128):
@@ -256,6 +281,13 @@ def coalescing_efficiency(layout: Layout, *, element_bytes: int,
         element_bytes: Size of each element in bytes.
         cache_line_bytes: Cache line size in bytes (128 on NVIDIA GPUs).
 
+    Notes:
+        Since a bare Layout has no absolute base pointer, addresses are
+        normalized so the minimum accessed offset in the analyzed group
+        corresponds to byte address 0. This preserves transaction counts for
+        layouts that differ only by translation, including reverse dense
+        layouts with negative strides.
+
     Returns:
         dict with:
             transactions: number of cache line transactions needed
@@ -269,25 +301,25 @@ def coalescing_efficiency(layout: Layout, *, element_bytes: int,
         coalescing_efficiency(Layout(32, 1), element_bytes=2)
         # {'transactions': 1, 'efficiency': 0.5, ...}  -- 64B used of 128B line
 
-        # Strided access: each thread 2 elements apart
-        coalescing_efficiency(Layout(32, 2))
-        # {'transactions': 2, 'efficiency': 0.5, ...}
+        # Large stride: each thread lands in a different cache line
+        coalescing_efficiency(Layout(32, 64), element_bytes=2)
+        # {'transactions': 32, ...}
     """
     layout = as_layout(layout)
-    thread_count, value_count = _tv_dimensions(layout)
+    thread_count, _ = _tv_dimensions(layout)
     n = min(thread_count, warp_size)
 
-    # Find which cache lines are touched and count unique offsets
+    # Find which cache lines are touched and count unique offsets within the
+    # accessed footprint, rebased so the minimum address is 0.
+    offsets, min_offset = _group_access_offsets(layout, 0, n)
     cache_lines = set()
     unique_offsets = set()
-    for t in range(n):
-        for v in range(value_count):
-            flat_idx = v * thread_count + t
-            offset = layout(flat_idx)
-            unique_offsets.add(offset)
-            byte_addr = offset * element_bytes
-            cache_line = byte_addr // cache_line_bytes
-            cache_lines.add(cache_line)
+    for offset in offsets:
+        rebased = offset - min_offset
+        unique_offsets.add(rebased)
+        byte_addr = rebased * element_bytes
+        cache_line = byte_addr // cache_line_bytes
+        cache_lines.add(cache_line)
 
     transactions = len(cache_lines)
     useful_bytes = len(unique_offsets) * element_bytes
@@ -323,6 +355,12 @@ def segment_analysis(layout: Layout, *, element_bytes: int,
         segment_bytes: Memory segment size in bytes (32 on NVIDIA GPUs).
         cache_line_bytes: Cache line size in bytes (128 on NVIDIA GPUs).
 
+    Notes:
+        Since a bare Layout has no absolute base pointer, addresses are
+        normalized so the minimum accessed offset in the analyzed group
+        corresponds to byte address 0. The reported segment/cache-line indices
+        and ``first_byte_addr`` are relative to that normalized footprint.
+
     Returns:
         dict with:
             segments: number of 32B segments touched
@@ -341,18 +379,17 @@ def segment_analysis(layout: Layout, *, element_bytes: int,
     segments = set()
     lines = set()
     unique_offsets = set()
+    offsets, min_offset = _group_access_offsets(layout, 0, n)
     first_byte = None
 
-    for t in range(n):
-        for v in range(value_count):
-            flat_idx = v * thread_count + t
-            offset = layout(flat_idx)
-            unique_offsets.add(offset)
-            byte_addr = offset * element_bytes
-            if first_byte is None:
-                first_byte = byte_addr
-            segments.add(byte_addr // segment_bytes)
-            lines.add(byte_addr // cache_line_bytes)
+    for offset in offsets:
+        rebased = offset - min_offset
+        unique_offsets.add(rebased)
+        byte_addr = rebased * element_bytes
+        if first_byte is None:
+            first_byte = byte_addr
+        segments.add(byte_addr // segment_bytes)
+        lines.add(byte_addr // cache_line_bytes)
 
     first_byte = first_byte if first_byte is not None else 0
     n_segments = len(segments)
@@ -507,16 +544,15 @@ def per_group_coalescing(layout: Layout, *, element_bytes: int,
         start = g * group_size
         end = min(start + group_size, thread_count)
 
+        offsets, min_offset = _group_access_offsets(layout, start, end)
         cache_lines = set()
         unique_offsets = set()
-        for t in range(start, end):
-            for v in range(value_count):
-                flat_idx = v * thread_count + t
-                offset = layout(flat_idx)
-                unique_offsets.add(offset)
-                byte_addr = offset * element_bytes
-                cache_line = byte_addr // cache_line_bytes
-                cache_lines.add(cache_line)
+        for offset in offsets:
+            rebased = offset - min_offset
+            unique_offsets.add(rebased)
+            byte_addr = rebased * element_bytes
+            cache_line = byte_addr // cache_line_bytes
+            cache_lines.add(cache_line)
 
         transactions = len(cache_lines)
         useful_bytes = len(unique_offsets) * element_bytes
@@ -544,15 +580,45 @@ def per_group_coalescing(layout: Layout, *, element_bytes: int,
 # Permutation analysis
 # =============================================================================
 
-def cycles(layout: Layout) -> list:
-    """Return the cycle decomposition of a bijective layout.
 
-    When a layout is a bijection on [0, cosize), it defines a permutation.
-    This function decomposes that permutation into disjoint cycles.
+def _dense_permutation_values(layout: Layout) -> list[int]:
+    """Return rebased permutation values for a dense, injective layout.
+
+    A layout induces a permutation when its image is a dense interval with no
+    duplicates. For shifted intervals, the image is rebased by its minimum
+    offset so the induced permutation acts on ``[0, size(layout))``.
+    """
+    offsets = image(layout)
+    n = size(layout)
+    if len(offsets) != n:
+        raise ValueError(
+            f"Layout is not injective (size={n}, image_size={len(offsets)})"
+        )
+    if not offsets:
+        return []
+
+    min_offset = offsets[0]
+    max_offset = offsets[-1]
+    if max_offset - min_offset + 1 != n:
+        raise ValueError(
+            "Layout image is not a dense interval "
+            f"(min={min_offset}, max={max_offset}, size={n})"
+        )
+
+    return [layout(i) - min_offset for i in range(n)]
+
+
+def cycles(layout: Layout) -> list:
+    """Return the cycle decomposition of a dense, injective layout.
+
+    When a layout's image is a dense interval with no duplicates, rebasing
+    that interval to start at 0 produces a permutation on
+    ``[0, size(layout))``. This function decomposes that permutation into
+    disjoint cycles.
 
     Fixed points (cycles of length 1) are included.
 
-    Raises ValueError if the layout is not bijective.
+    Raises ValueError if the layout is not injective or its image has gaps.
 
     Examples:
         # Identity: all fixed points
@@ -564,13 +630,8 @@ def cycles(layout: Layout) -> list:
         # [[0], [1, 2], [3]]  -- 0 and 3 are fixed, 1<->2 swap
     """
     layout = as_layout(layout)
-    if not is_bijective(layout):
-        raise ValueError(
-            f"Layout is not bijective (size={size(layout)}, "
-            f"cosize={cosize(layout)}, image_size={len(image(layout))})"
-        )
-
-    n = cosize(layout)
+    values = _dense_permutation_values(layout)
+    n = len(values)
     visited = [False] * n
     result = []
 
@@ -582,7 +643,7 @@ def cycles(layout: Layout) -> list:
         while not visited[current]:
             visited[current] = True
             cycle.append(current)
-            current = layout(current)
+            current = values[current]
         if cycle:
             result.append(cycle)
 
@@ -603,11 +664,12 @@ def fixed_points(layout: Layout) -> list:
 
 
 def order(layout: Layout) -> int:
-    """Return the permutation order: smallest k > 0 where layout^k = identity.
+    """Return the permutation order of a dense, injective layout.
 
-    The order is the LCM of all cycle lengths.
+    The layout's image is first rebased to a dense interval starting at 0,
+    then the order is the LCM of the resulting cycle lengths.
 
-    Raises ValueError if the layout is not bijective.
+    Raises ValueError if the layout is not injective or its image has gaps.
 
     Examples:
         order(Layout(4, 1))    # 1 (identity)
@@ -1106,6 +1168,10 @@ def to_F2_matrix(layout: Layout) -> list[list[int]]:
     When the layout has a swizzle, it is folded into the matrix (XOR
     is linear over F2).
 
+    Only nonnegative-stride layouts are supported. Negative-stride layouts
+    are not linear over the unsigned offset-bit space without an added affine
+    translation term, so returning a plain matrix would be misleading.
+
     Args:
         layout: Layout with power-of-2 shapes.
 
@@ -1114,6 +1180,7 @@ def to_F2_matrix(layout: Layout) -> list[list[int]]:
 
     Raises:
         ValueError: If any shape is not a power of 2.
+        ValueError: If any flattened stride is negative.
 
     Examples:
         # Identity layout
@@ -1142,6 +1209,11 @@ def to_F2_matrix(layout: Layout) -> list[list[int]]:
                 f"Shape {s} is not a power of 2; "
                 f"F2 matrix requires all shapes to be powers of 2"
             )
+    if any(d < 0 for d in strides):
+        raise ValueError(
+            "to_F2_matrix() does not support negative strides; "
+            "negative-offset layouts are affine after rebasing, not F2-linear"
+        )
 
     # Number of coordinate bits
     n_coord_bits = sum(s.bit_length() - 1 for s in shapes)
@@ -1173,9 +1245,13 @@ def to_F2_matrix(layout: Layout) -> list[list[int]]:
         S = [[1 if i == j else 0 for j in range(n_offset_bits)]
              for i in range(n_offset_bits)]
         for k in range(sw.bits):
-            src = sw.base + sw.shift + k
-            dst = sw.base + k
-            if src < n_offset_bits and dst < n_offset_bits:
+            if sw.shift >= 0:
+                src = sw.base + sw.shift + k
+                dst = sw.base + k
+            else:
+                src = sw.base + k
+                dst = sw.base - sw.shift + k
+            if 0 <= src < n_offset_bits and 0 <= dst < n_offset_bits:
                 S[dst][src] = 1
         # Compose: M' = S @ M (mod 2)
         M = [
@@ -1185,4 +1261,3 @@ def to_F2_matrix(layout: Layout) -> list[list[int]]:
         ]
 
     return M
-
