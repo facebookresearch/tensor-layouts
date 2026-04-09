@@ -660,6 +660,16 @@ def test_explain_logical_product():
     assert '(4, 3) : (1, 4)' in text
 
 
+def test_explain_logical_product_layout_tiler_uses_cosize_bound():
+    """Layout-tiler explanations should match CuTe's size(A) * cosize(B)."""
+    text = explain(logical_product, Layout(4, 1), Layout(3, 2))
+    assert 'size(A) = 4' in text
+    assert 'cosize(B) = 5' in text
+    assert 'size(A) * cosize(B) = 20' in text
+    assert 'size(A) * size(B)' not in text
+    assert str(logical_product(Layout(4, 1), Layout(3, 2))) in text
+
+
 def test_explain_logical_product_tuple_tiler():
     """explain handles logical_product with tuple tiler without crashing."""
     text = explain(logical_product, Layout((4, 4), (1, 4)), (2, 2))

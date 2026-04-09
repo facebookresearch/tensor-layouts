@@ -981,12 +981,14 @@ def explain(fn, *args):
         lines.append(f'logical_product({A}, {B})')
 
         if is_layout(B):
-            lines.append(f'  = Layout(A, compose(complement(A, size(A)*size(B)), B))')
+            lines.append(f'  = Layout(A, compose(complement(A, size(A)*cosize(B)), B))')
             lines.append(f'')
             lines.append(f'  A = {A}')
             lines.append(f'  B = {B}')
-            bound = size(A) * size(B)
-            lines.append(f'  size(A) * size(B) = {bound}')
+            lines.append(f'  size(A) = {size(A)}')
+            lines.append(f'  cosize(B) = {cosize(B)}')
+            bound = size(A) * cosize(B)
+            lines.append(f'  size(A) * cosize(B) = {bound}')
             comp = complement(A, bound)
             lines.append(f'  complement(A, {bound}) = {comp}')
             comp_b = compose(comp, B)
