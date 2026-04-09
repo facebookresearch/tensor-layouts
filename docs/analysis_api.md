@@ -50,6 +50,34 @@ from tensor_layouts.analysis import (
 )
 ```
 
+## Layout Expressions vs Affine-Only Helpers
+
+Most of the analysis module now accepts any `LayoutExpr`
+(`Layout | ComposedLayout`) when it only needs:
+
+- `shape` / `size` / `rank`
+- pointwise evaluation `layout(coord)`
+- enumeration over the logical domain
+
+That includes:
+
+- `image`, `offset_table`, `footprint`
+- `bank_conflicts`, `per_group_bank_conflicts`
+- `coalescing_efficiency`, `segment_analysis`, `per_group_coalescing`
+- `cycles`, `fixed_points`, `order`
+
+Some helpers remain intentionally **affine-only** because they need a real
+stride tree or linear/F2 structure:
+
+- `contiguity`
+- `mode_contiguity`
+- `slice_contiguity`
+- `to_F2_matrix`
+
+Passing a `ComposedLayout` to those affine-only helpers raises `TypeError`.
+That boundary is deliberate and matches the CuTe distinction between
+generic layout-like objects and normal affine layouts.
+
 ---
 
 ## Image and Injectivity

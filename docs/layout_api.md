@@ -28,7 +28,8 @@ This document covers the core `tensor_layouts` API: constructing layouts,
 querying their properties, and applying the four algebraic operations
 (compose, complement, divide, product).
 
-For runnable examples see [`examples/layouts.py`](../examples/layouts.py).
+For runnable examples see [`examples/layouts.py`](../examples/layouts.py)
+and [`examples/composed.py`](../examples/composed.py).
 For visualization see [`docs/viz_api.md`](viz_api.md).
 
 ## What is a Layout?
@@ -86,7 +87,7 @@ layout(14)      # 14  — flat index (column-major order through domain)
 
 ## Query Functions
 
-All query functions work on layouts, tuples, and ints.
+All query functions work on layouts, composed layouts, tuples, and ints.
 
 | Function | Description | Example |
 |----------|-------------|---------|
@@ -95,6 +96,147 @@ All query functions work on layouts, tuples, and ints.
 | `rank(L)` | Number of top-level modes | `rank(Layout((4, 8))) == 2` |
 | `depth(L)` | Maximum nesting depth | `depth(Layout(((2,3), 4))) == 2` |
 | `mode(L, i)` | Extract mode `i` as a Layout | `mode(Layout((4, 8), (1, 4)), 0) == Layout(4, 1)` |
+
+For `ComposedLayout`, `size`, `rank`, `depth`, and `shape` all come from the
+**inner** layout domain, matching CuTe C++.
+
+## Layout Expressions and `ComposedLayout`
+
+Most user-facing APIs now accept a **layout expression**:
+
+```python
+LayoutExpr = Layout | ComposedLayout
+```
+
+`Layout` is still the normal affine case: it has a shape tree and a stride
+tree, and it may also carry one canonical final swizzle.
+
+`ComposedLayout` is the exact fallback for compositions that cannot be
+represented as `Layout + one swizzle` without changing behavior.
+
+```python
+from tensor_layouts import ComposedLayout, Layout, Swizzle, compose
+
+base = Layout((4, 4), (4, 1))
+swizzled = compose(Swizzle(2, 0, 2), base)   # still a plain Layout
+exact = compose(Layout(16, 2), swizzled)     # now a ComposedLayout
+```
+
+Semantics:
+
+```python
+ComposedLayout(outer, inner, preoffset)(coord) == outer(preoffset + inner(coord))
+```
+
+This mirrors CuTe C++'s `LayoutA o Offset o LayoutB` model:
+
+- `inner` defines the logical domain
+- `preoffset` stays **inside** the composition, before the outer map
+- `outer` can be affine or nonlinear (for example a `Swizzle`)
+
+The practical reason for `preoffset` is slicing. Once a fixed coordinate has
+been pushed under a nonlinear outer map, that fixed contribution can no longer
+be treated as an ordinary pointer offset.
+
+### Trait helpers
+
+Use the trait helpers to distinguish generic layout-expressions from
+affine-only code paths:
+
+| Helper | Meaning |
+|--------|---------|
+| `is_layout(x)` | True for both `Layout` and `ComposedLayout` |
+| `is_affine_layout(x)` | True only for `Layout` |
+| `as_layout_expr(x)` | Accept generic layout consumers |
+| `as_affine_layout(x)` | Reject `ComposedLayout` with a clear error |
+
+`ComposedLayout` intentionally does **not** expose `.stride`. If you need a
+stride tree, you are in an affine-only path and should say so explicitly.
+
+### When `compose()` returns `Layout` vs `ComposedLayout`
+
+The fast path is preserved for the common canonical case:
+
+```python
+compose(Swizzle(2, 0, 2), Layout((4, 4), (4, 1)))
+# Layout((4, 4), (4, 1), swizzle=Swizzle(2, 0, 2))
+```
+
+That is still a `Layout` because "a swizzled layout is a layout" remains the
+intended Python representation for the single-final-swizzle case.
+
+Once the result would require more than one nonlinear stage, Python now keeps
+the composition exact instead of guessing a replacement swizzle:
+
+```python
+base = Layout((8, 8), (8, 1))
+inner = compose(Swizzle(3, 0, 3), base)
+
+compose(Swizzle(1, 0, 3), inner)
+# ComposedLayout(Swizzle(1, 0, 3), inner, preoffset=0)
+
+compose(Layout((4, 4), (4, 1)), inner)
+# ComposedLayout(Layout((4, 4), (4, 1)), inner, preoffset=0)
+```
+
+That is the key semantic change: the library now prefers **exactness** over an
+unsafe normalization.
+
+### Example: canonical fast path vs exact fallback
+
+```python
+from tensor_layouts import Layout, Swizzle, compose
+
+base = Layout((4, 4), (4, 1))
+
+canonical = compose(Swizzle(2, 0, 2), base)
+type(canonical).__name__
+# 'Layout'
+
+exact = compose(Layout(16, 2), canonical)
+type(exact).__name__
+# 'ComposedLayout'
+```
+
+![Exact composed layout](images/composed_exact.png)
+
+### Example: why slicing needs `preoffset`
+
+```python
+exact = compose(
+    Layout(16, 2),
+    compose(Swizzle(2, 0, 2), Layout((4, 4), (4, 1))),
+)
+
+sub, offset = slice_and_offset((None, 1), exact)
+print(sub)
+print(offset)
+```
+
+The slice returns:
+
+- a new `ComposedLayout` whose internal `preoffset` captures the fixed column
+- external offset `0`
+
+That differs from plain affine slicing, where `slice_and_offset` can usually
+return `(affine_sublayout, integer_offset)`.
+
+![Composed slice](images/composed_slice.png)
+
+### Notes on `cosize`
+
+For `ComposedLayout`, `cosize()` follows CuTe C++ and delegates to the inner
+domain layout. It is **not** the exact image span of the outer nonlinear map.
+If you need real addressed bounds, use a Tensor with storage validation or
+enumerate the image directly.
+
+### Notebook note
+
+The existing notebooks still mostly exercise the canonical
+`compose(Swizzle, Layout(...))` fast path, so their visible outputs stay
+stable. For exact multi-stage compositions, use
+[`examples/composed.py`](../examples/composed.py) as the primary runnable
+reference.
 
 ## Iteration
 
@@ -235,7 +377,10 @@ compose(Layout(((2, 3), 8), ((1, 2), 6)), ((2, 3), 4))
 # being flattened into a single stride-1 layout.
 ```
 
-When `A` is a `Swizzle`, the result is a `Layout` with an embedded swizzle.
+When `A` is a `Swizzle`, the canonical `compose(Swizzle, affine Layout)` case
+still returns a `Layout` with an embedded swizzle. If `B` is already swizzled
+or composed, `compose()` returns a `ComposedLayout` instead so the composition
+remains exact.
 
 ### complement(L, bound)
 

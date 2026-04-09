@@ -24,15 +24,15 @@ SOFTWARE.
 
 # Tensor API
 
-A `Tensor` combines a `Layout` with a base offset and optional storage.
-It is the Python equivalent of CuTe's `(Pointer, Layout)` pair.
+A `Tensor` combines a layout expression with a base offset and optional
+storage. It is the Python equivalent of CuTe's `(Pointer, Layout)` pair.
 
 For layout algebra see [`docs/layout_api.md`](layout_api.md).
 For visualization see [`docs/viz_api.md`](viz_api.md).
 
 ## What is a Tensor?
 
-A `Layout` is a pure function from coordinates to offsets.  A `Tensor`
+A layout expression is a pure function from coordinates to offsets.  A `Tensor`
 adds two things:
 
 1. **A base offset** — an integer that shifts every computed offset,
@@ -78,8 +78,10 @@ t[2, 5]   # buf[21] → 21
 ## Coordinate Mapping — `__call__`
 
 `tensor(i, j)` always returns the **memory offset** (an integer),
-regardless of whether storage is present.  For swizzled layouts the
-swizzle is applied to the total linear offset:
+regardless of whether storage is present.
+
+For canonical swizzled `Layout` objects, the swizzle is applied to the total
+linear offset:
 
 ```
 tensor(i, j) = swizzle(base_offset + crd2offset((i, j), shape, stride))
@@ -87,6 +89,62 @@ tensor(i, j) = swizzle(base_offset + crd2offset((i, j), shape, stride))
 
 This is unaffected by storage — use `__call__` when you need the raw
 offset, and `__getitem__` when you want the data element.
+
+## Composed Layouts
+
+`Tensor` accepts both `Layout` and `ComposedLayout`.
+
+```python
+from tensor_layouts import Layout, Swizzle, compose
+from tensor_layouts.tensor import Tensor
+
+exact = compose(
+    Layout(16, 2),
+    compose(Swizzle(2, 0, 2), Layout((4, 4), (4, 1))),
+)
+t = Tensor(exact, offset=100)
+```
+
+The important distinction is:
+
+- `Tensor.offset` is an **external** pointer/base offset
+- `ComposedLayout.preoffset` is an **internal** offset that lives before the
+  outer map
+
+For `Tensor(ComposedLayout(...))`, addressing is therefore:
+
+```python
+tensor(coord) == tensor.offset + tensor.layout(coord)
+```
+
+not "push `tensor.offset` under the outer nonlinear map".
+
+That is different from the canonical embedded-swizzle `Layout` fast path,
+where the tensor offset still participates in the pre-swizzle linear address.
+
+### Slicing with composed layouts
+
+For a composed layout, slicing keeps the fixed-coordinate contribution inside
+the sliced layout expression instead of turning it into an extra tensor
+offset:
+
+```python
+row = t[2, :]
+
+row.offset          # still 100
+type(row.layout)    # ComposedLayout
+row(j) == t(2, j)   # True
+```
+
+This matches CuTe's handling of composed tensors and is the reason the tensor
+implementation now routes slicing through `slice_and_offset(...)` for all
+layout-expression cases.
+
+### `Tensor.stride` is affine-only
+
+`Tensor.stride` remains available only when the underlying layout is an
+affine `Layout`. For `ComposedLayout`, it raises a clear `TypeError` instead
+of pretending a generic composition has a stride tree.
 
 ```python
 t = Tensor(Layout((4, 8), (8, 1)), data=list(range(32)))

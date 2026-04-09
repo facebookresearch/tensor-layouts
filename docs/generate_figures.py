@@ -36,7 +36,7 @@ from pathlib import Path
 import matplotlib.patches as patches
 import matplotlib.pyplot as plt
 
-from tensor_layouts import Layout, Swizzle
+from tensor_layouts import Layout, Swizzle, compose
 from tensor_layouts.atoms_nv import SM80_16x8x16_F16F16F16F16_TN
 from tensor_layouts.layout_utils import tile_mma_grid
 from tensor_layouts.viz import (
@@ -395,6 +395,25 @@ def main():
         tile_shape[1],
         IMAGES / "draw_tiled_grid.png",
         title="SM80 16x8x16 C \u2014 2x2 atoms",
+    )
+
+    # -- composed layouts --
+    composed_layout = compose(
+        Layout(16, 2),
+        compose(Swizzle(2, 0, 2), Layout((4, 4), (4, 1))),
+    )
+    draw_layout(
+        composed_layout,
+        IMAGES / "composed_exact.png",
+        title="Exact composed layout",
+        colorize=True,
+    )
+    draw_slice(
+        composed_layout,
+        (None, 1),
+        IMAGES / "composed_slice.png",
+        title="Slice keeps composed offset internal",
+        colorize=True,
     )
 
     # -- intile / oftile (applications.ipynb §3.3.5) --
