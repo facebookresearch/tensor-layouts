@@ -452,6 +452,23 @@ def _format_cell_value(val, precision: Optional[int] = None) -> str:
     return str(val)
 
 
+def _lookup_cell_label(cell_labels, idx: int):
+    """Return the label for an offset, falling back to the offset itself.
+
+    Explicit ``cell_labels`` are indexed by offset. Negative offsets must not
+    use Python's wraparound indexing semantics: if an offset is outside the
+    provided label range, we fall back to showing the offset value directly.
+    """
+    if isinstance(cell_labels, dict):
+        return cell_labels.get(idx, idx)
+    try:
+        if 0 <= idx < len(cell_labels):
+            return cell_labels[idx]
+    except TypeError:
+        pass
+    return idx
+
+
 def _draw_grid(
     ax,
     indices: np.ndarray,
@@ -591,7 +608,7 @@ def _draw_grid(
             if cell_labels is False:
                 continue
             if not isinstance(cell_labels, (bool, str)):
-                val = cell_labels[idx] if idx < len(cell_labels) else idx
+                val = _lookup_cell_label(cell_labels, idx)
                 label = _format_cell_value(val, precision)
             else:
                 label = str(idx)
@@ -1568,7 +1585,7 @@ def _draw_hierarchical_grid(
                 pass
             elif not isinstance(cell_labels, (bool, str)):
                 # User-provided or auto-generated labels indexed by offset
-                val = cell_labels[idx] if idx < len(cell_labels) else idx
+                val = _lookup_cell_label(cell_labels, idx)
                 label = _format_cell_value(val, precision)
                 ax.text(
                     j + 0.5,
@@ -2020,22 +2037,55 @@ def draw_layout(
 
 
 def _infer_tv_grid_shape(layout, grid_shape=None, grid_rows=None, grid_cols=None):
-    """Infer (rows, cols) for a TV grid from layout cosize.
+    """Infer (rows, cols) for a TV grid from the addressed footprint span.
 
     Accepts either a (rows, cols) tuple via grid_shape, or separate
     grid_rows/grid_cols ints.  When dimensions are not fully specified,
-    falls back to a sqrt-based factorisation of cosize(layout).
+    falls back to a sqrt-based factorisation of the rebased output span.
     """
     if grid_shape is not None:
         return grid_shape
     if grid_rows is not None and grid_cols is not None:
         return (grid_rows, grid_cols)
-    cosize_val = cosize(layout)
-    cols = int(np.sqrt(cosize_val))
-    while cols > 0 and cosize_val % cols != 0:
+    min_offset, max_offset = _tv_output_bounds(layout)
+    footprint_span = max_offset - min_offset + 1
+    if grid_rows is not None:
+        return (grid_rows, (footprint_span + grid_rows - 1) // grid_rows)
+    if grid_cols is not None:
+        return ((footprint_span + grid_cols - 1) // grid_cols, grid_cols)
+    cols = int(np.sqrt(footprint_span))
+    while cols > 0 and footprint_span % cols != 0:
         cols -= 1
-    rows = cosize_val // cols if cols > 0 else cosize_val
+    rows = footprint_span // cols if cols > 0 else footprint_span
     return (rows, cols)
+
+
+def _tv_output_bounds(layout) -> tuple[int, int]:
+    """Return the minimum and maximum offsets produced by a TV layout."""
+    layout = as_layout(layout)
+    t_shape = mode(layout.shape, 0)
+    v_shape = mode(layout.shape, 1)
+
+    num_t = size(t_shape)
+    num_v = size(v_shape)
+
+    min_offset = None
+    max_offset = None
+    for flat_t in range(num_t):
+        t_coord = idx2crd(flat_t, t_shape)
+        for flat_v in range(num_v):
+            v_coord = idx2crd(flat_v, v_shape)
+            out_idx = layout(t_coord, v_coord)
+            if min_offset is None:
+                min_offset = out_idx
+                max_offset = out_idx
+            else:
+                min_offset = min(min_offset, out_idx)
+                max_offset = max(max_offset, out_idx)
+
+    if min_offset is None:
+        return 0, 0
+    return min_offset, max_offset
 
 
 def _compute_tv_mapping(
@@ -2064,12 +2114,18 @@ def _compute_tv_mapping(
 
     If multiple (thread, value) pairs land on the same output cell, the first
     one encountered wins. This matches CuTe's print_latex* helpers.
+
+    Negative or shifted outputs are rebased by the minimum produced offset so
+    the mapping fills the addressed footprint rather than assuming the image
+    starts at 0.
     """
+    layout = as_layout(layout)
     t_shape = mode(layout.shape, 0)
     v_shape = mode(layout.shape, 1)
 
     num_t = size(t_shape)
     num_v = size(v_shape)
+    min_offset, _ = _tv_output_bounds(layout)
 
     inv_map = {}
     for flat_t in range(num_t):
@@ -2077,28 +2133,30 @@ def _compute_tv_mapping(
             t_coord = idx2crd(flat_t, t_shape)
             v_coord = idx2crd(flat_v, v_shape)
             out_idx = layout(t_coord, v_coord)
+            rebased_idx = out_idx - min_offset
 
             phys_t = thr_id_layout(flat_t) if thr_id_layout is not None else flat_t
 
             if grid_rows is not None and grid_cols is not None:
                 if col_major:
-                    row = out_idx % grid_rows
-                    col = out_idx // grid_rows
+                    row = rebased_idx % grid_rows
+                    col = rebased_idx // grid_rows
                 else:
-                    row = out_idx // grid_cols
-                    col = out_idx % grid_cols
+                    row = rebased_idx // grid_cols
+                    col = rebased_idx % grid_cols
                 if not (0 <= row < grid_rows and 0 <= col < grid_cols):
                     raise ValueError(
                         f"TV layout output cell {(row, col)} is out of bounds for "
-                        f"grid_shape=({grid_rows}, {grid_cols}); offset={out_idx}"
+                        f"grid_shape=({grid_rows}, {grid_cols}); "
+                        f"offset={out_idx}, rebased_offset={rebased_idx}"
                     )
                 # Store (physical_thread_id, value_id, logical_thread_id)
                 key = (row, col)
                 if key not in inv_map:
                     inv_map[key] = (phys_t, flat_v, flat_t)
             else:
-                if out_idx not in inv_map:
-                    inv_map[out_idx] = (phys_t, flat_v, flat_t)
+                if rebased_idx not in inv_map:
+                    inv_map[rebased_idx] = (phys_t, flat_v, flat_t)
 
     return inv_map
 
@@ -2310,8 +2368,10 @@ def draw_tv_layout(
         colorize: If True, use rainbow colors; if False, use grayscale
         num_colors: Override number of colors (defaults to T dimension)
         grid_shape: Optional (rows, cols) for the output grid. If None,
-                    inferred from cosize. Required for proper visualization
-                    of MMA-style layouts.
+                    inferred from the addressed footprint span. Negative
+                    offsets are rebased so the minimum offset maps to the
+                    first cell. Required for proper visualization of MMA-style
+                    layouts.
 
     Example:
         tv_layout = Layout((4, 2), (2, 1))  # 4 threads, 2 values each
@@ -3249,5 +3309,4 @@ def draw_copy_atom(
         thr_id_layout=atom.thr_id,
         col_major=col_major,
     )
-
 
