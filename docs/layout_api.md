@@ -275,6 +275,19 @@ Variants control result organization:
 | `tiled_divide` | `((tiles), rest0, rest1, ...)` |
 | `flat_divide` | `(tile0, tile1, rest0, rest1, ...)` |
 
+When `T` is a true `Layout`, the divide variants preserve its stride
+structure instead of silently reducing it to `T.shape`:
+
+```python
+A = Layout((8, 8), (1, 8))
+T = Layout((2, 2), (1, 4))
+
+logical_divide(A, T)  # Layout(((2, 2), (2, 8)), ((1, 4), (2, 8)))
+zipped_divide(A, T)   # same as logical_divide(A, T)
+tiled_divide(A, T)    # Layout(((2, 2), 2, 8), ((1, 4), 2, 8))
+flat_divide(A, T)     # Layout((2, 2, 2, 8), (1, 4, 2, 8))
+```
+
 ### logical_product(A, B)
 
 Replicate A's pattern at each position B describes.
