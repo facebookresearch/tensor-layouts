@@ -288,6 +288,13 @@ def test_layout_rank_size_cosize():
     assert mode(L7, 4) == Layout(2, 10)
 
 
+def test_cosize_negative_stride_matches_cute():
+    """CuTe cosize uses absolute stride magnitudes, not signed max offsets."""
+    assert cosize(Layout(4, -1)) == 4
+    assert cosize(Layout((2, 4), (4, -1))) == 8
+    assert cosize(Layout((2, 2), (-1, -2))) == 4
+
+
 def test_layout_squeeze():
     L0 = Layout((), ())
     L11 = Layout((64, 64, 1), (1, 64, 0))
@@ -774,6 +781,16 @@ def test_compose_basic():
 
     # compose(8:2, 4:2) -> 4:4 (B selects every other element, combined with A's stride 2)
     assert compose(Layout(8, 2), Layout(4, 2)) == Layout(4, 4)
+
+
+def test_compose_negative_stride_matches_cute():
+    """Negative-stride 1D tilers follow CuTe's signed composition rules."""
+    a = Layout((2, 3), (2, 1))
+    b = Layout(6, -1)
+
+    # Verified against local CuTe C++: composition((2,3):(2,1), 6:-1)
+    # prints (_2,_3):(_-2,_-1).
+    assert compose(a, b) == Layout((2, 3), (-2, -1))
 
 
 def test_compose_2d_outer():
@@ -2309,6 +2326,15 @@ def test_is_bijective_identity():
     assert is_bijective(Layout(1, 0))
 
 
+def test_is_bijective_negative_stride_dense():
+    """A dense reverse traversal is still bijective onto its codomain span."""
+    layout = Layout(4, -1)
+    assert image(layout) == [-3, -2, -1, 0]
+    assert is_surjective(layout)
+    assert is_bijective(layout)
+    assert is_contiguous(layout)
+
+
 def test_image_injectivity_consistency():
     """image size equals domain size iff injective."""
     layouts = [
@@ -2347,6 +2373,7 @@ def test_is_contiguous_agrees_with_bijective():
     """is_contiguous and is_bijective agree on all test layouts."""
     layouts = [
         Layout(4, 1),
+        Layout(4, -1),
         Layout(4, 2),
         Layout((4, 2), (0, 1)),
         Layout((3, 3), (1, 3)),

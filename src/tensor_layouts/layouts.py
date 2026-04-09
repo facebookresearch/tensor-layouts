@@ -506,7 +506,7 @@ class Layout:
     def _calculate_max_offset(shape: Any, stride: Any) -> int:
         if is_tuple(shape):
             return sum(Layout._calculate_max_offset(s, d) for s, d in zip(shape, stride))
-        return (shape - 1) * stride
+        return (shape - 1) * abs(stride)
 
     def __call__(self, *args):
         """Map a logical coordinate to a linear index, or slice the layout.
@@ -905,8 +905,10 @@ def is_surjective(layout: Layout, codomain_size: int = None) -> bool:
     """True if every offset in [0, codomain_size) is produced.
 
     A surjective layout has no gaps --- the image covers the entire
-    codomain.  The codomain defaults to [0, cosize(layout)), which is
-    the smallest interval containing all offsets.
+    codomain.  The codomain defaults to the layout's own span, whose
+    size is ``cosize(layout)``. For nonnegative-stride layouts this is
+    ``[0, cosize(layout))``; for negative-stride layouts the interval
+    may be shifted below zero.
 
     Args:
         layout: The layout to check.
@@ -938,15 +940,15 @@ def is_bijective(layout: Layout) -> bool:
 
 
 def is_contiguous(layout: Layout) -> bool:
-    """True if the layout maps to the dense range [0, size).
+    """True if the layout maps to a dense range of size ``size(layout)``.
 
-    A contiguous layout visits every offset in ``{0, 1, ..., size-1}``
-    exactly once.  Equivalently, ``size == cosize`` and the layout is
-    injective — there are no gaps and no aliasing.
+    A contiguous layout visits a dense run of memory offsets exactly
+    once. Equivalently, ``size == cosize`` and the layout is injective —
+    there are no gaps and no aliasing.
 
     This is the same as :func:`is_bijective` but named for readability
-    when the question is "does this layout occupy a contiguous block of
-    memory starting at offset 0?"
+    when the question is "does this layout occupy one contiguous block
+    of memory?"
 
     Examples:
         is_contiguous(Layout(4, 1))              # True
@@ -2506,25 +2508,34 @@ def _composition_1d(layout_a: "Layout", b_shape: int, b_stride: int) -> "Layout"
     remaining_shape = b_shape
     remaining_stride = b_stride
 
-    # Process all modes except the last
+    # Process all modes except the last. Match the pre-existing dynamic
+    # truncation behavior, but consume RHS strides by magnitude and carry
+    # the sign separately so negative-stride composition matches CuTe.
     for curr_shape, curr_stride in zip(flat_shapes[:-1], flat_strides[:-1]):
-        # §3.3.2 truncation: if (remaining_shape-1)*remaining_stride < curr_shape,
-        # then all of B fits within this mode — absorb and stop.
-        if remaining_shape > 1 and (remaining_shape - 1) * remaining_stride < curr_shape:
+        abs_stride = abs(remaining_stride)
+        negative_stride = remaining_stride < 0
+
+        # If all of B fits inside the current mode, stop before checking
+        # later unreachable modes.
+        if remaining_shape > 1 and (remaining_shape - 1) * abs_stride < curr_shape:
             result_shape.append(remaining_shape)
             result_stride.append(remaining_stride * curr_stride)
             remaining_shape = 1
             break
-        if curr_shape % remaining_stride != 0 and remaining_stride % curr_shape != 0:
+
+        if curr_shape % abs_stride != 0 and abs_stride % curr_shape != 0:
             raise ValueError(
                 f"compose: shape {curr_shape} and stride {remaining_stride} are not divisible"
             )
-        new_shape = min(max(1, curr_shape // remaining_stride), remaining_shape)
+
+        new_shape = min(max(1, curr_shape // abs_stride), remaining_shape)
         if new_shape != 1:
             result_shape.append(new_shape)
             result_stride.append(remaining_stride * curr_stride)
         remaining_shape = remaining_shape // new_shape
-        remaining_stride = -(-remaining_stride // curr_shape)  # ceil division
+        remaining_stride = _ceil_div(abs_stride, curr_shape)
+        if negative_stride:
+            remaining_stride = -remaining_stride
 
     # Last mode absorbs all remaining shape
     if remaining_shape != 1 or not result_shape:

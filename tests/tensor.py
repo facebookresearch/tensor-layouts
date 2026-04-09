@@ -1470,6 +1470,27 @@ class TestView:
         reshaped = t.view(Layout((3, 4), (4, 1)))
         assert reshaped[1, 2] == buf[1 * 4 + 2]
 
+    def test_view_preserves_offset(self):
+        """A view keeps the parent Tensor's base offset."""
+        buf = list(range(64))
+        t = Tensor(Layout((4, 8), (8, 1)), offset=16, data=buf)
+
+        flat = t.view(Layout(32, 1))
+
+        assert flat.offset == 16
+        assert flat[0] == 16
+        assert flat[15] == 31
+
+    def test_view_negative_stride_uses_preserved_offset(self):
+        """Preserving offset enables valid reverse views."""
+        buf = list(range(8))
+        t = Tensor(Layout(4, 1), offset=3, data=buf)
+
+        rev = t.view(Layout(4, -1))
+
+        assert rev.offset == 3
+        assert [rev[i] for i in range(4)] == [3, 2, 1, 0]
+
     def test_view_no_storage_raises(self):
         """View on algebraic Tensor raises TypeError."""
         t = Tensor(Layout(8, 1))

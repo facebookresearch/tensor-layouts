@@ -187,16 +187,12 @@ class Tensor:
     def view(self, layout: Layout) -> "Tensor":
         """Return a new Tensor sharing this storage with a different layout.
 
-        The new layout's cosize must not exceed the current storage size.
+        The new view preserves this Tensor's base offset and must satisfy
+        the same addressed-range invariant as any data-backed Tensor.
         """
         if self._data is None:
             raise TypeError("Cannot create a view of a Tensor with no storage")
-        if cosize(layout) > len(self._data):
-            raise ValueError(
-                f"New layout cosize {cosize(layout)} exceeds "
-                f"storage length {len(self._data)}"
-            )
-        return Tensor(layout, data=self._data)
+        return Tensor(layout, offset=self._offset, data=self._data)
 
     def __repr__(self) -> str:
         if self._offset:
