@@ -158,9 +158,13 @@ Oracle tests cross-validate against vendor reference implementations and are
 skipped automatically if the corresponding tool is unavailable:
 
 ```bash
-# NVIDIA (cross-validation against pycute)
+# NVIDIA pycute oracle
 pip install -e ".[test,oracle-nv]"
 pytest tests/oracle_nv.py
+
+# Direct CuTe C++ oracle
+# Requires a C++ compiler plus CUTLASS/CUDA headers in the active environment.
+pytest tests/oracle_cute_cpp.py
 
 # AMD (cross-validation against amd_matrix_instruction_calculator)
 pip install -e ".[test,oracle-amd]"
