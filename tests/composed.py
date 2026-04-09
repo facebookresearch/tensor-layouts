@@ -103,6 +103,25 @@ def test_compose_affine_with_swizzled_layout_is_exact():
         assert result(i) == outer(inner(i))
 
 
+def test_compose_layout_on_zero_preoffset_composed_layout_can_collapse():
+    outer = Layout(32, 2)
+    inner = ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), preoffset=0)
+    result = compose(outer, inner)
+
+    assert isinstance(result, Layout)
+    assert result.swizzle is not None
+    _assert_pointwise_equal(result, lambda i: outer(inner(i)))
+
+
+def test_compose_layout_on_nonzero_preoffset_composed_layout_stays_exact():
+    outer = Layout(32, 2)
+    inner = ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), preoffset=4)
+    result = compose(outer, inner)
+
+    assert isinstance(result, ComposedLayout)
+    _assert_pointwise_equal(result, lambda i: outer(inner(i)))
+
+
 def test_compose_swizzled_layout_outer_preserves_exactness():
     outer = compose(Swizzle(2, 0, 2), Layout(16, 1))
     inner = Layout(8, 2)
@@ -176,6 +195,36 @@ def test_tensor_stride_rejects_composed_layout():
     tensor = Tensor(ComposedLayout(Swizzle(2, 0, 2), Layout(16, 1), preoffset=4))
     with pytest.raises(TypeError, match="ComposedLayout|affine"):
         _ = tensor.stride
+
+
+def test_right_inverse_of_zero_preoffset_swizzled_composed_layout():
+    composed = ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), preoffset=0)
+    inv = right_inverse(composed)
+
+    assert isinstance(inv, Layout)
+    for i in range(size(inv)):
+        assert composed(inv(i)) == i
+
+
+def test_left_inverse_of_zero_preoffset_swizzled_composed_layout():
+    composed = ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), preoffset=0)
+    inv = left_inverse(composed)
+
+    assert isinstance(inv, Layout)
+    for i in range(size(composed)):
+        assert inv(composed(i)) == i
+
+
+def test_max_common_vector_for_swizzled_composed_layout_is_capped_by_swizzle_base():
+    composed = ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), preoffset=0)
+    plain = Layout(32, 1)
+
+    assert max_common_vector(composed, plain) == 2
+    common = max_common_layout(composed, plain)
+    assert size(common) == 2
+    for i in range(size(common)):
+        assert composed(common(i)) == i
+        assert plain(common(i)) == i
 
 
 def test_affine_only_boundaries_reject_composed_layout():

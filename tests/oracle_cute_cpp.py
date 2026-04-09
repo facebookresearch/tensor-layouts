@@ -152,6 +152,22 @@ int main() {
     std::cout << sliced_layout(i);
   }
   std::cout << "\n";
+
+  auto swizzled_composed =
+      composition(Swizzle<2,1,3>{}, Int<0>{}, make_layout(_32{}, _1{}));
+  auto layout_on_composed =
+      composition(make_layout(_32{}, _2{}), swizzled_composed);
+  print_offsets("compose_layout_zero_preoffset_composed_offsets", layout_on_composed);
+
+  auto swizzled_composed_rinv = right_inverse(swizzled_composed);
+  print_offsets("right_inverse_swizzled_composed_offsets", swizzled_composed_rinv);
+
+  auto swizzled_composed_linv = left_inverse(swizzled_composed);
+  print_offsets("left_inverse_swizzled_composed_offsets", swizzled_composed_linv);
+
+  auto swizzled_common_vec =
+      max_common_vector(swizzled_composed, make_layout(_32{}, _1{}));
+  std::cout << "max_common_vector_swizzled_composed=" << swizzled_common_vec << "\n";
 }
 """
 
@@ -191,6 +207,10 @@ PYTHON_CASES = {
         Layout((2, 2), (1, 4)),
         Layout((2, 3), (1, 4)),
     ),
+    "max_common_vector_swizzled_composed": lambda: max_common_vector(
+        ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), preoffset=0),
+        Layout(32, 1),
+    ),
     "slice_full_rank2": lambda: Layout((4, 8), (1, 4))(None),
     "slice_full_scalar": lambda: Layout(4, 1)(None),
 }
@@ -215,6 +235,18 @@ PYTHON_POINTWISE_CASES = {
                 compose(Swizzle(3, 0, 3), Layout((8, 8), (8, 1))),
             ),
         )
+    ),
+    "compose_layout_zero_preoffset_composed_offsets": lambda: ",".join(
+        str(compose(Layout(32, 2), ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), preoffset=0))(i))
+        for i in range(32)
+    ),
+    "right_inverse_swizzled_composed_offsets": lambda: ",".join(
+        str(right_inverse(ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), preoffset=0))(i))
+        for i in range(size(right_inverse(ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), preoffset=0))))
+    ),
+    "left_inverse_swizzled_composed_offsets": lambda: ",".join(
+        str(left_inverse(ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), preoffset=0))(i))
+        for i in range(size(left_inverse(ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), preoffset=0))))
     ),
 }
 
