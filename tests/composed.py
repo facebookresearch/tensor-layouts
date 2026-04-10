@@ -28,6 +28,8 @@ import pytest
 
 from tensor_layouts import *
 from tensor_layouts.analysis import (
+    bank_conflicts,
+    coalescing_efficiency,
     contiguity,
     cycles,
     fixed_points,
@@ -41,6 +43,9 @@ from tensor_layouts.analysis import (
     mode_contiguity,
     offset_table,
     order,
+    per_group_bank_conflicts,
+    per_group_coalescing,
+    segment_analysis,
     slice_contiguity,
     to_F2_matrix,
 )
@@ -531,6 +536,124 @@ def test_footprint_on_composed_layout():
     assert isinstance(fp, dict)
     assert "unique_offsets" in fp
     assert fp["unique_offsets"] >= 1
+
+
+def test_bank_conflicts_on_composed_layout():
+    composed = ComposedLayout(Swizzle(2, 0, 2), Layout((4, 2), (1, 4)), preoffset=0)
+    result = bank_conflicts(
+        composed,
+        element_bytes=4,
+        num_banks=4,
+        bank_width_bytes=4,
+        group_size=4,
+    )
+    assert result == {
+        "conflict_free": False,
+        "max_ways": 2,
+        "bank_to_threads": {
+            0: [0, 1],
+            1: [0, 1],
+            2: [2, 3],
+            3: [2, 3],
+        },
+    }
+
+
+def test_coalescing_efficiency_on_composed_layout():
+    composed = ComposedLayout(Swizzle(2, 0, 2), Layout((4, 2), (1, 4)), preoffset=4)
+    result = coalescing_efficiency(
+        composed,
+        element_bytes=4,
+        warp_size=4,
+        cache_line_bytes=16,
+    )
+    assert result == {
+        "transactions": 2,
+        "efficiency": 1.0,
+        "cache_lines": [0, 1],
+    }
+
+
+def test_segment_analysis_on_composed_layout():
+    composed = ComposedLayout(Swizzle(2, 0, 2), Layout((4, 2), (1, 4)), preoffset=4)
+    result = segment_analysis(
+        composed,
+        element_bytes=4,
+        warp_size=4,
+        segment_bytes=8,
+        cache_line_bytes=16,
+    )
+    assert result == {
+        "segments": 4,
+        "cache_lines": 2,
+        "unique_bytes": 32,
+        "requested_bytes": 32,
+        "transferred_bytes": 32,
+        "segment_efficiency": 1.0,
+        "first_byte_addr": 4,
+        "first_alignment": 4,
+    }
+
+
+def test_per_group_bank_conflicts_on_composed_layout():
+    composed = ComposedLayout(Swizzle(2, 0, 2), Layout((4, 2), (1, 4)), preoffset=4)
+    result = per_group_bank_conflicts(
+        composed,
+        element_bytes=4,
+        group_size=2,
+    )
+    assert result == {
+        "groups": [
+            {
+                "conflict_free": True,
+                "max_ways": 1,
+                "bank_to_threads": {
+                    5: [0],
+                    10: [0],
+                    4: [1],
+                    11: [1],
+                },
+            },
+            {
+                "conflict_free": True,
+                "max_ways": 1,
+                "bank_to_threads": {
+                    7: [2],
+                    8: [2],
+                    6: [3],
+                    9: [3],
+                },
+            },
+        ],
+        "worst_group": 0,
+        "worst_max_ways": 1,
+    }
+
+
+def test_per_group_coalescing_on_composed_layout():
+    composed = ComposedLayout(Swizzle(2, 0, 2), Layout((4, 2), (1, 4)), preoffset=4)
+    result = per_group_coalescing(
+        composed,
+        element_bytes=4,
+        group_size=2,
+        cache_line_bytes=16,
+    )
+    assert result == {
+        "groups": [
+            {
+                "transactions": 2,
+                "efficiency": 0.5,
+                "cache_lines": [0, 1],
+            },
+            {
+                "transactions": 1,
+                "efficiency": 1.0,
+                "cache_lines": [0],
+            },
+        ],
+        "worst_group": 0,
+        "worst_efficiency": 0.5,
+    }
 
 
 def test_is_injective_on_composed_layout():

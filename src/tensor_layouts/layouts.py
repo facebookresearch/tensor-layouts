@@ -2687,12 +2687,20 @@ def _compose_layouts(layout_a: Layout, layout_b: Layout) -> Layout:
 
 def _compose_with_tiler(layout_a: Layout, tiler) -> Layout:
     """Compose a layout mode-by-mode with a tiler (Tile or tuple)."""
+    # ComposedLayout inputs should already have been intercepted by
+    # _forward_layout_domain() before we get here.  This helper rebuilds an
+    # affine Layout by reading per-mode .shape/.stride, so a composed result
+    # would mean a caller escaped the generic forwarding path.
     result_shapes = []
     result_strides = []
 
     for i, elem in enumerate(tiler):
         mode_layout = mode(layout_a, i)
         composed = compose(mode_layout, elem)
+        assert isinstance(composed, Layout), (
+            "_compose_with_tiler expects affine per-mode results; "
+            "ComposedLayout inputs should be forwarded earlier"
+        )
         result_shapes.append(unwrap(composed.shape))
         result_strides.append(unwrap(composed.stride))
 
@@ -2959,6 +2967,10 @@ def logical_divide(layout: LayoutExpr, tiler: Any) -> LayoutExpr:
 
 def _logical_divide_with_tiler(layout: Layout, tiler) -> Layout:
     """Divide a layout mode-by-mode with a possibly nested tuple tiler."""
+    # ComposedLayout inputs should already have been intercepted by
+    # _forward_layout_domain() before we get here.  This helper rebuilds an
+    # affine Layout from per-mode .shape/.stride pairs, so a composed result
+    # would indicate that the earlier generic forwarding path was bypassed.
     if len(tiler) > rank(layout):
         raise ValueError(
             f"logical_divide: tiler has more modes ({len(tiler)}) "
@@ -2971,6 +2983,10 @@ def _logical_divide_with_tiler(layout: Layout, tiler) -> Layout:
     for i, elem in enumerate(tiler):
         mode_layout = mode(layout, i)
         divided = logical_divide(mode_layout, elem)
+        assert isinstance(divided, Layout), (
+            "_logical_divide_with_tiler expects affine per-mode results; "
+            "ComposedLayout inputs should be forwarded earlier"
+        )
         result_shapes.append(unwrap(divided.shape))
         result_strides.append(unwrap(divided.stride))
 
