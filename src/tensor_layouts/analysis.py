@@ -95,7 +95,7 @@ def image(layout: LayoutExpr) -> list:
     return sorted({layout(i) for i in range(size(layout))})
 
 
-def is_injective(layout: Layout) -> bool:
+def is_injective(layout: LayoutExpr) -> bool:
     """True if every coordinate maps to a distinct offset.
 
     An injective layout has no aliasing --- no two logical positions
@@ -109,7 +109,7 @@ def is_injective(layout: Layout) -> bool:
     return len(image(layout)) == size(layout)
 
 
-def is_surjective(layout: Layout, codomain_size: int = None) -> bool:
+def is_surjective(layout: LayoutExpr, codomain_size: int = None) -> bool:
     """True if every offset in [0, codomain_size) is produced.
 
     A surjective layout has no gaps --- the image covers the entire
@@ -131,7 +131,7 @@ def is_surjective(layout: Layout, codomain_size: int = None) -> bool:
     return len(image(layout)) == codomain_size
 
 
-def is_bijective(layout: Layout) -> bool:
+def is_bijective(layout: LayoutExpr) -> bool:
     """True if the layout is a bijection on [0, cosize).
 
     A bijective layout is both injective (no aliasing) and surjective
@@ -147,7 +147,7 @@ def is_bijective(layout: Layout) -> bool:
     return len(img) == size(layout) and len(img) == cosize(layout)
 
 
-def is_contiguous(layout: Layout) -> bool:
+def is_contiguous(layout: LayoutExpr) -> bool:
     """True if the layout maps to a dense range of size ``size(layout)``.
 
     A contiguous layout visits a dense run of memory offsets exactly
@@ -379,7 +379,7 @@ def bank_conflicts(layout: LayoutExpr, *, element_bytes: int,
 # =============================================================================
 
 
-def _group_access_offsets(layout: Layout, start_thread: int = 0,
+def _group_access_offsets(layout: LayoutExpr, start_thread: int = 0,
                           end_thread: int | None = None) -> tuple[list[int], int]:
     """Return accessed offsets for a thread group and their minimum offset.
 
@@ -561,7 +561,7 @@ def segment_analysis(layout: LayoutExpr, *, element_bytes: int,
 # =============================================================================
 
 
-def _tv_dimensions(layout: Layout):
+def _tv_dimensions(layout: LayoutExpr):
     """Extract (thread_count, value_count) from a layout.
 
     For rank-1 (scalar shape) layouts: thread_count = size, value_count = 1.

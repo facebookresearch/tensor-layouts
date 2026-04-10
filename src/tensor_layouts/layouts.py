@@ -973,7 +973,7 @@ def _can_group_a_into_b(a_modes: list, b) -> bool:
 #
 
 
-def iter_layout(layout: Layout):
+def iter_layout(layout: LayoutExpr):
     """Yield (coordinate, offset) pairs for every element in the layout.
 
     Iterates in colexicographic order (flat index 0, 1, 2, ...).
