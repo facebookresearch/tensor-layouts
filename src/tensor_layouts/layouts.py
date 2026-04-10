@@ -711,6 +711,19 @@ def _affine_inner(layout: Layout) -> Layout:
     return Layout(layout.shape, layout.stride)
 
 
+def _split_zero_preoffset_swizzle(layout: LayoutExpr):
+    """Return (swizzle, inner_layout) for canonical zero-preoffset swizzle wrappers."""
+    if isinstance(layout, Layout) and layout.swizzle is not None:
+        return layout.swizzle, _affine_inner(layout)
+    if (
+        isinstance(layout, ComposedLayout)
+        and isinstance(layout.outer, Swizzle)
+        and layout.preoffset == 0
+    ):
+        return layout.outer, layout.inner
+    return None
+
+
 def _forward_layout_domain(layout, transform):
     """Apply a domain-only transform to the inner layout of a layout expression.
 
@@ -1919,15 +1932,13 @@ def max_common_layout(layout_a: LayoutExpr, layout_b: LayoutExpr) -> Layout:
         max_common_layout(Layout((4,2), (2,1)), Layout(8,1)) -> 1:0
         max_common_layout(Layout(8, 1), Layout((4,2), (1,4))) -> 4:1
     """
-    if isinstance(layout_a, ComposedLayout) and isinstance(layout_a.outer, Swizzle):
-        layout_b = as_affine_layout(layout_b)
-        common = max_common_layout(layout_a.inner, layout_b)
-        swizzle_cap = 1 << layout_a.outer.base
-        if swizzle_cap < size(common):
-            return compose(common, Layout(swizzle_cap, 1))
-        return common
-    if isinstance(layout_b, ComposedLayout) and isinstance(layout_b.outer, Swizzle):
-        return max_common_layout(layout_b, layout_a)
+    if (
+        _split_zero_preoffset_swizzle(layout_a) is not None
+        or _split_zero_preoffset_swizzle(layout_b) is not None
+    ):
+        vec = max_common_vector(layout_a, layout_b)
+        inv_b = right_inverse(layout_b)
+        return coalesce(compose(inv_b, Layout(vec, 1)))
 
     layout_a = as_affine_layout(layout_a)
     layout_b = as_affine_layout(layout_b)
@@ -1972,15 +1983,20 @@ def max_common_vector(layout_a: LayoutExpr, layout_b: LayoutExpr) -> int:
         max_common_vector(Layout((4,2), (2,1)), Layout(8,1)) -> 1
         max_common_vector(Layout(8, 1), Layout((4,2), (1,4))) -> 4
     """
-    if isinstance(layout_a, ComposedLayout) and isinstance(layout_a.outer, Swizzle):
-        if isinstance(layout_b, ComposedLayout) and isinstance(layout_b.outer, Swizzle):
-            vec = max_common_vector(layout_a.inner, layout_b.inner)
-            if layout_a.outer == layout_b.outer:
+    split_a = _split_zero_preoffset_swizzle(layout_a)
+    split_b = _split_zero_preoffset_swizzle(layout_b)
+    if split_a is not None:
+        swizzle_a, inner_a = split_a
+        if split_b is not None:
+            swizzle_b, inner_b = split_b
+            vec = max_common_vector(inner_a, inner_b)
+            if swizzle_a == swizzle_b:
                 return vec
-            return min(vec, 1 << layout_a.outer.base, 1 << layout_b.outer.base)
-        return min(max_common_vector(layout_a.inner, layout_b), 1 << layout_a.outer.base)
-    if isinstance(layout_b, ComposedLayout) and isinstance(layout_b.outer, Swizzle):
-        return max_common_vector(layout_b, layout_a)
+            return min(vec, 1 << swizzle_a.base, 1 << swizzle_b.base)
+        return min(max_common_vector(inner_a, layout_b), 1 << swizzle_a.base)
+    if split_b is not None:
+        swizzle_b, inner_b = split_b
+        return min(max_common_vector(layout_a, inner_b), 1 << swizzle_b.base)
     return size(max_common_layout(layout_a, layout_b))
 
 

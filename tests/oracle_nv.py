@@ -363,6 +363,19 @@ def test_oracle_composition():
             )
 
 
+def test_oracle_composition_rejects_partial_nondivisible_stride():
+    """pycute rejects partially fitting non-divisible tuple-LHS composition."""
+    ours_a = Layout((4, 6, 8), (2, 3, 5))
+    ours_b = Layout(6, 3)
+    ref_a = pycute_layout((4, 6, 8), (2, 3, 5))
+    ref_b = pycute_layout(6, 3)
+
+    with pytest.raises(ValueError, match="divisible"):
+        compose(ours_a, ours_b)
+    with pytest.raises(AssertionError):
+        pycute.composition(ref_a, ref_b)
+
+
 def test_oracle_shape_div():
     """Cross-validate shape_div() against pycute."""
     test_cases = [
