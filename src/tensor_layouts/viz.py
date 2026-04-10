@@ -507,6 +507,8 @@ def _draw_grid(
     ax,
     indices: np.ndarray,
     highlight_mask: Optional[np.ndarray] = None,
+    highlight_facecolor: str = HIGHLIGHT_COLOR,
+    highlight_edgecolor: str = HIGHLIGHT_EDGE,
     hierarchy_shapes: Optional[Tuple[object, object]] = None,
     cell_size: float = 1.0,
     show_labels: bool = True,
@@ -527,6 +529,8 @@ def _draw_grid(
         ax: Matplotlib axis to draw on
         indices: 2D array of index values
         highlight_mask: Boolean mask aligned with `indices`
+        highlight_facecolor: Fill color used for highlighted cells
+        highlight_edgecolor: Border color used for highlighted cells
         hierarchy_shapes: Optional `(row_shape, col_shape)` pair used to draw
             hierarchy boundary overlays on top of a flattened displayed grid
         cell_size: Size of each cell
@@ -589,7 +593,7 @@ def _draw_grid(
                 color_idx = idx % len(colors)
 
             base_facecolor = colors[color_idx]
-            final_facecolors[i, j] = HIGHLIGHT_COLOR if is_hl else base_facecolor
+            final_facecolors[i, j] = highlight_facecolor if is_hl else base_facecolor
 
             # Draw base cell first; highlights are overlaid later so their
             # borders are not covered by neighboring cells.
@@ -627,8 +631,8 @@ def _draw_grid(
             (j, i),
             cell_size,
             cell_size,
-            facecolor=HIGHLIGHT_COLOR,
-            edgecolor=HIGHLIGHT_EDGE,
+            facecolor=highlight_facecolor,
+            edgecolor=highlight_edgecolor,
             linewidth=2,
             zorder=6,
         )
@@ -845,6 +849,14 @@ def _build_composite_figure(
         panel_label_levels = panel_opts.get("label_hierarchy_levels", False)
         panel_cell_labels = panel_opts.get("cell_labels", True)
         panel_precision = panel_opts.get("precision", None)
+        panel_slice_spec = panel_opts.get("slice_spec", None)
+        panel_highlight_mask = panel_opts.get("highlight_mask", None)
+        panel_highlight_facecolor = panel_opts.get(
+            "highlight_facecolor", HIGHLIGHT_COLOR
+        )
+        panel_highlight_edgecolor = panel_opts.get(
+            "highlight_edgecolor", HIGHLIGHT_EDGE
+        )
 
         # Auto-label from Tensor data (after opts merge so user can override)
         if tensor is not None and tensor.data is not None and panel_cell_labels is True:
@@ -874,9 +886,20 @@ def _build_composite_figure(
                 or isinstance(mode(layout.shape, 1), tuple)
             )
             grid = _prepare_offset_grid(
-                layout, color_layout=panel_color_layout, eval_fn=eval_fn,
+                layout,
+                color_layout=panel_color_layout,
+                slice_spec=panel_slice_spec,
+                eval_fn=eval_fn,
                 hierarchical=is_hier,
             )
+            if panel_highlight_mask is not None:
+                if panel_highlight_mask.shape != grid.indices.shape:
+                    raise ValueError(
+                        "highlight_mask shape "
+                        f"{panel_highlight_mask.shape} does not match panel grid "
+                        f"shape {grid.indices.shape}"
+                    )
+                grid.highlight_mask = panel_highlight_mask
             if grid.is_hierarchical:
                 _draw_hierarchical_grid(
                     ax,
@@ -899,6 +922,9 @@ def _build_composite_figure(
                 _draw_grid(
                     ax,
                     grid.indices,
+                    highlight_mask=grid.highlight_mask,
+                    highlight_facecolor=panel_highlight_facecolor,
+                    highlight_edgecolor=panel_highlight_edgecolor,
                     title=title,
                     colorize=panel_colorize,
                     color_indices=grid.color_indices,
@@ -1109,6 +1135,8 @@ def draw_composite(
             unless overridden by a per-panel option dict.  Common options:
               cell_labels -- True (auto), False, "offset", or a list
               colorize, color_layout, num_colors -- coloring
+              slice_spec, highlight_mask -- per-cell highlighting
+              highlight_facecolor, highlight_edgecolor -- highlight styling
               tv_mode, grid_rows, grid_cols -- TV layout rendering
               flatten_hierarchical, label_hierarchy_levels -- hierarchy
               precision -- significant digits for float cell labels
@@ -3230,6 +3258,8 @@ def _build_slice_figure(
     colorize=False,
     color_layout=None,
     num_colors=8,
+    highlight_facecolor: str = HIGHLIGHT_COLOR,
+    highlight_edgecolor: str = HIGHLIGHT_EDGE,
 ):
     """Build the slice figure used by draw_slice."""
     grid = _prepare_offset_grid(
@@ -3253,6 +3283,8 @@ def _build_slice_figure(
         ax,
         grid.indices,
         highlight_mask=grid.highlight_mask,
+        highlight_facecolor=highlight_facecolor,
+        highlight_edgecolor=highlight_edgecolor,
         title=title,
         colorize=colorize,
         color_indices=grid.color_indices,
@@ -3271,6 +3303,10 @@ def draw_slice(
     colorize: bool = False,
     color_layout: Optional[Layout] = None,
     num_colors: int = 8,
+    highlight_facecolor: str = HIGHLIGHT_COLOR,
+    highlight_edgecolor: str = HIGHLIGHT_EDGE,
+    base_facecolor: Optional[str] = None,
+    show_text: bool = True,
 ):
     """Draw layout with sliced elements highlighted.
 
@@ -3289,6 +3325,10 @@ def draw_slice(
         color_layout: Optional layout controlling background-cell coloring in
             the same logical coordinate space as `layout` (None = color by value)
         num_colors: Number of colors in palette
+        highlight_facecolor: Fill color used for highlighted cells
+        highlight_edgecolor: Border color used for highlighted cells
+        base_facecolor: Optional fill color to apply to non-highlighted cells
+        show_text: Whether to show cell and axis labels
     """
     fig = _build_slice_figure(
         layout,
@@ -3298,7 +3338,19 @@ def draw_slice(
         colorize=colorize,
         color_layout=color_layout,
         num_colors=num_colors,
+        highlight_facecolor=highlight_facecolor,
+        highlight_edgecolor=highlight_edgecolor,
     )
+
+    for ax in fig.axes:
+        if base_facecolor is not None:
+            for patch in ax.patches:
+                if patch.get_zorder() < 6:
+                    patch.set_facecolor(base_facecolor)
+        if not show_text:
+            for text in list(ax.texts):
+                text.remove()
+
     return _save_figure(fig, filename, dpi)
 
 
