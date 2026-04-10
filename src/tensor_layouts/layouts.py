@@ -2814,6 +2814,11 @@ def compose(layout_a: Any, layout_b: Any) -> Any:
             raise TypeError(
                 f"When composing with Swizzle, first argument must be Layout, got {type(layout_a).__name__}"
             )
+        # TODO: This push-through heuristic is not proven sound for all
+        # Layout × bare-Swizzle combinations.  It works for the cases
+        # currently exercised, but a general proof is missing.  Consider
+        # returning ComposedLayout as the exact fallback once bare-Swizzle
+        # as rhs is needed in a broader context (see COMPOSED_LAYOUTS.md §9).
         active_Y = layout_a(layout_b.yyy_msk)
         active_Z = layout_a(layout_b.zzz_msk)
         return compose(make_swizzle(active_Y, active_Z), layout_a)
