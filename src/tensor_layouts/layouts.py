@@ -3713,6 +3713,9 @@ class Swizzle:
             return False
         return self.bits == other.bits and self.base == other.base and self.shift == other.shift
 
+    def __hash__(self) -> int:
+        return hash((self.bits, self.base, self.shift))
+
     @property
     def yyy_msk(self) -> int:
         """Bit mask for the Y (source) bits of the swizzle."""

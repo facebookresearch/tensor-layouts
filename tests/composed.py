@@ -66,6 +66,10 @@ def test_composed_layout_boilerplate():
     assert hash(layout) == hash(ComposedLayout(outer, inner, preoffset=3))
     assert layout((1, 2)) == outer(3 + inner((1, 2)))
 
+    # Hash must also work when outer is a Swizzle (not just Layout).
+    swz_composed = ComposedLayout(Swizzle(3, 0, 3), Layout(16, 1))
+    assert hash(swz_composed) == hash(ComposedLayout(Swizzle(3, 0, 3), Layout(16, 1)))
+
     with pytest.raises(dataclasses.FrozenInstanceError):
         layout.preoffset = 4
 
