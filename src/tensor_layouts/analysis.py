@@ -1100,13 +1100,14 @@ def explain(fn, *args):
         actual = logical_divide(L, T)
 
         if is_affine_layout(T):
-            lines.append('  = compose(L, Layout(T, complement(T, size(L))))')
+            lines.append('  = compose(L, Layout(T, complement(T, shape(coalesce(L)))))')
             lines.append('')
             lines.append(f'  L = {L}')
             lines.append(f'  T = {T}')
-            lines.append(f'  size(L) = {size(L)}')
-            comp = complement(T, size(L))
-            lines.append(f'  complement(T, {size(L)}) = {comp}')
+            coalesced_shape = coalesce(L).shape
+            lines.append(f'  shape(coalesce(L)) = {coalesced_shape}')
+            comp = complement(T, coalesced_shape)
+            lines.append(f'  complement(T, {coalesced_shape}) = {comp}')
             intermediate = Layout(T, comp)
             lines.append(f'  Layout(T, complement) = {intermediate}')
             result = compose(L, intermediate)

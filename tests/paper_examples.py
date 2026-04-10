@@ -381,6 +381,25 @@ def test_s3_3_3_intuition_example():
         assert C(i) == A(B(i))
 
 
+def test_s3_3_3_stride_violation_raises():
+    """§3.3.3: (4,6,8):(2,3,5) ◦ 6:3 is rejected as a divisibility violation.
+
+    CuTe C++ 4.5.0 accepts this via a weak stride check (rest_stride < curr_shape)
+    but produces functionally incorrect results (C(i) ≠ A(B(i)) for 4/6 inputs).
+    pycute correctly rejects it; we follow pycute.
+    """
+    A = Layout((4, 6, 8), (2, 3, 5))
+    B = Layout(6, 3)
+
+    try:
+        compose(A, B)
+    except ValueError as exc:
+        assert "divisible" in str(exc)
+    else:
+        pytest.fail("compose((4,6,8):(2,3,5), 6:3) should raise ValueError")
+
+
+
 def test_s3_3_3_apparent_violation():
     """§3.3.3: (4,2,8):(3,12,97) ◦ 3:3 = 3:9 after coalescing.
 

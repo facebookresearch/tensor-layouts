@@ -121,6 +121,17 @@ int main() {
       make_layout(make_shape(_2{}, _3{}), make_stride(_1{}, _4{})));
   std::cout << "logical_product_layout_tiler=" << logical_product_layout_tiler << "\n";
 
+  auto complement_shape_bound = complement(make_layout(_2{}, _1{}), make_shape(_3{}, _4{}));
+  std::cout << "complement_shape_bound=" << complement_shape_bound << "\n";
+
+  // TODO: uncomment when CuTe C++ sorts in coalesce (matching pycute).
+  // CuTe C++ currently gives ((2,(2,4)):((4,(8,1))); pycute gives (2,6):(1,2).
+  // auto logical_divide_coalesced_shape_bound = logical_divide(
+  //     make_layout(make_shape(_3{}, _4{}), make_stride(_4{}, _1{})),
+  //     make_layout(_2{}, _1{}));
+  // std::cout << "logical_divide_coalesced_shape_bound="
+  //           << logical_divide_coalesced_shape_bound << "\n";
+
   auto slice_full_rank2 =
       slice(_, make_layout(make_shape(_4{}, _8{}), make_stride(_1{}, _4{})));
   std::cout << "slice_full_rank2=" << slice_full_rank2 << "\n";
@@ -243,6 +254,7 @@ PYTHON_CASES = {
         Layout((2, 2), (1, 4)),
         Layout((2, 3), (1, 4)),
     ),
+    "complement_shape_bound": lambda: complement(Layout(2, 1), (3, 4)),
     "max_common_vector_swizzled_composed": lambda: max_common_vector(
         ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), preoffset=0),
         Layout(32, 1),

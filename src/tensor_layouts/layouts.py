@@ -1624,11 +1624,10 @@ def complement(layout: Layout, cosize_bound: Any = None) -> Layout:
         gap_size = stride // current_stride if stride > current_stride else 1
         return gap_size, stride * shape
 
-    # Handle cosize_bound as a shape (tuple) - use its size
     if cosize_bound is None:
         cosize_bound = cosize(layout)
-    elif is_tuple(cosize_bound):
-        cosize_bound = size(cosize_bound)
+    elif is_layout(cosize_bound):
+        cosize_bound = cosize_bound.shape
 
     # Handle empty layout (empty tuple shape)
     if is_tuple(layout.shape) and len(layout.shape) == 0:
@@ -1665,11 +1664,18 @@ def complement(layout: Layout, cosize_bound: Any = None) -> Layout:
             result_strides.append(current_stride)
         current_stride = next_stride
 
-    # Fill remaining space up to cosize_bound (ceiling division).
-    # Always append (even if shape-1) to match pycute; coalesce cleans up.
-    remaining = _ceil_div(cosize_bound, current_stride)
+    # Fill remaining space up to cosize_bound. Shape bounds stay hierarchical
+    # instead of collapsing eagerly to size(...), matching CuTe C++.
+    if is_tuple(cosize_bound):
+        remaining = _coalesce_shape(_shape_ceil_div(cosize_bound, current_stride))
+        remaining_stride = elem_scale(current_stride, compute_col_major_strides(remaining))
+    else:
+        remaining = _ceil_div(cosize_bound, current_stride)
+        remaining_stride = current_stride
+
+    # Always append (even if shape-1) to match CuTe/pycute; coalesce cleans up.
     result_shapes.append(remaining)
-    result_strides.append(current_stride)
+    result_strides.append(remaining_stride)
 
     # Coalesce the result (merges contiguous modes, removes size-1 modes)
     return coalesce(Layout(as_shape(result_shapes), as_shape(result_strides)))
@@ -1714,6 +1720,8 @@ def right_inverse(layout: Any) -> Any:
             right_inverse(layout.outer),
             preoffset=-layout.preoffset,
         )
+    if isinstance(layout, Layout) and layout.swizzle is not None:
+        return compose(right_inverse(_affine_inner(layout)), layout.swizzle)
     if isinstance(layout, int):
         return Layout(layout)
 
@@ -1744,7 +1752,7 @@ def right_inverse(layout: Any) -> Any:
     for stride, shape, rstride in triples:
         contiguous, current_idx = _step_mode(current_idx, stride, shape)
         if not contiguous:
-            break
+            continue
         if shape != 1:
             result_shape.append(shape)
             result_stride.append(rstride)
@@ -1788,6 +1796,8 @@ def left_inverse(layout: Any) -> Any:
             left_inverse(layout.outer),
             preoffset=-layout.preoffset,
         )
+    if isinstance(layout, Layout) and layout.swizzle is not None:
+        return compose(left_inverse(_affine_inner(layout)), layout.swizzle)
     if isinstance(layout, int):
         return Layout(layout)
 
@@ -2507,6 +2517,25 @@ def _ceil_div(a: int, b: int) -> int:
     return (a + b - 1) // b
 
 
+def _shape_ceil_div(shape: Any, divisor: int) -> Any:
+    """CuTe-style ceil_div for shapes, preserving nested structure."""
+    if divisor == 1:
+        return shape
+
+    def _scalar(s, d):
+        return _ceil_div(s, d)
+
+    def _update(first, d):
+        return _ceil_div(d, size(first))
+
+    return fold_accumulate(shape, divisor, _scalar, _update)
+
+
+def _coalesce_shape(shape: Any) -> Any:
+    """Coalesce a pure shape through its compact column-major layout."""
+    return coalesce(Layout(shape, compute_col_major_strides(shape))).shape
+
+
 def upcast(layout: "Layout", n: int) -> "Layout":
     """Reinterpret a layout from a finer to a coarser coordinate space.
 
@@ -2624,34 +2653,49 @@ def _composition_1d(layout_a: "Layout", b_shape: int, b_stride: int) -> "Layout"
     remaining_shape = b_shape
     remaining_stride = b_stride
 
-    # Process all modes except the last. Match the pre-existing dynamic
-    # truncation behavior, but consume RHS strides by magnitude and carry
-    # the sign separately so negative-stride composition matches CuTe.
+    # Match pycute's post-coalesce truncation path for tuple-LHS / integral-
+    # RHS composition. In particular:
+    # - exact shape/stride divisibility still passes immediately
+    # - otherwise a non-divisible stride may only continue when the remaining
+    #   RHS has multiple points and all of them fit inside the current mode
+    # - the chunk we consume from the RHS shape must divide the remaining
+    #   shape exactly
     for curr_shape, curr_stride in zip(flat_shapes[:-1], flat_strides[:-1]):
         abs_stride = abs(remaining_stride)
         negative_stride = remaining_stride < 0
 
-        # If all of B fits inside the current mode, stop before checking
-        # later unreachable modes.
-        if remaining_shape > 1 and (remaining_shape - 1) * abs_stride < curr_shape:
+        divisible = curr_shape % abs_stride == 0 or abs_stride % curr_shape == 0
+        fits_in_mode = remaining_shape > 1 and (remaining_shape - 1) * abs_stride < curr_shape
+        if not divisible and not fits_in_mode:
+            raise ValueError(
+                f"compose: shape {curr_shape} and stride {remaining_stride} are not divisible"
+            )
+
+        if fits_in_mode:
             result_shape.append(remaining_shape)
             result_stride.append(remaining_stride * curr_stride)
             remaining_shape = 1
             break
 
-        if curr_shape % abs_stride != 0 and abs_stride % curr_shape != 0:
+        next_shape = _ceil_div(curr_shape, abs_stride)
+        next_stride = _ceil_div(abs_stride, curr_shape)
+        if negative_stride:
+            next_stride = -next_stride
+
+        if next_shape == 1 or remaining_shape == 1:
+            remaining_stride = next_stride
+            continue
+
+        new_shape = min(next_shape, remaining_shape)
+        if remaining_shape % new_shape != 0:
             raise ValueError(
-                f"compose: shape {curr_shape} and stride {remaining_stride} are not divisible"
+                f"compose: shape {remaining_shape} and consumed extent {new_shape} are not divisible"
             )
 
-        new_shape = min(max(1, curr_shape // abs_stride), remaining_shape)
-        if new_shape != 1:
-            result_shape.append(new_shape)
-            result_stride.append(remaining_stride * curr_stride)
-        remaining_shape = remaining_shape // new_shape
-        remaining_stride = _ceil_div(abs_stride, curr_shape)
-        if negative_stride:
-            remaining_stride = -remaining_stride
+        result_shape.append(new_shape)
+        result_stride.append(remaining_stride * curr_stride)
+        remaining_shape //= new_shape
+        remaining_stride = next_stride
 
     # Last mode absorbs all remaining shape
     if remaining_shape != 1 or not result_shape:
@@ -2882,7 +2926,7 @@ def compose(layout_a: Any, layout_b: Any) -> Any:
 # =============================================================================
 #
 # Division factors a layout into (tile, rest):
-#   logical_divide(A, B) = compose(A, Layout(B, complement(B, size(A))))
+#   logical_divide(A, B) = compose(A, Layout(B, complement(B, shape(coalesce(A)))))
 #
 # The tile part tells you where within a tile, the rest part tells you
 # which tile. Division answers: "how do I iterate in tiles of size T?"
@@ -2902,7 +2946,8 @@ def logical_divide(layout: LayoutExpr, tiler: Any) -> LayoutExpr:
     - Tile: coordinates *within* a tile (the inner loop)
     - Rest: coordinates *across* tiles (the outer loop)
 
-    Formally: logical_divide(A, B) = compose(A, Layout(B, complement(B, size(A))))
+    Formally: logical_divide(A, B) =
+        compose(A, Layout(B, complement(B, shape(coalesce(A)))))
 
     Intuition: to tile A by B, we need two coordinates:
     - "which element within a tile?" -> B (the tiler itself)
@@ -2937,9 +2982,9 @@ def logical_divide(layout: LayoutExpr, tiler: Any) -> LayoutExpr:
         return forwarded
     if isinstance(tiler, Layout):
         # Layout tiler: use CuTe formula
-        # logical_divide(A, B) = compose(A, Layout(B, complement(B, size(A))))
-        layout_size = size(layout)
-        tiler_complement = complement(tiler, layout_size)
+        # logical_divide(A, B) =
+        #   compose(A, Layout(B, complement(B, size(coalesce(A)))))
+        tiler_complement = complement(tiler, size(coalesce(layout)))
 
         # Create bundled layout: (tiler, complement)
         combined = Layout(tiler, tiler_complement)
