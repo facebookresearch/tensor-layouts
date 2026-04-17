@@ -59,6 +59,61 @@ def test_offset_table_strided():
     assert all(len(v) == 1 for v in table.values())
 
 
+def test_aliasing_profile_contiguous():
+    """Contiguous layout has no aliasing."""
+    profile = aliasing_profile(Layout((2, 4), (1, 2)))
+    assert profile['has_aliasing'] is False
+    assert profile['max_alias_ways'] == 1
+    assert profile['aliased_offset_count'] == 0
+    assert profile['duplicate_elements'] == 0
+    assert profile['reuse_histogram'] == {1: 8}
+    assert profile['aliased_offsets'] == []
+
+
+def test_aliasing_profile_broadcast():
+    """Broadcast layout aliases four logical values onto each offset."""
+    profile = aliasing_profile(Layout((4, 2), (0, 1)))
+    assert profile['has_aliasing'] is True
+    assert profile['max_alias_ways'] == 4
+    assert profile['aliased_offset_count'] == 2
+    assert profile['duplicate_elements'] == 6
+    assert profile['reuse_histogram'] == {4: 2}
+    assert profile['aliased_offsets'] == [0, 1]
+
+
+def test_aliasing_profile_matches_offset_table_1d_invariants():
+    """aliasing_profile must match offset_table-derived invariants exactly."""
+    for shape in range(1, 7):
+        for stride in range(-3, 4):
+            lyt = Layout(shape, stride)
+            table = offset_table(lyt)
+            profile = aliasing_profile(lyt)
+
+            ways_per_offset = {off: len(coords) for off, coords in table.items()}
+            aliased_offsets = sorted(
+                off for off, ways in ways_per_offset.items() if ways > 1
+            )
+            reuse_histogram = {}
+            for ways in ways_per_offset.values():
+                reuse_histogram[ways] = reuse_histogram.get(ways, 0) + 1
+
+            assert profile['has_aliasing'] == bool(aliased_offsets)
+            assert profile['max_alias_ways'] == max(ways_per_offset.values(), default=0)
+            assert profile['aliased_offset_count'] == len(aliased_offsets)
+            assert profile['duplicate_elements'] == size(lyt) - len(ways_per_offset)
+            assert profile['reuse_histogram'] == dict(sorted(reuse_histogram.items()))
+            assert profile['aliased_offsets'] == aliased_offsets
+
+
+def test_aliasing_profile_tensor_like_input():
+    """Tensor inputs are accepted via as_layout conversion."""
+    t = Tensor(Layout((4, 2), (0, 1)))
+    profile = aliasing_profile(t)
+    assert profile['has_aliasing'] is True
+    assert profile['max_alias_ways'] == 4
+    assert profile['duplicate_elements'] == 6
+
+
 ## footprint
 
 
