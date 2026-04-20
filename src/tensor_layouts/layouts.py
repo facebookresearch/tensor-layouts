@@ -2757,10 +2757,11 @@ def _compose_with_tiler(layout_a: Layout, tiler) -> Layout:
     for i, elem in enumerate(tiler):
         mode_layout = mode(layout_a, i)
         composed = compose(mode_layout, elem)
-        assert isinstance(composed, Layout), (
-            "_compose_with_tiler expects affine per-mode results; "
-            "ComposedLayout inputs should be forwarded earlier"
-        )
+        if not isinstance(composed, Layout):
+            raise TypeError(
+                "_compose_with_tiler expects affine per-mode results; "
+                "ComposedLayout inputs should be forwarded earlier"
+            )
         result_shapes.append(unwrap(composed.shape))
         result_strides.append(unwrap(composed.stride))
 
@@ -3044,10 +3045,11 @@ def _logical_divide_with_tiler(layout: Layout, tiler) -> Layout:
     for i, elem in enumerate(tiler):
         mode_layout = mode(layout, i)
         divided = logical_divide(mode_layout, elem)
-        assert isinstance(divided, Layout), (
-            "_logical_divide_with_tiler expects affine per-mode results; "
-            "ComposedLayout inputs should be forwarded earlier"
-        )
+        if not isinstance(divided, Layout):
+            raise TypeError(
+                "_logical_divide_with_tiler expects affine per-mode results; "
+                "ComposedLayout inputs should be forwarded earlier"
+            )
         result_shapes.append(unwrap(divided.shape))
         result_strides.append(unwrap(divided.stride))
 
