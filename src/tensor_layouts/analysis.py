@@ -1271,6 +1271,252 @@ def operand_analysis(atom: MMAAtom) -> dict:
 # Algebra explanation
 # =============================================================================
 
+def _explain_logical_divide(fn, args):
+    L, T = args
+    if isinstance(T, int):
+        T = Layout(T)
+    lines = [f'logical_divide({L}, {T})']
+    actual = logical_divide(L, T)
+
+    if is_affine_layout(T):
+        lines.append('  = compose(L, Layout(T, complement(T, shape(coalesce(L)))))')
+        lines.append('')
+        lines.append(f'  L = {L}')
+        lines.append(f'  T = {T}')
+        coalesced_shape = coalesce(L).shape
+        lines.append(f'  shape(coalesce(L)) = {coalesced_shape}')
+        comp = complement(T, coalesced_shape)
+        lines.append(f'  complement(T, {coalesced_shape}) = {comp}')
+        intermediate = Layout(T, comp)
+        lines.append(f'  Layout(T, complement) = {intermediate}')
+        result = compose(L, intermediate)
+        lines.append(f'  compose(L, {intermediate}) = {result}')
+    else:
+        lines.append('  Divides each mode of L by the corresponding tiler element.')
+        lines.append('')
+        lines.append(f'  L = {L}')
+        lines.append(f'  T = {T}')
+
+    lines.append('')
+    lines.append(f'  result = {actual}')
+    return lines
+
+
+def _explain_logical_product(fn, args):
+    A, B = args
+    if isinstance(B, int):
+        B = Layout(B)
+    lines = [f'logical_product({A}, {B})']
+
+    if is_affine_layout(B):
+        lines.append('  = Layout(A, compose(complement(A, size(A)*cosize(B)), B))')
+        lines.append('')
+        lines.append(f'  A = {A}')
+        lines.append(f'  B = {B}')
+        lines.append(f'  size(A) = {size(A)}')
+        lines.append(f'  cosize(B) = {cosize(B)}')
+        bound = size(A) * cosize(B)
+        lines.append(f'  size(A) * cosize(B) = {bound}')
+        comp = complement(A, bound)
+        lines.append(f'  complement(A, {bound}) = {comp}')
+        comp_b = compose(comp, B)
+        lines.append(f'  compose(complement, B) = {comp_b}')
+        result = Layout(A, comp_b)
+        lines.append(f'  Layout(A, {comp_b}) = {result}')
+    else:
+        # Tuple tiler: mode-by-mode decomposition
+        lines.append('  For tuple tilers, applies logical_product mode-by-mode.')
+        lines.append('')
+        lines.append(f'  A = {A}')
+        lines.append(f'  B = {B}')
+        for i in range(len(B)):
+            mi = mode(A, i)
+            bi = B[i]
+            ri = logical_product(mi, bi)
+            lines.append(f'  mode {i}: logical_product({mi}, {bi}) = {ri}')
+
+    lines.append('')
+    lines.append(f'  result = {logical_product(A, B)}')
+    return lines
+
+
+def _explain_complement(fn, args):
+    L = args[0]
+    bound = args[1] if len(args) > 1 else None
+    if bound is not None:
+        lines = [f'complement({L}, {bound})']
+    else:
+        lines = [f'complement({L})']
+        bound = cosize(L)
+    lines.append(f'  Fills the gaps in L\'s codomain up to bound={bound}.')
+    lines.append('')
+    lines.append(f'  L = {L}')
+    lines.append(f'  image(L) = {image(L)}')
+    lines.append(f'  codomain = [0, {bound})')
+    comp = complement(*args)
+    lines.append(f'  complement = {comp}')
+    lines.append(f'  image(complement) = {image(comp)}')
+    return lines
+
+
+def _explain_compose(fn, args):
+    A, B = args
+    lines = [f'compose({A}, {B})']
+    if is_layout(B):
+        lines.append('  C(i) = A(B(i))')
+    else:
+        lines.append('  For tuple tilers, composition is applied mode-by-mode.')
+    lines.append('')
+    lines.append(f'  A = {A}')
+    lines.append(f'  B = {B}')
+    result = compose(A, B)
+    lines.append(f'  result = {result}')
+    lines.append('')
+    if is_layout(B):
+        n = min(size(result), 8)
+        lines.append(f'  First {n} values:')
+        for i in range(n):
+            b_i = B(i)
+            lines.append(f'    i={i}: B({i})={b_i}, A({b_i})={result(i)}')
+    else:
+        for i in range(len(B)):
+            ai = mode(A, i)
+            bi = _normalize_explain_compose_tiler(B[i])
+            ri = compose(ai, bi)
+            lines.append(f'  mode {i}: compose({ai}, {bi}) = {ri}')
+        for i in range(len(B), rank(A)):
+            ai = mode(A, i)
+            lines.append(f'  mode {i}: unchanged = {ai}')
+
+        n = min(size(result), 8)
+        lines.append('')
+        lines.append(f'  First {n} output offsets:')
+        for i in range(n):
+            coord = idx2crd(i, result.shape)
+            lines.append(f'    coord={coord}: result({coord})={result(coord)}')
+    return lines
+
+
+def _explain_right_inverse(fn, args):
+    L = args[0]
+    R = right_inverse(L)
+    n = min(size(R), 8)
+    lines = [
+        f'right_inverse({L})',
+        '  R such that L(R(i)) == i',
+        '',
+        f'  L = {L}',
+        f'  R = {R}',
+        '',
+        f'  Verification (first {n}):',
+    ]
+    for i in range(n):
+        lines.append(f'    R({i})={R(i)}, L(R({i}))={L(R(i))}')
+    return lines
+
+
+def _explain_left_inverse(fn, args):
+    L = args[0]
+    R = left_inverse(L)
+    n = min(size(L), 8)
+    lines = [
+        f'left_inverse({L})',
+        '  R such that R(L(i)) == i',
+        '',
+        f'  L = {L}',
+        f'  R = {R}',
+        '',
+        f'  Verification (first {n}):',
+    ]
+    for i in range(n):
+        lines.append(f'    L({i})={L(i)}, R(L({i}))={R(L(i))}')
+    return lines
+
+
+def _explain_blocked_product(fn, args):
+    A, B = args
+    lp = logical_product(A, B)
+    actual = blocked_product(A, B)
+    lines = [
+        f'blocked_product({A}, {B})',
+        '  Like logical_product, but interleaves corresponding modes:',
+        '  ((A0, B0), (A1, B1), ...) — A varies fastest (block-first).',
+        '',
+        f'  logical_product(A, B) = {lp}',
+        f'  blocked_product(A, B) = {actual}',
+        '',
+        '  Mode structure:',
+    ]
+    n_modes = max(1, len(actual.shape) if isinstance(actual.shape, tuple) else 1)
+    for i in range(n_modes):
+        m = mode(actual, i) if isinstance(actual.shape, tuple) else actual
+        lines.append(f'    mode {i}: {m.shape} : {m.stride}')
+    return lines
+
+
+def _explain_raked_product(fn, args):
+    A, B = args
+    bp = blocked_product(A, B)
+    actual = raked_product(A, B)
+    n = min(size(actual), 8)
+    bp_vals = [bp(i) for i in range(n)]
+    rp_vals = [actual(i) for i in range(n)]
+    return [
+        f'raked_product({A}, {B})',
+        '  Like blocked_product, but B varies fastest (rake-first):',
+        '  ((B0, A0), (B1, A1), ...) — elements are interleaved.',
+        '',
+        f'  blocked_product(A, B) = {bp}',
+        f'  raked_product(A, B)   = {actual}',
+        '',
+        '  Compare first 8 offsets:',
+        f'    blocked: {bp_vals}',
+        f'    raked:   {rp_vals}',
+    ]
+
+
+_DIVIDE_VARIANT_STRUCTURE = {
+    'zipped_divide': '  Structure: ((tiles), (rests))',
+    'tiled_divide': '  Structure: ((tiles), rest0, rest1, ...)',
+    'flat_divide': '  Structure: (tile0, tile1, ..., rest0, rest1, ...)',
+}
+
+
+def _explain_divide_variant(fn, args):
+    L, T = args
+    name = fn.__name__
+    ld = logical_divide(L, T)
+    actual = fn(L, T)
+    return [
+        f'{name}({L}, {T})',
+        '  Rearrangement of logical_divide result.',
+        '',
+        f'  logical_divide({L}, {T})',
+        f'    = {ld}',
+        f'  {name}:',
+        f'    = {actual}',
+        '',
+        _DIVIDE_VARIANT_STRUCTURE[name],
+    ]
+
+
+# Dispatch table keyed on the function object itself, so decorated or aliased
+# callables still resolve correctly (no name-string lookup).
+_EXPLAIN_HANDLERS = {
+    logical_divide: _explain_logical_divide,
+    logical_product: _explain_logical_product,
+    complement: _explain_complement,
+    compose: _explain_compose,
+    right_inverse: _explain_right_inverse,
+    left_inverse: _explain_left_inverse,
+    blocked_product: _explain_blocked_product,
+    raked_product: _explain_raked_product,
+    zipped_divide: _explain_divide_variant,
+    tiled_divide: _explain_divide_variant,
+    flat_divide: _explain_divide_variant,
+}
+
+
 def explain(fn, *args):
     """Show step-by-step how an algebra operation computes its result.
 
@@ -1288,215 +1534,15 @@ def explain(fn, *args):
         explain(logical_product, Layout(4, 1), Layout(3, 1))
         explain(complement, Layout(4, 2), 16)
     """
-    name = fn.__name__
-    lines = []
-
-    if name == 'logical_divide':
-        L, T = args
-        if isinstance(T, int):
-            T = Layout(T)
-        lines.append(f'logical_divide({L}, {T})')
-        actual = logical_divide(L, T)
-
-        if is_affine_layout(T):
-            lines.append('  = compose(L, Layout(T, complement(T, shape(coalesce(L)))))')
-            lines.append('')
-            lines.append(f'  L = {L}')
-            lines.append(f'  T = {T}')
-            coalesced_shape = coalesce(L).shape
-            lines.append(f'  shape(coalesce(L)) = {coalesced_shape}')
-            comp = complement(T, coalesced_shape)
-            lines.append(f'  complement(T, {coalesced_shape}) = {comp}')
-            intermediate = Layout(T, comp)
-            lines.append(f'  Layout(T, complement) = {intermediate}')
-            result = compose(L, intermediate)
-            lines.append(f'  compose(L, {intermediate}) = {result}')
-        else:
-            lines.append('  Divides each mode of L by the corresponding tiler element.')
-            lines.append('')
-            lines.append(f'  L = {L}')
-            lines.append(f'  T = {T}')
-
-        lines.append('')
-        lines.append(f'  result = {actual}')
-
-    elif name == 'logical_product':
-        A, B = args
-        if isinstance(B, int):
-            B = Layout(B)
-        lines.append(f'logical_product({A}, {B})')
-
-        if is_affine_layout(B):
-            lines.append('  = Layout(A, compose(complement(A, size(A)*cosize(B)), B))')
-            lines.append('')
-            lines.append(f'  A = {A}')
-            lines.append(f'  B = {B}')
-            lines.append(f'  size(A) = {size(A)}')
-            lines.append(f'  cosize(B) = {cosize(B)}')
-            bound = size(A) * cosize(B)
-            lines.append(f'  size(A) * cosize(B) = {bound}')
-            comp = complement(A, bound)
-            lines.append(f'  complement(A, {bound}) = {comp}')
-            comp_b = compose(comp, B)
-            lines.append(f'  compose(complement, B) = {comp_b}')
-            result = Layout(A, comp_b)
-            lines.append(f'  Layout(A, {comp_b}) = {result}')
-        else:
-            # Tuple tiler: mode-by-mode decomposition
-            lines.append('  For tuple tilers, applies logical_product mode-by-mode.')
-            lines.append('')
-            lines.append(f'  A = {A}')
-            lines.append(f'  B = {B}')
-            for i in range(len(B)):
-                mi = mode(A, i)
-                bi = B[i]
-                ri = logical_product(mi, bi)
-                lines.append(f'  mode {i}: logical_product({mi}, {bi}) = {ri}')
-
-        lines.append('')
-        actual = logical_product(A, B)
-        lines.append(f'  result = {actual}')
-
-    elif name == 'complement':
-        L = args[0]
-        bound = args[1] if len(args) > 1 else None
-        if bound is not None:
-            lines.append(f'complement({L}, {bound})')
-        else:
-            lines.append(f'complement({L})')
-            bound = cosize(L)
-        lines.append(f'  Fills the gaps in L\'s codomain up to bound={bound}.')
-        lines.append('')
-        lines.append(f'  L = {L}')
-        lines.append(f'  image(L) = {image(L)}')
-        lines.append(f'  codomain = [0, {bound})')
-        comp = complement(*args)
-        lines.append(f'  complement = {comp}')
-        lines.append(f'  image(complement) = {image(comp)}')
-
-    elif name == 'compose':
-        A, B = args
-        lines.append(f'compose({A}, {B})')
-        if is_layout(B):
-            lines.append('  C(i) = A(B(i))')
-        else:
-            lines.append('  For tuple tilers, composition is applied mode-by-mode.')
-        lines.append('')
-        lines.append(f'  A = {A}')
-        lines.append(f'  B = {B}')
-        result = compose(A, B)
-        lines.append(f'  result = {result}')
-        lines.append('')
-        if is_layout(B):
-            n = min(size(result), 8)
-            lines.append(f'  First {n} values:')
-            for i in range(n):
-                b_i = B(i)
-                lines.append(f'    i={i}: B({i})={b_i}, A({b_i})={result(i)}')
-        else:
-            for i in range(len(B)):
-                ai = mode(A, i)
-                bi = _normalize_explain_compose_tiler(B[i])
-                ri = compose(ai, bi)
-                lines.append(f'  mode {i}: compose({ai}, {bi}) = {ri}')
-            for i in range(len(B), rank(A)):
-                ai = mode(A, i)
-                lines.append(f'  mode {i}: unchanged = {ai}')
-
-            n = min(size(result), 8)
-            lines.append('')
-            lines.append(f'  First {n} output offsets:')
-            for i in range(n):
-                coord = idx2crd(i, result.shape)
-                lines.append(f'    coord={coord}: result({coord})={result(coord)}')
-
-    elif name == 'right_inverse':
-        L = args[0]
-        lines.append(f'right_inverse({L})')
-        lines.append('  R such that L(R(i)) == i')
-        lines.append('')
-        R = right_inverse(L)
-        lines.append(f'  L = {L}')
-        lines.append(f'  R = {R}')
-        n = min(size(R), 8)
-        lines.append('')
-        lines.append(f'  Verification (first {n}):')
-        for i in range(n):
-            lines.append(f'    R({i})={R(i)}, L(R({i}))={L(R(i))}')
-
-    elif name == 'left_inverse':
-        L = args[0]
-        lines.append(f'left_inverse({L})')
-        lines.append('  R such that R(L(i)) == i')
-        lines.append('')
-        R = left_inverse(L)
-        lines.append(f'  L = {L}')
-        lines.append(f'  R = {R}')
-        n = min(size(L), 8)
-        lines.append('')
-        lines.append(f'  Verification (first {n}):')
-        for i in range(n):
-            lines.append(f'    L({i})={L(i)}, R(L({i}))={R(L(i))}')
-
-    elif name == 'blocked_product':
-        A, B = args
-        lines.append(f'blocked_product({A}, {B})')
-        lines.append('  Like logical_product, but interleaves corresponding modes:')
-        lines.append('  ((A0, B0), (A1, B1), ...) — A varies fastest (block-first).')
-        lines.append('')
-        lp = logical_product(A, B)
-        lines.append(f'  logical_product(A, B) = {lp}')
-        actual = blocked_product(A, B)
-        lines.append(f'  blocked_product(A, B) = {actual}')
-        lines.append('')
-        lines.append('  Mode structure:')
-        for i in range(max(1, len(actual.shape) if isinstance(actual.shape, tuple) else 1)):
-            m = mode(actual, i) if isinstance(actual.shape, tuple) else actual
-            lines.append(f'    mode {i}: {m.shape} : {m.stride}')
-
-    elif name == 'raked_product':
-        A, B = args
-        lines.append(f'raked_product({A}, {B})')
-        lines.append('  Like blocked_product, but B varies fastest (rake-first):')
-        lines.append('  ((B0, A0), (B1, A1), ...) — elements are interleaved.')
-        lines.append('')
-        bp = blocked_product(A, B)
-        lines.append(f'  blocked_product(A, B) = {bp}')
-        actual = raked_product(A, B)
-        lines.append(f'  raked_product(A, B)   = {actual}')
-        lines.append('')
-        lines.append('  Compare first 8 offsets:')
-        n = min(size(actual), 8)
-        bp_vals = [bp(i) for i in range(n)]
-        rp_vals = [actual(i) for i in range(n)]
-        lines.append(f'    blocked: {bp_vals}')
-        lines.append(f'    raked:   {rp_vals}')
-
-    elif name in ('zipped_divide', 'tiled_divide', 'flat_divide'):
-        L, T = args
-        lines.append(f'{name}({L}, {T})')
-        lines.append('  Rearrangement of logical_divide result.')
-        lines.append('')
-        ld = logical_divide(L, T)
-        lines.append(f'  logical_divide({L}, {T})')
-        lines.append(f'    = {ld}')
-        actual = fn(L, T)
-        lines.append(f'  {name}:')
-        lines.append(f'    = {actual}')
-        lines.append('')
-        if name == 'zipped_divide':
-            lines.append('  Structure: ((tiles), (rests))')
-        elif name == 'tiled_divide':
-            lines.append('  Structure: ((tiles), rest0, rest1, ...)')
-        else:
-            lines.append('  Structure: (tile0, tile1, ..., rest0, rest1, ...)')
-
+    handler = _EXPLAIN_HANDLERS.get(fn)
+    if handler is None:
+        supported = ', '.join(sorted(h.__name__ for h in _EXPLAIN_HANDLERS))
+        lines = [
+            f'explain() does not support {getattr(fn, "__name__", fn)}.',
+            f'Supported: {supported}.',
+        ]
     else:
-        lines.append(f'explain() does not support {name}.')
-        lines.append('Supported: logical_divide, logical_product, complement,')
-        lines.append('           compose, right_inverse, left_inverse,')
-        lines.append('           blocked_product, raked_product,')
-        lines.append('           zipped_divide, tiled_divide, flat_divide.')
+        lines = handler(fn, args)
 
     text = '\n'.join(lines)
     print(text)
