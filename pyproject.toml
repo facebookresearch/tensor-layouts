@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tensor-layouts"
-version = "0.2.1"
+version = "0.3.0"
 description = "Pure-Python GPU layout algebra for NVIDIA and AMD tensor core access patterns — no GPU required"
 readme = "README.md"
 license = "MIT"
