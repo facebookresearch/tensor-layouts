@@ -80,7 +80,7 @@ draw_layout(Layout((8, 8), (8, 1)), title="Row-Major 8x8", colorize=True)
 | `colorize` | `bool` | `False` | Use rainbow colors (by cell value) |
 | `color_layout` | `Layout` | `None` | Custom coloring (see below) |
 | `color_by` | `str` | `None` | Shorthand: `"row"`, `"column"`, or `"offset"`. Mutually exclusive with `color_layout` |
-| `num_shades` | `int` | `8` | Number of distinct grayscale shades |
+| `num_colors` | `int` | `8` | Palette size (rainbow when `colorize=True`, else grayscale shades) |
 | `flatten_hierarchical` | `bool` | `True` | Flatten nested shapes to 2D grid |
 | `label_hierarchy_levels` | `bool` | `False` | In nested hierarchical mode, annotate hierarchy levels at tile/block granularity; label colors match boundary colors |
 | `cell_labels` | `bool`, `str`, or `list` | `True` | Controls cell text: `True` = full detail, `"offset"` = offset number only, `False` = no text, list/tuple = custom labels indexed by offset |
@@ -229,7 +229,7 @@ draw_swizzle(Layout((8, 8), (8, 1)), Swizzle(3, 0, 3), colorize=True)
 | `dpi` | `int` | `150` | Resolution |
 | `figsize` | `(w, h)` | auto | Figure size |
 | `colorize` | `bool` | `False` | Rainbow colors |
-| `num_shades` | `int` | `8` | Grayscale shades |
+| `num_colors` | `int` | `8` | Palette size (rainbow when `colorize=True`, else grayscale shades) |
 
 ## draw_tv_layout
 
@@ -329,7 +329,7 @@ draw_slice(Layout(8, 1), (slice(2, 5),), title="1D slice [2:5]")
 | `figsize` | `(w, h)` | auto | Figure size |
 | `colorize` | `bool` | `False` | Rainbow colors |
 | `color_layout` | `Layout` | `None` | Custom coloring in the layout's logical coordinate space |
-| `num_shades` | `int` | `8` | Grayscale shades |
+| `num_colors` | `int` | `8` | Palette size (rainbow when `colorize=True`, else grayscale shades) |
 
 ## draw_composite
 
