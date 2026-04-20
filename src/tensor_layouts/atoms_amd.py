@@ -339,8 +339,10 @@ CDNA_16x16x16_F32F16F16_MFMA = make_mfma_atom(
 # Treated as 4x64: all 64 lanes in a single block
 # CK: group_size=4, num_groups_per_blk=1, num_threads_per_blk=64,
 #     num_input_blks=1, num_output_blks=1, k_per_blk=4
-# NOTE: CK treats this as m_per_blk=4, n_per_blk=64 (4 rows, 64 columns)
-# but the ISA instruction is nominally 4x4. CK reshapes it.
+# Naming note: the symbolic name "4x4x4" follows the ISA instruction
+# (a 4x4 tile per block) so it matches the AMD docs and disassembly,
+# but the CuTe shape_mnk on the next line is (4, 64, 4) -- CK reshapes
+# the 4x4 instruction to spread all 64 lanes across N for one block.
 CDNA_4x4x4_F32F16F16_MFMA = make_mfma_atom(
     name="CDNA_4x4x4_F32F16F16_MFMA",
     inst="v_mfma_f32_4x4x4f16",
