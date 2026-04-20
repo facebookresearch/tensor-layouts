@@ -513,6 +513,154 @@ def _lookup_cell_label(cell_labels, idx: int):
     return idx
 
 
+def _autoscale_cell_fontsize(
+    ax,
+    indices: np.ndarray,
+    cols: int,
+    label_fontsize: float,
+) -> Tuple[float, float]:
+    """Estimate a cell-text font size that fits the widest label inside one cell.
+
+    Returns ``(cell_fontsize, label_fontsize)``; the margin label font is
+    capped at the cell font so the row/col indices never dominate the cells
+    they annotate.
+    """
+    fig = ax.get_figure()
+    if fig is None:
+        return 8.0, label_fontsize
+    fig_w, _ = fig.get_size_inches()
+    n_axes = max(len(fig.axes), 1)
+    panel_w = fig_w / n_axes * 0.85
+    inches_per_cell = panel_w / max(cols, 1)
+    max_val = int(np.max(np.abs(indices))) if indices.size > 0 else 0
+    n_digits = max(len(str(max_val)), 1)
+    max_fs = inches_per_cell * 72 / (n_digits * 0.6)
+    cell_fontsize = max(4, min(8, max_fs))
+    return cell_fontsize, min(label_fontsize, cell_fontsize)
+
+
+def _draw_cells(
+    ax,
+    indices: np.ndarray,
+    colors,
+    color_indices: Optional[np.ndarray],
+    highlight_mask: Optional[np.ndarray],
+    highlight_facecolor: str,
+    cell_size: float,
+):
+    """Render the base cell rectangles.
+
+    Returns ``(final_facecolors, highlighted_cells)``. ``final_facecolors``
+    is a 2D array of the colors that will be visible after the highlight
+    overlay pass (used by label rendering to choose readable text colors);
+    ``highlighted_cells`` lists the ``(i, j)`` pairs the overlay pass must
+    redraw.
+    """
+    rows, cols = indices.shape
+    final_facecolors = np.empty((rows, cols), dtype=object)
+    highlighted_cells = []
+
+    for i in range(rows):
+        for j in range(cols):
+            idx = int(indices[i, j])
+            is_hl = bool(highlight_mask[i, j]) if highlight_mask is not None else False
+            if color_indices is not None:
+                color_idx = int(color_indices[i, j]) % len(colors)
+            else:
+                # Default: color by cell value
+                color_idx = idx % len(colors)
+            base_facecolor = colors[color_idx]
+            final_facecolors[i, j] = highlight_facecolor if is_hl else base_facecolor
+            ax.add_patch(patches.Rectangle(
+                (j, i), cell_size, cell_size,
+                facecolor=base_facecolor, edgecolor="black",
+                linewidth=1, zorder=1,
+            ))
+            if is_hl:
+                highlighted_cells.append((i, j))
+    return final_facecolors, highlighted_cells
+
+
+def _draw_cell_highlights(
+    ax,
+    highlighted_cells,
+    cell_size: float,
+    highlight_facecolor: str,
+    highlight_edgecolor: str,
+):
+    """Overlay highlight rectangles at a higher zorder than the base cells.
+
+    Two-pass rendering keeps highlight borders from being clipped by
+    neighboring cells: ``_draw_cells`` lays everything down at zorder=1,
+    then this pass redraws the highlighted cells at zorder=6 with a
+    thicker border.
+    """
+    for i, j in highlighted_cells:
+        ax.add_patch(patches.Rectangle(
+            (j, i), cell_size, cell_size,
+            facecolor=highlight_facecolor, edgecolor=highlight_edgecolor,
+            linewidth=2, zorder=6,
+        ))
+
+
+def _draw_cell_value_labels(
+    ax,
+    indices: np.ndarray,
+    final_facecolors: np.ndarray,
+    cell_fontsize: float,
+    cell_labels,
+    precision: Optional[int],
+):
+    """Write the per-cell value text on top of the rendered cells.
+
+    Honors ``cell_labels=False`` (skip all text), the default ``True``
+    (use the index itself), and an explicit list/dict mapping offset to
+    label.  Text color flips to white when the cell's final fill color
+    is dark enough to swallow black text.
+    """
+    if cell_labels is False:
+        return
+    use_explicit = not isinstance(cell_labels, (bool, str))
+    rows, cols = indices.shape
+    for i in range(rows):
+        for j in range(cols):
+            idx = int(indices[i, j])
+            facecolor = final_facecolors[i, j]
+            text_color = "white" if _is_dark(facecolor) else "black"
+            if use_explicit:
+                val = _lookup_cell_label(cell_labels, idx)
+                label = _format_cell_value(val, precision)
+            else:
+                label = str(idx)
+            ax.text(
+                j + 0.5, i + 0.5, label,
+                ha="center", va="center",
+                fontsize=cell_fontsize, color=text_color, zorder=7,
+            )
+
+
+def _draw_axis_index_labels(
+    ax,
+    rows: int,
+    cols: int,
+    label_color: str,
+    label_fontsize: float,
+):
+    """Draw the row indices on the left and column indices on top."""
+    for i in range(rows):
+        ax.text(
+            -0.3, i + 0.5, str(i),
+            ha="center", va="center",
+            fontsize=label_fontsize, color=label_color, zorder=8,
+        )
+    for j in range(cols):
+        ax.text(
+            j + 0.5, -0.3, str(j),
+            ha="center", va="center",
+            fontsize=label_fontsize, color=label_color, zorder=8,
+        )
+
+
 def _draw_grid(
     ax,
     indices: np.ndarray,
@@ -534,6 +682,11 @@ def _draw_grid(
     precision: Optional[int] = None,
 ):
     """Draw a grid of cells with indices on a matplotlib axis.
+
+    Orchestrates four small rendering passes -- font sizing, cells,
+    optional hierarchy boundaries, highlight overlay, cell labels, and
+    finally the row/column margin labels.  Each pass lives in its own
+    helper just above so they can be read independently.
 
     Args:
         ax: Matplotlib axis to draw on
@@ -560,24 +713,11 @@ def _draw_grid(
     """
     rows, cols = indices.shape
 
-    # Auto-scale cell font size: estimate inches per cell from the figure,
-    # then pick a font size that fits the widest value inside cells.
     if cell_fontsize is None:
-        fig = ax.get_figure()
-        if fig is not None:
-            fig_w, _ = fig.get_size_inches()
-            n_axes = max(len(fig.axes), 1)
-            panel_w = fig_w / n_axes * 0.85
-            inches_per_cell = panel_w / max(cols, 1)
-            max_val = int(np.max(np.abs(indices))) if indices.size > 0 else 0
-            n_digits = max(len(str(max_val)), 1)
-            max_fs = inches_per_cell * 72 / (n_digits * 0.6)
-            cell_fontsize = max(4, min(8, max_fs))
-            label_fontsize = min(label_fontsize, cell_fontsize)
-        else:
-            cell_fontsize = 8
+        cell_fontsize, label_fontsize = _autoscale_cell_fontsize(
+            ax, indices, cols, label_fontsize
+        )
 
-    # Build the appropriate palette
     if colorize:
         colors = _make_rainbow_palette(num_colors, interleave=interleave_colors)
     else:
@@ -585,118 +725,31 @@ def _draw_grid(
 
     _setup_axes(ax, (-0.5, cols + 0.5), (-0.5, rows + 0.5), title=title)
 
-    final_facecolors = np.empty((rows, cols), dtype=object)
-    highlighted_cells = []
-
-    for i in range(rows):
-        for j in range(cols):
-            idx = int(indices[i, j])
-
-            # Determine highlight state
-            is_hl = bool(highlight_mask[i, j]) if highlight_mask is not None else False
-
-            # Determine base face color
-            if color_indices is not None:
-                color_idx = int(color_indices[i, j]) % len(colors)
-            else:
-                # Default: color by cell value
-                color_idx = idx % len(colors)
-
-            base_facecolor = colors[color_idx]
-            final_facecolors[i, j] = highlight_facecolor if is_hl else base_facecolor
-
-            # Draw base cell first; highlights are overlaid later so their
-            # borders are not covered by neighboring cells.
-            rect = patches.Rectangle(
-                (j, i),
-                cell_size,
-                cell_size,
-                facecolor=base_facecolor,
-                edgecolor="black",
-                linewidth=1,
-                zorder=1,
-            )
-            ax.add_patch(rect)
-
-            if is_hl:
-                highlighted_cells.append((i, j))
+    final_facecolors, highlighted_cells = _draw_cells(
+        ax, indices, colors, color_indices,
+        highlight_mask, highlight_facecolor, cell_size,
+    )
 
     if hierarchy_shapes is not None:
         row_shape, col_shape = hierarchy_shapes
         _draw_hierarchy_boundary_lines(
-            ax,
-            rows,
-            cols,
+            ax, rows, cols,
             _level_block_sizes(row_shape),
             _level_block_sizes(col_shape),
             zorder_base=4,
         )
 
-    # Two-pass rendering for correct z-ordering:
-    #   Pass 1 (below): draw all base cells at zorder=1
-    #   Pass 2 (line ~469): overlay highlights at zorder=6 with thicker borders
-    # This ensures highlight borders aren't obscured by adjacent base cells.
-    for i, j in highlighted_cells:
-        rect = patches.Rectangle(
-            (j, i),
-            cell_size,
-            cell_size,
-            facecolor=highlight_facecolor,
-            edgecolor=highlight_edgecolor,
-            linewidth=2,
-            zorder=6,
-        )
-        ax.add_patch(rect)
-
-    for i in range(rows):
-        for j in range(cols):
-            idx = int(indices[i, j])
-            facecolor = final_facecolors[i, j]
-            text_color = "white" if _is_dark(facecolor) else "black"
-            if cell_labels is False:
-                continue
-            if not isinstance(cell_labels, (bool, str)):
-                val = _lookup_cell_label(cell_labels, idx)
-                label = _format_cell_value(val, precision)
-            else:
-                label = str(idx)
-            ax.text(
-                j + 0.5,
-                i + 0.5,
-                label,
-                ha="center",
-                va="center",
-                fontsize=cell_fontsize,
-                color=text_color,
-                zorder=7,
-            )
+    _draw_cell_highlights(
+        ax, highlighted_cells, cell_size,
+        highlight_facecolor, highlight_edgecolor,
+    )
+    _draw_cell_value_labels(
+        ax, indices, final_facecolors,
+        cell_fontsize, cell_labels, precision,
+    )
 
     if show_labels:
-        # Row labels (left)
-        for i in range(rows):
-            ax.text(
-                -0.3,
-                i + 0.5,
-                str(i),
-                ha="center",
-                va="center",
-                fontsize=label_fontsize,
-                color=label_color,
-                zorder=8,
-            )
-
-        # Column labels (top)
-        for j in range(cols):
-            ax.text(
-                j + 0.5,
-                -0.3,
-                str(j),
-                ha="center",
-                va="center",
-                fontsize=label_fontsize,
-                color=label_color,
-                zorder=8,
-            )
+        _draw_axis_index_labels(ax, rows, cols, label_color, label_fontsize)
 
 
 def _save_figure(fig, filename, dpi: int = 150):
