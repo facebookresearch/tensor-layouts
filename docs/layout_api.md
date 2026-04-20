@@ -1,10 +1,35 @@
+<!--
+MIT License
+
+Copyright (c) 2026 Meta Platforms, Inc. and affiliates.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+-->
+
 # Layout Algebra API
 
 This document covers the core `tensor_layouts` API: constructing layouts,
 querying their properties, and applying the four algebraic operations
 (compose, complement, divide, product).
 
-For runnable examples see [`examples/layouts.py`](../examples/layouts.py).
+For runnable examples see [`examples/layouts.py`](../examples/layouts.py)
+and [`examples/composed.py`](../examples/composed.py).
 For visualization see [`docs/viz_api.md`](viz_api.md).
 
 ## What is a Layout?
@@ -62,7 +87,7 @@ layout(14)      # 14  — flat index (column-major order through domain)
 
 ## Query Functions
 
-All query functions work on layouts, tuples, and ints.
+All query functions work on layouts, composed layouts, tuples, and ints.
 
 | Function | Description | Example |
 |----------|-------------|---------|
@@ -71,6 +96,147 @@ All query functions work on layouts, tuples, and ints.
 | `rank(L)` | Number of top-level modes | `rank(Layout((4, 8))) == 2` |
 | `depth(L)` | Maximum nesting depth | `depth(Layout(((2,3), 4))) == 2` |
 | `mode(L, i)` | Extract mode `i` as a Layout | `mode(Layout((4, 8), (1, 4)), 0) == Layout(4, 1)` |
+
+For `ComposedLayout`, `size`, `rank`, `depth`, and `shape` all come from the
+**inner** layout domain, matching CuTe C++.
+
+## Layout Expressions and `ComposedLayout`
+
+Most user-facing APIs now accept a **layout expression**:
+
+```python
+LayoutExpr = Layout | ComposedLayout
+```
+
+`Layout` is still the normal affine case: it has a shape tree and a stride
+tree, and it may also carry one canonical final swizzle.
+
+`ComposedLayout` is the exact fallback for compositions that cannot be
+represented as `Layout + one swizzle` without changing behavior.
+
+```python
+from tensor_layouts import ComposedLayout, Layout, Swizzle, compose
+
+base = Layout((4, 4), (4, 1))
+swizzled = compose(Swizzle(2, 0, 2), base)   # still a plain Layout
+exact = compose(Layout(16, 2), swizzled)     # now a ComposedLayout
+```
+
+Semantics:
+
+```python
+ComposedLayout(outer, inner, preoffset)(coord) == outer(preoffset + inner(coord))
+```
+
+This mirrors CuTe C++'s `LayoutA o Offset o LayoutB` model:
+
+- `inner` defines the logical domain
+- `preoffset` stays **inside** the composition, before the outer map
+- `outer` can be affine or nonlinear (for example a `Swizzle`)
+
+The practical reason for `preoffset` is slicing. Once a fixed coordinate has
+been pushed under a nonlinear outer map, that fixed contribution can no longer
+be treated as an ordinary pointer offset.
+
+### Trait helpers
+
+Use the trait helpers to distinguish generic layout-expressions from
+affine-only code paths:
+
+| Helper | Meaning |
+|--------|---------|
+| `is_layout(x)` | True for both `Layout` and `ComposedLayout` |
+| `is_affine_layout(x)` | True only for `Layout` |
+| `as_layout_expr(x)` | Accept generic layout consumers |
+| `as_affine_layout(x)` | Reject `ComposedLayout` with a clear error |
+
+`ComposedLayout` intentionally does **not** expose `.stride`. If you need a
+stride tree, you are in an affine-only path and should say so explicitly.
+
+### When `compose()` returns `Layout` vs `ComposedLayout`
+
+The fast path is preserved for the common canonical case:
+
+```python
+compose(Swizzle(2, 0, 2), Layout((4, 4), (4, 1)))
+# Layout((4, 4), (4, 1), swizzle=Swizzle(2, 0, 2))
+```
+
+That is still a `Layout` because "a swizzled layout is a layout" remains the
+intended Python representation for the single-final-swizzle case.
+
+Once the result would require more than one nonlinear stage, Python now keeps
+the composition exact instead of guessing a replacement swizzle:
+
+```python
+base = Layout((8, 8), (8, 1))
+inner = compose(Swizzle(3, 0, 3), base)
+
+compose(Swizzle(1, 0, 3), inner)
+# ComposedLayout(Swizzle(1, 0, 3), inner, preoffset=0)
+
+compose(Layout((4, 4), (4, 1)), inner)
+# ComposedLayout(Layout((4, 4), (4, 1)), inner, preoffset=0)
+```
+
+That is the key semantic change: the library now prefers **exactness** over an
+unsafe normalization.
+
+### Example: canonical fast path vs exact fallback
+
+```python
+from tensor_layouts import Layout, Swizzle, compose
+
+base = Layout((4, 4), (4, 1))
+
+canonical = compose(Swizzle(2, 0, 2), base)
+type(canonical).__name__
+# 'Layout'
+
+exact = compose(Layout(16, 2), canonical)
+type(exact).__name__
+# 'ComposedLayout'
+```
+
+![Exact composed layout](images/composed_exact.png)
+
+### Example: why slicing needs `preoffset`
+
+```python
+exact = compose(
+    Layout(16, 2),
+    compose(Swizzle(2, 0, 2), Layout((4, 4), (4, 1))),
+)
+
+sub, offset = slice_and_offset((None, 1), exact)
+print(sub)
+print(offset)
+```
+
+The slice returns:
+
+- a new `ComposedLayout` whose internal `preoffset` captures the fixed column
+- external offset `0`
+
+That differs from plain affine slicing, where `slice_and_offset` can usually
+return `(affine_sublayout, integer_offset)`.
+
+![Composed slice](images/composed_slice.png)
+
+### Notes on `cosize`
+
+For `ComposedLayout`, `cosize()` follows CuTe C++ and delegates to the inner
+domain layout. It is **not** the exact image span of the outer nonlinear map.
+If you need real addressed bounds, use a Tensor with storage validation or
+enumerate the image directly.
+
+### Notebook note
+
+The existing notebooks still mostly exercise the canonical
+`compose(Swizzle, Layout(...))` fast path, so their visible outputs stay
+stable. For exact multi-stage compositions, use
+[`examples/composed.py`](../examples/composed.py) as the primary runnable
+reference.
 
 ## Iteration
 
@@ -94,42 +260,6 @@ for coord, offset in iter_layout(layout):
 
 # Collect unique offsets
 {layout(c) for c in layout}
-```
-
-## Image and Injectivity
-
-These functions analyze a layout viewed as a function from coordinates to
-memory offsets.
-
-| Function | Description |
-|----------|-------------|
-| `image(L)` | Sorted list of distinct offsets produced |
-| `is_injective(L)` | True if no two coordinates share an offset |
-| `is_surjective(L, codomain_size=None)` | True if every offset in `[0, codomain)` is hit |
-| `is_bijective(L)` | True if both injective and surjective (a permutation) |
-
-```python
-layout = Layout((4, 8), (1, 4))
-image(layout)           # [0, 1, 2, ..., 31]
-is_bijective(layout)    # True
-
-broadcast = Layout((4, 8), (0, 1))
-image(broadcast)        # [0, 1, 2, 3, 4, 5, 6, 7]
-is_injective(broadcast) # False (stride-0 causes aliasing)
-```
-
-## Functional Equivalence
-
-`functionally_equal(a, b)` returns True if two layouts compute the same
-offset for every flat index, even when they have different shapes or strides.
-This is useful for verifying that algebraic transformations like `coalesce()`
-and `flatten()` preserve behavior.
-
-```python
-L = Layout(((2, 2), (2, 4)), ((1, 4), (2, 8)))
-coalesce(L) == L                     # False (structurally different)
-functionally_equal(L, coalesce(L))   # True  (same mapping)
-functionally_equal(L, flatten(L))    # True
 ```
 
 ## Utility Functions
@@ -195,6 +325,36 @@ These operate on the nested integer tuples that make up shapes and strides.
 `prefix_product` computes column-major strides; `suffix_product` computes
 row-major strides.
 
+## Shape Factorization
+
+`shape_div(shape, d)` and `shape_mod(shape, d)` factor a hierarchical shape
+into the part that remains and the part that was consumed, proceeding from
+the innermost modes first.
+
+```python
+shape_div((6, 2), 3)  # (2, 2)
+shape_mod((6, 2), 3)  # (3, 1)
+
+# Complementary size identity for supported inputs:
+size(shape_div((6, 2), 3)) * size(shape_mod((6, 2), 3))  # 12
+```
+
+Policy note: this Python implementation intentionally uses a stricter scalar
+rule than dynamic CuTe C++. At each scalar recursive step, either the shape
+must divide the divisor or the divisor must divide the shape. If neither is
+true, `shape_div` raises `ValueError`:
+
+```python
+shape_div(12, 4)  # 3
+shape_div(4, 12)  # 1
+shape_div(6, 4)   # ValueError
+shape_div(4, 6)   # ValueError
+```
+
+This differs from dynamic CuTe C++, which may return `2` and `1` for the
+last two cases. The stricter Python rule matches `pycute` and keeps
+`shape_div`/`shape_mod` complementary for the educational runtime algebra.
+
 ## Core Algebra
 
 ### compose(A, B)
@@ -210,9 +370,17 @@ compose(Layout(8, 2), Layout(4, 1))  # Layout(4, 2)
 
 compose(Layout((4, 8), (8, 1)), (2, 4))  # Layout((2, 4), (8, 1))
 # Select the top-left 2x4 subblock (mode-by-mode with shape tiler)
+
+compose(Layout(((2, 3), 8), ((1, 2), 6)), ((2, 3), 4))
+# Layout(((2, 3), 4), ((1, 2), 6))
+# Nested tuple tilers recurse within the corresponding mode instead of
+# being flattened into a single stride-1 layout.
 ```
 
-When `A` is a `Swizzle`, the result is a `Layout` with an embedded swizzle.
+When `A` is a `Swizzle`, the canonical `compose(Swizzle, affine Layout)` case
+still returns a `Layout` with an embedded swizzle. If `B` is already swizzled
+or composed, `compose()` returns a `ComposedLayout` instead so the composition
+remains exact.
 
 ### complement(L, bound)
 
@@ -232,6 +400,12 @@ Split L into `(tile, rest)` — the core tiling operation.
 ```python
 logical_divide(Layout(16, 1), 4)  # Layout((4, 4), (1, 4))
 # 4-element tiles, 4 tiles total
+
+logical_divide(Layout(4, 3), 4)   # Layout((4, 1), (3, 0))
+# CuTe canonicalizes any extent-1 tile/rest mode to stride 0.
+
+logical_divide(Layout(((2, 3), 8), ((1, 2), 6)), ((2, 3), 4))
+# Divide mode 0 recursively by (2, 3), and mode 1 by 4.
 ```
 
 Variants control result organization:
@@ -242,6 +416,19 @@ Variants control result organization:
 | `zipped_divide` | `((tiles), (rests))` |
 | `tiled_divide` | `((tiles), rest0, rest1, ...)` |
 | `flat_divide` | `(tile0, tile1, rest0, rest1, ...)` |
+
+When `T` is a true `Layout`, the divide variants preserve its stride
+structure instead of silently reducing it to `T.shape`:
+
+```python
+A = Layout((8, 8), (1, 8))
+T = Layout((2, 2), (1, 4))
+
+logical_divide(A, T)  # Layout(((2, 2), (2, 8)), ((1, 4), (2, 8)))
+zipped_divide(A, T)   # same as logical_divide(A, T)
+tiled_divide(A, T)    # Layout(((2, 2), 2, 8), ((1, 4), 2, 8))
+flat_divide(A, T)     # Layout((2, 2, 2, 8), (1, 4, 2, 8))
+```
 
 ### logical_product(A, B)
 
@@ -285,16 +472,7 @@ swizzled = compose(Swizzle(3, 0, 3), Layout((8, 8), (8, 1)))
 
 ## Tensor
 
-`Tensor(layout, offset=0)` combines a Layout with a base offset (the
-pointer equivalent from CuTe C++).  Supports slicing:
-
-```python
-t = Tensor(Layout((4, 8), (8, 1)))
-t(2, 5)     # 21 — same as layout(2, 5)
-t[2, :]     # Tensor(8:1, offset=16) — row 2
-t[:, 5]     # Tensor(4:8, offset=5)  — column 5
-t[2, 5]     # 21 — fix all modes, returns int
-```
+See [`docs/tensor_api.md`](tensor_api.md).
 
 ## Tile
 

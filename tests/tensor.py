@@ -81,8 +81,8 @@ class TestTensorConstruction:
         layout = Layout(32, 1)
         tensor = Tensor(layout)
 
-        # Scalar shape has rank 0 in CuTe convention
-        assert rank(tensor.layout) == 0
+        # Single-mode layout has rank 1 (one mode)
+        assert rank(tensor.layout) == 1
         assert size(tensor.layout) == 32
         for i in range(32):
             assert tensor(i) == i
@@ -273,14 +273,23 @@ class TestTensorSlicingBasic:
                 assert isinstance(result, int)
                 assert result == tensor(i, j)
 
-    def test_single_index_slice(self):
-        """tensor[i] - single index fixes mode 0."""
+    def test_single_index_flat_eval(self):
+        """tensor[i] — flat 1D evaluation on any-rank tensor.
+
+        Matches CuTe C++ Tensor::operator()(int): the integer is decomposed
+        via idx2crd into the natural coordinate, then the offset is computed.
+        """
         layout = Layout((4, 8), (1, 4))
         tensor = Tensor(layout)
 
-        row = tensor[2]
-        assert isinstance(row, Tensor)
-        assert row.offset == 2
+        # tensor[2] decomposes: idx2crd(2, (4,8)) = (2, 0) → offset 2
+        result = tensor[2]
+        assert isinstance(result, int)
+        assert result == layout(2)
+
+        # Verify for all flat indices
+        for i in range(size(layout)):
+            assert tensor[i] == layout(i)
 
 
 class TestTensorSlicingRowMajor:
@@ -532,6 +541,22 @@ class TestSwizzledTensorSlicing:
             col = tensor[:, j]
             for i in range(8):
                 assert col(i) == tensor(i, j)
+
+    def test_swizzled_hierarchical_partial_slice(self):
+        """Partial hierarchical slices keep swizzle semantics."""
+        sw_layout = compose(Swizzle(2, 0, 2), Layout(((2, 2), 4), ((1, 2), 4)))
+        tensor = Tensor(sw_layout)
+
+        sub = tensor[((None, 1), None)]
+        assert isinstance(sub, Tensor)
+        assert sub.offset == 2
+        assert sub.layout.shape == (2, 4)
+        assert sub.layout.stride == (1, 4)
+        assert sub.layout.swizzle == sw_layout.swizzle
+
+        for i0 in range(2):
+            for j in range(4):
+                assert sub(i0, j) == tensor((i0, 1), j)
 
     def test_swizzle_2_1_3(self):
         """Different swizzle parameters: Swizzle(2, 1, 3)."""
@@ -971,6 +996,599 @@ class TestCuTeCompatibility:
 
         # Verify they access different starting positions
         assert thread0_slice.offset != thread1_slice.offset or thread0_slice(0) != thread1_slice(0)
+
+    def test_hierarchical_slice_preserves_structure(self):
+        """Slicing with nested Nones preserves hierarchical mode boundaries.
+
+        From arXiv:2603.02298, Figure 5: slicing the Cecka tensor.
+        """
+        A = Layout(((3, 2), ((2, 3), 2)), ((4, 1), ((2, 15), 100)))
+        T = Tensor(A)
+
+        # (2, ((0, None), None)) — fix mode 0 and partial mode 1
+        Ts = T[(2, ((0, None), None))]
+        assert Ts.offset == 8
+        assert Ts.layout.shape == (3, 2)
+        for j1 in range(3):
+            for j2 in range(2):
+                assert A(2, ((0, j1), j2)) == Ts.offset + Ts.layout(j1, j2)
+
+        # ((1, None), ((None, 0), None)) — partial slice on both modes
+        Ts = T[((1, None), ((None, 0), None))]
+        assert Ts.offset == 4
+        assert Ts.layout.shape == (2, (2, 2))
+        for i1 in range(2):
+            for j0 in range(2):
+                for j2 in range(2):
+                    assert A((1, i1), ((j0, 0), j2)) == Ts.offset + Ts.layout(i1, (j0, j2))
+
+    def test_tensor_slice_with_none(self):
+        """Tensor.__getitem__ accepts None as equivalent to slice(None)."""
+        layout = Layout((4, 8), (1, 4))
+        T = Tensor(layout)
+
+        # T[(2, None)] should equal T[2, :]
+        Ts_none = T[(2, None)]
+        Ts_colon = T[2, :]
+        assert Ts_none.offset == Ts_colon.offset
+        assert Ts_none.layout == Ts_colon.layout
+
+    def test_tensor_full_slice_matches_explicit_full_slice(self):
+        """A bare full slice returns the whole tensor view."""
+        layout = Layout((4, 8), (1, 4))
+        buf = list(range(32))
+        tensor = Tensor(layout, data=buf)
+
+        full = tensor[:]
+        explicit = tensor[:, :]
+
+        assert isinstance(full, Tensor)
+        assert full == explicit
+        assert full.layout == layout
+        assert full.offset == 0
+        assert full.data is buf
+
+    def test_swizzled_tensor_full_slice_matches_explicit_full_slice(self):
+        """A bare full slice preserves swizzled whole-tensor semantics."""
+        sw_layout = compose(Swizzle(3, 0, 3), Layout((8, 8), (8, 1)))
+        tensor = Tensor(sw_layout, offset=16)
+
+        full = tensor[:]
+        explicit = tensor[:, :]
+
+        assert isinstance(full, Tensor)
+        assert full == explicit
+        assert full.layout.swizzle == sw_layout.swizzle
+        assert full.offset == tensor.offset
+
+        for i in range(8):
+            for j in range(8):
+                assert full(i, j) == tensor(i, j)
+
+
+# =============================================================================
+# Flat 1D Evaluation and Copy Algorithm
+# =============================================================================
+
+
+class TestFlatEvaluation:
+    """Flat 1D evaluation: tensor[i] decomposes i via idx2crd on any rank."""
+
+    def test_flat_eval_rank2_row_major(self):
+        """Row-major rank-2 tensor: tensor[i] == layout(i) for all i."""
+        layout = Layout((4, 8), (8, 1))
+        t = Tensor(layout)
+        for i in range(size(layout)):
+            assert t[i] == layout(i)
+
+    def test_flat_eval_rank2_col_major(self):
+        """Column-major rank-2 tensor: tensor[i] == layout(i) for all i."""
+        layout = Layout((4, 8), (1, 4))
+        t = Tensor(layout)
+        for i in range(size(layout)):
+            assert t[i] == layout(i)
+
+    def test_flat_eval_rank3(self):
+        """Rank-3 tensor: flat 1D evaluation through all elements."""
+        layout = Layout((2, 4, 8), (32, 8, 1))
+        t = Tensor(layout)
+        for i in range(size(layout)):
+            assert t[i] == layout(i)
+
+    def test_flat_eval_with_offset(self):
+        """Flat 1D evaluation respects base offset."""
+        layout = Layout((4, 8), (8, 1))
+        t = Tensor(layout, offset=100)
+        for i in range(size(layout)):
+            assert t[i] == 100 + layout(i)
+
+    def test_flat_eval_with_data(self):
+        """Flat 1D evaluation with storage returns data[offset]."""
+        layout = Layout((4, 8), (8, 1))
+        buf = list(range(32))
+        t = Tensor(layout, data=buf)
+        for i in range(size(layout)):
+            assert t[i] == buf[layout(i)]
+
+    def test_flat_eval_consistent_with_setitem(self):
+        """tensor[i] reads what tensor[i] = val wrote."""
+        layout = Layout((4, 8), (8, 1))
+        buf = [0] * 32
+        t = Tensor(layout, data=buf)
+        for i in range(size(layout)):
+            t[i] = i * 10
+        for i in range(size(layout)):
+            assert t[i] == i * 10
+
+    def test_slice_mode0_still_works(self):
+        """Mode-0 slicing uses tensor[i, :], not tensor[i]."""
+        layout = Layout((4, 8), (1, 4))
+        t = Tensor(layout)
+        row = t[2, :]
+        assert isinstance(row, Tensor)
+        assert row.offset == 2
+        for j in range(8):
+            assert row(j) == t(2, j)
+
+
+class TestCopyAlgorithm:
+    """The canonical COPY algorithm: dst[i] = src[i] for all i."""
+
+    def test_copy_same_layout(self):
+        """Copy between tensors with the same layout."""
+        layout = Layout((4, 8), (8, 1))
+        src_buf = list(range(32))
+        dst_buf = [0] * 32
+        src = Tensor(layout, data=src_buf)
+        dst = Tensor(layout, data=dst_buf)
+
+        for i in range(size(layout)):
+            dst[i] = src[i]
+
+        for i in range(32):
+            assert dst_buf[i] == src_buf[i]
+
+    def test_copy_different_layouts(self):
+        """Copy between row-major and column-major tensors.
+
+        This is the motivating use case: different layouts over the same
+        logical shape produce different physical orderings, and copy()
+        must remap correctly.
+        """
+        row_major = Layout((4, 8), (8, 1))
+        col_major = Layout((4, 8), (1, 4))
+
+        src_buf = list(range(32))
+        dst_buf = [0] * 32
+        src = Tensor(row_major, data=src_buf)
+        dst = Tensor(col_major, data=dst_buf)
+
+        assert size(src.layout) == size(dst.layout)
+        for i in range(size(src.layout)):
+            dst[i] = src[i]
+
+        # Verify: same logical element at every coordinate
+        for i in range(4):
+            for j in range(8):
+                assert dst[i, j] == src[i, j]
+
+    def test_copy_rank3(self):
+        """Copy works on rank-3 tensors."""
+        layout_a = Layout((2, 4, 8), (32, 8, 1))
+        layout_b = Layout((2, 4, 8), (1, 2, 8))
+
+        src_buf = list(range(64))
+        dst_buf = [0] * 64
+        src = Tensor(layout_a, data=src_buf)
+        dst = Tensor(layout_b, data=dst_buf)
+
+        for i in range(size(layout_a)):
+            dst[i] = src[i]
+
+        for b in range(2):
+            for h in range(4):
+                for w in range(8):
+                    assert dst[b, h, w] == src[b, h, w]
+
+
+# =============================================================================
+# Tensor Storage
+# =============================================================================
+
+class TestTensorStorage:
+    """Tests for Tensor data storage, element access, and view semantics."""
+
+    def test_construction_with_data(self):
+        """Tensor can be constructed with storage."""
+        layout = Layout((4, 8), (8, 1))
+        buf = list(range(32))
+        t = Tensor(layout, data=buf)
+        assert t.data is buf
+        assert t.layout == layout
+        assert t.offset == 0
+
+    def test_construction_with_data_and_offset(self):
+        """Tensor can have both offset and data."""
+        buf = list(range(64))
+        t = Tensor(Layout((4, 8), (8, 1)), offset=5, data=buf)
+        assert t.offset == 5
+        assert t.data is buf
+
+    def test_data_too_small_raises(self):
+        """Storage smaller than cosize raises ValueError."""
+        layout = Layout((4, 8), (8, 1))  # cosize = 32
+        with pytest.raises(ValueError, match="addressed range"):
+            Tensor(layout, data=list(range(10)))
+
+    def test_data_larger_than_cosize(self):
+        """Storage can be larger than cosize."""
+        layout = Layout((4, 8), (8, 1))  # cosize = 32
+        buf = list(range(100))
+        t = Tensor(layout, data=buf)
+        assert t.data is buf
+
+    def test_data_none_by_default(self):
+        """Without data, tensor.data is None."""
+        t = Tensor(Layout((4, 8), (8, 1)))
+        assert t.data is None
+
+    def test_data_property_setter(self):
+        """The data property is writable."""
+        layout = Layout((4, 8), (8, 1))
+        t = Tensor(layout)
+        assert t.data is None
+
+        buf = list(range(32))
+        t.data = buf
+        assert t.data is buf
+
+    def test_data_setter_validates_size(self):
+        """Setting data too small raises ValueError."""
+        layout = Layout((4, 8), (8, 1))  # cosize = 32
+        t = Tensor(layout)
+        with pytest.raises(ValueError, match="addressed range"):
+            t.data = list(range(10))
+
+    def test_data_with_positive_offset_needs_full_address_range(self):
+        """Construction validates the full addressed range, not just cosize(layout)."""
+        buf = list(range(14))
+        t = Tensor(Layout(4, 1), offset=10, data=buf)
+
+        assert [t[i] for i in range(4)] == [10, 11, 12, 13]
+
+    def test_data_with_positive_offset_and_short_storage_raises(self):
+        """A nonzero base offset must still fit in the backing storage."""
+        with pytest.raises(ValueError, match="addressed range"):
+            Tensor(Layout(4, 1), offset=10, data=[0] * 4)
+
+    def test_negative_stride_requires_nonnegative_address_range(self):
+        """Negative strides without a compensating offset are rejected."""
+        with pytest.raises(ValueError, match="addressed range"):
+            Tensor(Layout(4, -1), data=list(range(10)))
+
+    def test_negative_stride_with_offset_reads_correct_data(self):
+        """Negative strides work when the base offset keeps accesses in-bounds."""
+        t = Tensor(Layout(4, -1), offset=3, data=list(range(8)))
+        assert [t[i] for i in range(4)] == [3, 2, 1, 0]
+
+    def test_negative_stride_slice_preserves_valid_address_range(self):
+        """Slicing a valid negative-stride tensor stays within the shared storage."""
+        t = Tensor(Layout((2, 4), (4, -1)), offset=3, data=list(range(8)))
+        row1 = t[1, :]
+
+        assert row1.data is t.data
+        assert [row1[j] for j in range(4)] == [7, 6, 5, 4]
+
+    def test_data_setter_validates_offset_and_signed_stride(self):
+        """Assigning data uses the same addressed-range validation as construction."""
+        t = Tensor(Layout(4, -1), offset=3)
+
+        with pytest.raises(ValueError, match="addressed range"):
+            t.data = list(range(3))
+
+        buf = list(range(4))
+        t.data = buf
+        assert [t[i] for i in range(4)] == [3, 2, 1, 0]
+
+    def test_data_setter_accepts_none(self):
+        """Setting data to None removes storage."""
+        buf = list(range(32))
+        t = Tensor(Layout((4, 8), (8, 1)), data=buf)
+        t.data = None
+        assert t.data is None
+
+    def test_getitem_returns_data_element(self):
+        """With data, tensor[i, j] returns data[offset]."""
+        layout = Layout((4, 8), (8, 1))
+        buf = list("ABCDEFGHIJKLMNOPQRSTUVWXYZ012345")
+        t = Tensor(layout, data=buf)
+
+        assert t[0, 0] == "A"  # buf[0]
+        assert t[0, 1] == "B"  # buf[1]
+        assert t[1, 0] == "I"  # buf[8]
+        assert t[3, 7] == "5"  # buf[31]
+
+    def test_getitem_without_data_returns_offset(self):
+        """Without data, tensor[i, j] still returns the offset integer."""
+        layout = Layout((4, 8), (8, 1))
+        t = Tensor(layout)
+        assert t[2, 3] == 19
+
+    def test_call_unaffected_by_data(self):
+        """tensor(i, j) always returns the offset, even with data."""
+        layout = Layout((4, 8), (8, 1))
+        buf = list("ABCDEFGHIJKLMNOPQRSTUVWXYZ012345")
+        t = Tensor(layout, data=buf)
+        assert t(2, 3) == 19  # offset, not 'T'
+
+    def test_getitem_single_mode_returns_data(self):
+        """Rank-1 tensor: tensor[i] returns data element."""
+        buf = list("ABCDEFGH")
+        t = Tensor(Layout(8, 1), data=buf)
+        assert t[0] == "A"
+        assert t[7] == "H"
+
+    def test_getitem_flat_eval_returns_data(self):
+        """Flat 1D evaluation with data returns data element, not sub-Tensor."""
+        buf = list(range(32))
+        t = Tensor(Layout((4, 8), (1, 4)), data=buf)
+        # t[2] does flat 1D eval: layout(2) = 2, returns buf[2]
+        result = t[2]
+        assert isinstance(result, int)
+        assert result == buf[t.layout(2)]
+
+    def test_setitem_writes_to_data(self):
+        """tensor[i, j] = val writes data[offset]."""
+        buf = list(range(32))
+        t = Tensor(Layout((4, 8), (8, 1)), data=buf)
+
+        t[2, 3] = 999
+        assert buf[19] == 999
+        assert t[2, 3] == 999
+
+    def test_setitem_rank1(self):
+        """Scalar write on rank-1 tensor."""
+        buf = list(range(16))
+        t = Tensor(Layout(8, 2), data=buf)
+        t[3] = 42
+        assert buf[6] == 42  # offset = 3*2 = 6
+
+    @pytest.mark.parametrize(
+        "key",
+        [
+            (slice(None), 1),
+            (None, 1),
+            ((0, None), 1),
+            slice(None),
+        ],
+    )
+    def test_setitem_rejects_free_coordinates(self, key):
+        """Assignment must reject any key that leaves a mode free."""
+        buf = list(range(32))
+        t = Tensor(Layout((4, 8), (8, 1)), data=buf)
+
+        with pytest.raises(TypeError, match="fully-fixed coordinates"):
+            t[key] = 999
+
+        assert buf == list(range(32))
+
+    def test_setitem_hierarchical_fixed_coordinate_writes_to_data(self):
+        """A fully-fixed hierarchical coordinate is still a valid assignment key."""
+        layout = Layout(((2, 4), 8), ((1, 2), 8))
+        buf = list(range(cosize(layout)))
+        t = Tensor(layout, data=buf)
+
+        t[(1, 3), 5] = 999
+
+        assert buf[t((1, 3), 5)] == 999
+        assert t[(1, 3), 5] == 999
+
+    def test_setitem_without_data_raises(self):
+        """Writing to a tensor with no storage raises TypeError."""
+        t = Tensor(Layout((4, 8), (8, 1)))
+        with pytest.raises(TypeError, match="no storage"):
+            t[2, 3] = 42
+
+    def test_slice_shares_data(self):
+        """Sub-Tensors from slicing share the parent's data."""
+        buf = list(range(32))
+        t = Tensor(Layout((4, 8), (8, 1)), data=buf)
+        row2 = t[2, :]
+        assert row2.data is buf
+
+    def test_slice_data_read(self):
+        """Reading through a sliced sub-Tensor accesses correct data."""
+        buf = list(range(32))
+        t = Tensor(Layout((4, 8), (8, 1)), data=buf)
+        row2 = t[2, :]
+        # row2[3] should be buf[tensor(2, 3)] = buf[19] = 19
+        assert row2[3] == 19
+        assert row2[3] == t[2, 3]
+
+    def test_slice_data_write(self):
+        """Writing through a sliced sub-Tensor modifies shared data."""
+        buf = list(range(32))
+        t = Tensor(Layout((4, 8), (8, 1)), data=buf)
+        row2 = t[2, :]
+        row2[3] = 999
+        assert buf[19] == 999
+        assert t[2, 3] == 999
+
+    def test_chained_slice_data(self):
+        """tensor[i, :][j] returns the same data element as tensor[i, j]."""
+        buf = list(range(32))
+        t = Tensor(Layout((4, 8), (8, 1)), data=buf)
+        for i in range(4):
+            for j in range(8):
+                assert t[i, :][j] == t[i, j]
+
+    def test_hierarchical_slice_propagates_data(self):
+        """Data is propagated through hierarchical partial slicing."""
+        layout = Layout(((2, 4), 8), ((1, 2), 8))
+        buf = list(range(cosize(layout)))
+        t = Tensor(layout, data=buf)
+
+        sub = t[((0, None), None)]
+        assert sub.data is buf
+
+    def test_data_swap_does_not_affect_existing_slices(self):
+        """Reassigning parent.data does not update existing sub-Tensors."""
+        buf1 = list(range(32))
+        buf2 = list(range(100, 132))
+        t = Tensor(Layout((4, 8), (8, 1)), data=buf1)
+        row = t[2, :]
+
+        t.data = buf2
+        # row still references buf1
+        assert row.data is buf1
+        assert row[0] == 16  # buf1[16]
+        # parent now reads from buf2
+        assert t[2, 0] == 116  # buf2[16]
+
+
+# =============================================================================
+# Tensor Equality with Data
+# =============================================================================
+
+class TestTensorEqualityWithData:
+    """Tests for __eq__ when storage is present."""
+
+    def test_same_contents_equal(self):
+        """Tensors with same layout, offset, and data contents are equal."""
+        layout = Layout(8, 1)
+        a = Tensor(layout, data=[1, 2, 3, 4, 5, 6, 7, 8])
+        b = Tensor(layout, data=[1, 2, 3, 4, 5, 6, 7, 8])
+        assert a == b
+
+    def test_different_contents_not_equal(self):
+        """Tensors with different data contents are not equal."""
+        layout = Layout(8, 1)
+        a = Tensor(layout, data=[1, 2, 3, 4, 5, 6, 7, 8])
+        b = Tensor(layout, data=[8, 7, 6, 5, 4, 3, 2, 1])
+        assert a != b
+
+    def test_one_has_data_other_does_not(self):
+        """Tensor with data != Tensor without data."""
+        layout = Layout(8, 1)
+        a = Tensor(layout, data=[1, 2, 3, 4, 5, 6, 7, 8])
+        b = Tensor(layout)
+        assert a != b
+        assert b != a
+
+    def test_both_none_equal(self):
+        """Two algebraic Tensors with same layout/offset are equal (existing behavior)."""
+        layout = Layout((4, 8), (8, 1))
+        a = Tensor(layout)
+        b = Tensor(layout)
+        assert a == b
+
+    def test_same_data_identity_shortcut(self):
+        """Tensors sharing the same data object are equal."""
+        layout = Layout(8, 1)
+        buf = [1, 2, 3, 4, 5, 6, 7, 8]
+        a = Tensor(layout, data=buf)
+        b = Tensor(layout, data=buf)
+        assert a == b
+
+    def test_different_data_lengths_not_equal(self):
+        """Tensors with different data lengths are not equal."""
+        layout = Layout(4, 1)
+        a = Tensor(layout, data=[1, 2, 3, 4])
+        b = Tensor(layout, data=[1, 2, 3, 4, 5, 6, 7, 8])
+        assert a != b
+
+    def test_hash_consistent_with_equality(self):
+        """Equal Tensors must have equal hashes."""
+        layout = Layout(8, 1)
+        a = Tensor(layout, data=[1, 2, 3, 4, 5, 6, 7, 8])
+        b = Tensor(layout, data=[1, 2, 3, 4, 5, 6, 7, 8])
+        assert a == b
+        assert hash(a) == hash(b)
+
+    def test_different_data_can_collide_hash(self):
+        """Tensors with different data may have same hash (collision OK)."""
+        layout = Layout(8, 1)
+        a = Tensor(layout, data=[1, 2, 3, 4, 5, 6, 7, 8])
+        b = Tensor(layout, data=[8, 7, 6, 5, 4, 3, 2, 1])
+        # Same hash is allowed even though a != b
+        assert hash(a) == hash(b)  # both have same (layout, offset)
+        assert a != b
+
+
+class TestView:
+    """Tests for Tensor.view()."""
+
+    def test_view_shares_data(self):
+        """View shares the same backing storage."""
+        buf = list("ABCDEFGH")
+        t = Tensor(Layout((2, 4), (4, 1)), data=buf)
+        flat = t.view(Layout(8, 1))
+        assert flat.data is t.data
+
+    def test_view_reads_same_data(self):
+        """View reads from the shared storage."""
+        buf = list("ABCDEFGH")
+        t = Tensor(Layout((2, 4), (4, 1)), data=buf)
+        flat = t.view(Layout(8, 1))
+        assert flat[0] == "A"
+        assert flat[7] == "H"
+
+    def test_view_write_visible(self):
+        """Writes through a view are visible in the original."""
+        buf = list("ABCDEFGH")
+        t = Tensor(Layout((2, 4), (4, 1)), data=buf)
+        flat = t.view(Layout(8, 1))
+        flat[0] = "Z"
+        assert t[0, 0] == "Z"
+
+    def test_view_different_layout(self):
+        """View can reshape to a different rank."""
+        buf = list(range(12))
+        t = Tensor(Layout(12, 1), data=buf)
+        reshaped = t.view(Layout((3, 4), (4, 1)))
+        assert reshaped[1, 2] == buf[1 * 4 + 2]
+
+    def test_view_preserves_offset(self):
+        """A view keeps the parent Tensor's base offset."""
+        buf = list(range(64))
+        t = Tensor(Layout((4, 8), (8, 1)), offset=16, data=buf)
+
+        flat = t.view(Layout(32, 1))
+
+        assert flat.offset == 16
+        assert flat[0] == 16
+        assert flat[15] == 31
+
+    def test_view_negative_stride_uses_preserved_offset(self):
+        """Preserving offset enables valid reverse views."""
+        buf = list(range(8))
+        t = Tensor(Layout(4, 1), offset=3, data=buf)
+
+        rev = t.view(Layout(4, -1))
+
+        assert rev.offset == 3
+        assert [rev[i] for i in range(4)] == [3, 2, 1, 0]
+
+    def test_view_no_storage_raises(self):
+        """View on algebraic Tensor raises TypeError."""
+        t = Tensor(Layout(8, 1))
+        with pytest.raises(TypeError):
+            t.view(Layout(8, 1))
+
+    def test_view_cosize_too_large_raises(self):
+        """View with cosize exceeding storage raises ValueError."""
+        buf = list(range(8))
+        t = Tensor(Layout(8, 1), data=buf)
+        with pytest.raises(ValueError):
+            t.view(Layout(16, 1))
+
+    def test_view_smaller_cosize(self):
+        """View with smaller cosize is allowed."""
+        buf = list(range(16))
+        t = Tensor(Layout(16, 1), data=buf)
+        small = t.view(Layout(4, 1))
+        assert small[0] == 0
+        assert small[3] == 3
 
 
 if __name__ == "__main__":

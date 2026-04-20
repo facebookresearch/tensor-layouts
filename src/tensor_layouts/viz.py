@@ -42,8 +42,8 @@ Usage:
     draw_slice(Layout((4, 8), (8, 1)), (2, None), "slice.svg")
 
     # Jupyter notebook display
-    from tensor_layouts.viz import show_layout
-    show_layout(Layout((8, 8), (8, 1)))
+    from tensor_layouts.viz import draw_layout
+    draw_layout(Layout((8, 8), (8, 1)))  # inline display when filename=None
 
 Requirements:
     pip install matplotlib numpy
@@ -72,8 +72,6 @@ from matplotlib.font_manager import FontProperties
 from matplotlib.textpath import TextToPath
 
 from .layouts import *
-from .tensor import Tensor
-
 __all__ = [
     # draw_* (save to file or display inline)
     "draw_layout",
@@ -85,20 +83,8 @@ __all__ = [
     "draw_combined_mma_grid",
     "draw_copy_layout",
     "draw_composite",
+    "draw_gemm",
     "draw_copy_atom",
-    # show_* (return matplotlib Figure)
-    "show_layout",
-    "show_swizzle",
-    "show_slice",
-    "show_tv_layout",
-    "show_mma_layout",
-    "show_tiled_grid",
-    "show_combined_mma_grid",
-    "show_copy_layout",
-    "show_composite",
-    "show_copy_atom",
-    # Demo
-    "demo",
 ]
 
 
@@ -146,7 +132,7 @@ def _make_grayscale_palette(n: int) -> list:
     return [f"#{grays[k]:02X}{grays[k]:02X}{grays[k]:02X}" for k in order]
 
 
-def _make_rainbow_palette(n: int) -> list:
+def _make_rainbow_palette(n: int, interleave: bool = False) -> list:
     """Generate n distinct rainbow colors.
 
     Uses 8 base colors to match cute-viz palette for n <= 8.
@@ -154,6 +140,10 @@ def _make_rainbow_palette(n: int) -> list:
     (small n → pastel, large n → more vivid so adjacent hues stay
     distinguishable), then applies a bit-reversal reorder so consecutive
     palette indices are maximally different in hue.
+
+    When interleave=True, same-hue shades are placed consecutively
+    (blue, lt blue, green, lt green, ...) so that consecutive indices
+    share hues. This matches the CuTe paper's coloring convention.
     """
     # 8 base colors matching cute-viz pastel palette
     base_colors = [
@@ -166,6 +156,14 @@ def _make_rainbow_palette(n: int) -> list:
         "#FFFFD2",  # Lighter yellow
         "#FFD2D2",  # Lighter red
     ]
+    if interleave:
+        # Reorder so same-hue shades are adjacent: (blue, lt blue, green, lt green, ...)
+        half = len(base_colors) // 2
+        interleaved = []
+        for i in range(half):
+            interleaved.append(base_colors[i])
+            interleaved.append(base_colors[i + half])
+        base_colors = interleaved
     if n <= len(base_colors):
         return base_colors[:n]
     # Ramp saturation from pastel (0.35 near n=8) to vivid (0.60 at n>=32)
@@ -254,6 +252,39 @@ class OffsetGrid:
         return self.cell_coords is not None
 
 
+_IDENTITY_LAYOUT = Layout(1, 1)
+
+
+def _normalize_display_layout(layout):
+    if isinstance(layout, Layout):
+        return Layout(unwrap(layout.shape), unwrap(layout.stride), swizzle=layout.swizzle)
+    return layout
+
+
+def _eval_layout_with_offset(layout, offset: int, *args):
+    """Evaluate a sliced layout with an external offset, matching tensor semantics."""
+    coord = args[0] if len(args) == 1 else args
+    if isinstance(layout, Layout):
+        linear = crd2offset(coord, layout.shape, layout.stride)
+        total_linear = offset + linear
+        if layout.swizzle is not None:
+            return layout.swizzle(total_linear)
+        return total_linear
+    return offset + layout(coord)
+
+
+def _layout_expr_with_offset(layout, offset: int):
+    """Internalize an external offset into a layout expression for direct eval."""
+    layout = _normalize_display_layout(as_layout_expr(layout))
+    if offset == 0:
+        return layout
+    if isinstance(layout, Layout):
+        if layout.swizzle is None:
+            return ComposedLayout(_IDENTITY_LAYOUT, Layout(layout.shape, layout.stride), preoffset=offset)
+        return ComposedLayout(layout.swizzle, Layout(layout.shape, layout.stride), preoffset=offset)
+    return ComposedLayout(_IDENTITY_LAYOUT, layout, preoffset=offset)
+
+
 def _prepare_offset_grid(
     layout, color_layout=None, slice_spec=None, hierarchical: bool = False, eval_fn=None
 ) -> OffsetGrid:
@@ -267,7 +298,7 @@ def _prepare_offset_grid(
         eval_fn: Callable mapping coordinates to offset values. Defaults to
             layout.__call__. Pass tensor.__call__ for Tensor visualization.
     """
-    layout = as_layout(layout)
+    layout = as_layout_expr(layout)
     cell_coords = None
     row_shape = None
     col_shape = None
@@ -336,7 +367,7 @@ def _get_indices_2d(layout, eval_fn=None) -> np.ndarray:
         eval_fn: Callable mapping coordinates to offset values. Defaults to
             layout.__call__. Pass tensor.__call__ for Tensor visualization.
     """
-    layout = as_layout(layout)
+    layout = as_layout_expr(layout)
     if eval_fn is None:
         eval_fn = layout
     r = rank(layout)
@@ -386,6 +417,9 @@ def _get_color_indices_2d(layout, color_layout) -> Optional[np.ndarray]:
     """
     if color_layout is None:
         return None
+
+    layout = as_layout_expr(layout)
+    color_layout = as_layout_expr(color_layout)
 
     indices = _get_indices_2d(layout)
     rows, cols = indices.shape
@@ -445,10 +479,36 @@ def _setup_axes(
         ax.set_title(title, fontsize=title_fontsize, fontweight="bold", pad=10)
 
 
+def _format_cell_value(val, precision: Optional[int] = None) -> str:
+    """Format a cell label value, respecting *precision* for floats."""
+    if precision is not None and isinstance(val, float):
+        return f"{val:.{precision}g}"
+    return str(val)
+
+
+def _lookup_cell_label(cell_labels, idx: int):
+    """Return the label for an offset, falling back to the offset itself.
+
+    Explicit ``cell_labels`` are indexed by offset. Negative offsets must not
+    use Python's wraparound indexing semantics: if an offset is outside the
+    provided label range, we fall back to showing the offset value directly.
+    """
+    if isinstance(cell_labels, dict):
+        return cell_labels.get(idx, idx)
+    try:
+        if 0 <= idx < len(cell_labels):
+            return cell_labels[idx]
+    except TypeError:
+        pass
+    return idx
+
+
 def _draw_grid(
     ax,
     indices: np.ndarray,
     highlight_mask: Optional[np.ndarray] = None,
+    highlight_facecolor: str = HIGHLIGHT_COLOR,
+    highlight_edgecolor: str = HIGHLIGHT_EDGE,
     hierarchy_shapes: Optional[Tuple[object, object]] = None,
     cell_size: float = 1.0,
     show_labels: bool = True,
@@ -459,6 +519,9 @@ def _draw_grid(
     label_color: str = "blue",
     label_fontsize: float = 8,
     cell_fontsize: Optional[float] = None,
+    cell_labels=True,
+    interleave_colors: bool = False,
+    precision: Optional[int] = None,
 ):
     """Draw a grid of cells with indices on a matplotlib axis.
 
@@ -466,6 +529,8 @@ def _draw_grid(
         ax: Matplotlib axis to draw on
         indices: 2D array of index values
         highlight_mask: Boolean mask aligned with `indices`
+        highlight_facecolor: Fill color used for highlighted cells
+        highlight_edgecolor: Border color used for highlighted cells
         hierarchy_shapes: Optional `(row_shape, col_shape)` pair used to draw
             hierarchy boundary overlays on top of a flattened displayed grid
         cell_size: Size of each cell
@@ -479,6 +544,9 @@ def _draw_grid(
         cell_fontsize: Font size for cell value text. If None, auto-scaled
             based on the figure width and number of columns so text fits
             within cells.
+        precision: Number of digits for float cell labels. None (default)
+            uses full ``str()`` representation. When set, floats are
+            formatted with ``f"{v:.{precision}g}"``.
     """
     rows, cols = indices.shape
 
@@ -501,7 +569,7 @@ def _draw_grid(
 
     # Build the appropriate palette
     if colorize:
-        colors = _make_rainbow_palette(num_colors)
+        colors = _make_rainbow_palette(num_colors, interleave=interleave_colors)
     else:
         colors = _make_grayscale_palette(num_colors)
 
@@ -525,7 +593,7 @@ def _draw_grid(
                 color_idx = idx % len(colors)
 
             base_facecolor = colors[color_idx]
-            final_facecolors[i, j] = HIGHLIGHT_COLOR if is_hl else base_facecolor
+            final_facecolors[i, j] = highlight_facecolor if is_hl else base_facecolor
 
             # Draw base cell first; highlights are overlaid later so their
             # borders are not covered by neighboring cells.
@@ -563,8 +631,8 @@ def _draw_grid(
             (j, i),
             cell_size,
             cell_size,
-            facecolor=HIGHLIGHT_COLOR,
-            edgecolor=HIGHLIGHT_EDGE,
+            facecolor=highlight_facecolor,
+            edgecolor=highlight_edgecolor,
             linewidth=2,
             zorder=6,
         )
@@ -575,10 +643,17 @@ def _draw_grid(
             idx = int(indices[i, j])
             facecolor = final_facecolors[i, j]
             text_color = "white" if _is_dark(facecolor) else "black"
+            if cell_labels is False:
+                continue
+            if not isinstance(cell_labels, (bool, str)):
+                val = _lookup_cell_label(cell_labels, idx)
+                label = _format_cell_value(val, precision)
+            else:
+                label = str(idx)
             ax.text(
                 j + 0.5,
                 i + 0.5,
-                str(idx),
+                label,
                 ha="center",
                 va="center",
                 fontsize=cell_fontsize,
@@ -615,7 +690,11 @@ def _draw_grid(
 
 
 def _save_figure(fig, filename, dpi: int = 150):
-    """Save figure to file, or display inline in Jupyter if filename is None."""
+    """Save figure to file, or display inline in Jupyter if filename is None.
+
+    Returns the figure when saving to a file (for further inspection),
+    or None when displaying inline (to prevent Jupyter double-rendering).
+    """
     if filename is None:
         # Inline display in Jupyter notebook
         try:
@@ -625,12 +704,12 @@ def _save_figure(fig, filename, dpi: int = 150):
 
             buf = io.BytesIO()
             fig.savefig(buf, format="png", dpi=dpi, bbox_inches="tight")
-            plt.close(fig)
             buf.seek(0)
             display(Image(data=buf.getvalue()))
         except ImportError:
             plt.show()
-        return
+        plt.close(fig)
+        return None
 
     path = Path(filename)
     fmt = path.suffix.lower().lstrip(".")
@@ -657,14 +736,50 @@ def _build_composite_figure(
     arrangement: str = "horizontal",
     titles: Optional[list] = None,
     main_title: Optional[str] = None,
-    panel_size: Tuple[float, float] = (4, 4),
-    colorize: bool = False,
-    tv_mode: bool = False,
+    panel_size: Optional[Tuple[float, float]] = None,
+    **defaults,
 ):
-    """Build the composite figure used by draw_composite/show_composite."""
+    """Build the composite figure used by draw_composite.
+
+    Keyword arguments beyond the named parameters are treated as default
+    panel-rendering options.  Per-panel option dicts override these defaults.
+    """
     n = len(panels)
     if n == 0:
         raise ValueError("panels list cannot be empty")
+
+    # Auto-compute panel_size from layout dimensions if not provided
+    if panel_size is None:
+        cell_scale = 0.55
+        padding_w, padding_h = 1.5, 0.9
+        max_rows, max_cols = 1, 1
+        # If grid_rows/grid_cols are specified in defaults, use them
+        # instead of inferring from layout shape (which can be wrong
+        # for TV layouts where the rendered grid differs from the shape).
+        default_gr = defaults.get("grid_rows")
+        default_gc = defaults.get("grid_cols")
+        for p in panels:
+            lay = p[0] if isinstance(p, tuple) else p
+            opts = p[1] if isinstance(p, tuple) else {}
+            if hasattr(lay, 'layout'):
+                lay = lay.layout
+            lay = as_layout_expr(lay)
+            # Per-panel grid overrides take priority, then defaults
+            gr = opts.get("grid_rows", default_gr)
+            gc = opts.get("grid_cols", default_gc)
+            if gr is not None and gc is not None:
+                pr, pc = gr, gc
+            else:
+                r = rank(lay)
+                if r >= 2:
+                    pr = size(mode(lay.shape, 0))
+                    pc = size(mode(lay.shape, 1))
+                else:
+                    pr, pc = 1, size(lay)
+            max_rows = max(max_rows, pr)
+            max_cols = max(max_cols, pc)
+        panel_size = (max_cols * cell_scale + padding_w,
+                      max_rows * cell_scale + padding_h)
 
     # Parse arrangement
     if arrangement == "horizontal":
@@ -691,6 +806,15 @@ def _build_composite_figure(
         axes = [axes_array[i, j] for i in range(nrows) for j in range(ncols)]
 
     # Process each panel
+    if len(panels) > nrows * ncols:
+        import warnings
+
+        warnings.warn(
+            f"{len(panels)} panels provided but grid has only "
+            f"{nrows * ncols} cells ({nrows}x{ncols}); "
+            f"extra panels will be dropped",
+            stacklevel=3,
+        )
     for idx, panel in enumerate(panels):
         if idx >= len(axes):
             break
@@ -704,17 +828,39 @@ def _build_composite_figure(
             layout = panel
             opts = {}
 
-        # Unwrap Tensor for offset-grid rendering
-        eval_fn = None
-        if isinstance(layout, Tensor):
-            eval_fn = layout.__call__
-            layout = layout.layout
+        # Merge defaults with per-panel overrides
+        panel_opts = {**defaults, **opts}
 
-        # Merge with defaults
-        panel_colorize = opts.get("colorize", colorize)
-        panel_tv_mode = opts.get("tv_mode", tv_mode)
-        color_layout = opts.get("color_layout", None)
-        num_colors = opts.get("num_colors", 8)
+        # Unwrap Tensor for offset-grid rendering (duck-typed to avoid
+        # class-identity mismatches after editable-install reloads)
+        eval_fn = None
+        tensor = None
+        if hasattr(layout, 'layout') and hasattr(layout, 'data') and callable(layout):
+            tensor = layout
+            eval_fn = tensor.__call__
+            layout = tensor.layout
+
+        # Extract rendering options with sensible fallbacks
+        panel_colorize = panel_opts.get("colorize", False)
+        panel_tv_mode = panel_opts.get("tv_mode", False)
+        panel_color_layout = panel_opts.get("color_layout", None)
+        panel_num_colors = panel_opts.get("num_colors", 8)
+        panel_flatten = panel_opts.get("flatten_hierarchical", True)
+        panel_label_levels = panel_opts.get("label_hierarchy_levels", False)
+        panel_cell_labels = panel_opts.get("cell_labels", True)
+        panel_precision = panel_opts.get("precision", None)
+        panel_slice_spec = panel_opts.get("slice_spec", None)
+        panel_highlight_mask = panel_opts.get("highlight_mask", None)
+        panel_highlight_facecolor = panel_opts.get(
+            "highlight_facecolor", HIGHLIGHT_COLOR
+        )
+        panel_highlight_edgecolor = panel_opts.get(
+            "highlight_edgecolor", HIGHLIGHT_EDGE
+        )
+
+        # Auto-label from Tensor data (after opts merge so user can override)
+        if tensor is not None and tensor.data is not None and panel_cell_labels is True:
+            panel_cell_labels = tensor.data
 
         # Get title
         title = titles[idx] if titles and idx < len(titles) else None
@@ -726,24 +872,66 @@ def _build_composite_figure(
                 layout,
                 title=title,
                 colorize=panel_colorize,
-                num_colors=opts.get("num_colors", num_colors),
-                grid_rows=opts.get("grid_rows"),
-                grid_cols=opts.get("grid_cols"),
-                thr_id_layout=opts.get("thr_id_layout"),
-                col_major=opts.get("col_major", True),
+                num_colors=panel_num_colors,
+                grid_rows=panel_opts.get("grid_rows"),
+                grid_cols=panel_opts.get("grid_cols"),
+                thr_id_layout=panel_opts.get("thr_id_layout"),
+                col_major=panel_opts.get("col_major", True),
             )
         else:
+            # Check if this panel should use hierarchical rendering
+            r = rank(layout)
+            is_hier = r == 2 and not panel_flatten and (
+                isinstance(mode(layout.shape, 0), tuple)
+                or isinstance(mode(layout.shape, 1), tuple)
+            )
             grid = _prepare_offset_grid(
-                layout, color_layout=color_layout, eval_fn=eval_fn
+                layout,
+                color_layout=panel_color_layout,
+                slice_spec=panel_slice_spec,
+                eval_fn=eval_fn,
+                hierarchical=is_hier,
             )
-            _draw_grid(
-                ax,
-                grid.indices,
-                title=title,
-                colorize=panel_colorize,
-                color_indices=grid.color_indices,
-                num_colors=num_colors,
-            )
+            if panel_highlight_mask is not None:
+                if panel_highlight_mask.shape != grid.indices.shape:
+                    raise ValueError(
+                        "highlight_mask shape "
+                        f"{panel_highlight_mask.shape} does not match panel grid "
+                        f"shape {grid.indices.shape}"
+                    )
+                grid.highlight_mask = panel_highlight_mask
+            if grid.is_hierarchical:
+                _draw_hierarchical_grid(
+                    ax,
+                    grid.indices,
+                    grid.rows,
+                    grid.cols,
+                    cell_coords=grid.cell_coords,
+                    row_shape=grid.row_shape,
+                    col_shape=grid.col_shape,
+                    title=title,
+                    colorize=panel_colorize,
+                    color_indices=grid.color_indices,
+                    flatten_hierarchical=False,
+                    label_hierarchy_levels=panel_label_levels,
+                    cell_labels=panel_cell_labels,
+                    num_colors=panel_num_colors,
+                    precision=panel_precision,
+                )
+            else:
+                _draw_grid(
+                    ax,
+                    grid.indices,
+                    highlight_mask=grid.highlight_mask,
+                    highlight_facecolor=panel_highlight_facecolor,
+                    highlight_edgecolor=panel_highlight_edgecolor,
+                    title=title,
+                    colorize=panel_colorize,
+                    color_indices=grid.color_indices,
+                    num_colors=panel_num_colors,
+                    cell_labels=panel_cell_labels,
+                    precision=panel_precision,
+                )
 
     # Hide unused axes
     for idx in range(len(panels), len(axes)):
@@ -756,16 +944,169 @@ def _build_composite_figure(
     return fig
 
 
+def _unwrap_tensor(panel):
+    """Duck-type unwrap a Layout or Tensor into (layout, eval_fn, cell_labels)."""
+    if hasattr(panel, 'layout') and hasattr(panel, 'data') and callable(panel):
+        tensor = panel
+        layout = tensor.layout
+        eval_fn = tensor.__call__
+        labels = tensor.data if tensor.data is not None else True
+        return layout, eval_fn, labels
+    return as_layout_expr(panel), None, True
+
+
+def _build_gemm_figure(
+    A, B, C,
+    main_title: Optional[str] = None,
+    **defaults,
+):
+    """Build the GEMM figure used by draw_gemm.
+
+    Arranges A, B, C in the standard matmul spatial pattern::
+
+                  B^T (K×N)
+            A (M×K)    C (M×N)
+
+    B is automatically transposed for display so its K dimension aligns
+    vertically with A's K columns.
+    """
+    a_layout, a_fn, a_labels = _unwrap_tensor(A)
+    b_layout, b_fn, b_labels = _unwrap_tensor(B)
+    c_layout, c_fn, c_labels = _unwrap_tensor(C)
+    a_layout = as_affine_layout(a_layout)
+    b_layout = as_affine_layout(b_layout)
+    c_layout = as_affine_layout(c_layout)
+
+    # Get M, K, N from flattened sizes (for grid proportions)
+    M = size(mode(a_layout, 0))
+    K = size(mode(a_layout, 1))
+    N = size(mode(b_layout, 0))
+
+    # Transpose B for display: (N, K):(sn, sk) → (K, N):(sk, sn)
+    bt_layout = Layout(
+        (b_layout.shape[1], b_layout.shape[0]),
+        (b_layout.stride[1], b_layout.stride[0]),
+    )
+    bt_fn = (lambda k, n: b_fn(n, k)) if b_fn is not None else None
+
+    # Format shape for panel titles, preserving hierarchy
+    def _fmt(s):
+        if isinstance(s, tuple):
+            return "(" + ",".join(str(x) for x in s) + ")"
+        return str(s)
+
+    a_title = f"A ({_fmt(a_layout.shape[0])}\u00d7{_fmt(a_layout.shape[1])})"
+    bt_title = f"B\u1d40 ({_fmt(bt_layout.shape[0])}\u00d7{_fmt(bt_layout.shape[1])})"
+    c_title = f"C ({_fmt(c_layout.shape[0])}\u00d7{_fmt(c_layout.shape[1])})"
+
+    # Figure sizing proportional to matrix dimensions
+    cell_scale = 0.55
+    pad = 1.5
+    fig_w = (K + N) * cell_scale + pad
+    fig_h = (K + M) * cell_scale + pad
+
+    fig = plt.figure(figsize=(fig_w, fig_h), layout="constrained")
+    gs = fig.add_gridspec(
+        2, 2,
+        width_ratios=[K, N],
+        height_ratios=[K, M],
+        wspace=0.3,
+        hspace=0.15,
+    )
+
+    ax_empty = fig.add_subplot(gs[0, 0])
+    ax_empty.axis("off")
+    ax_b = fig.add_subplot(gs[0, 1])
+    ax_a = fig.add_subplot(gs[1, 0])
+    ax_c = fig.add_subplot(gs[1, 1])
+
+    def _hier_shapes(layout):
+        """Extract hierarchy_shapes for boundary boxes if layout has nested modes."""
+        if rank(layout) == 2:
+            rs = mode(layout.shape, 0)
+            cs = mode(layout.shape, 1)
+            if isinstance(rs, tuple) or isinstance(cs, tuple):
+                return (rs, cs)
+        return None
+
+    def _render(ax, layout, eval_fn, auto_labels, title):
+        cell_labels = defaults.get("cell_labels", True)
+        if cell_labels is True and isinstance(auto_labels, list):
+            cell_labels = auto_labels
+        grid = _prepare_offset_grid(
+            layout, eval_fn=eval_fn,
+            color_layout=defaults.get("color_layout"),
+        )
+        _draw_grid(
+            ax, grid.indices, title=title,
+            colorize=defaults.get("colorize", False),
+            color_indices=grid.color_indices,
+            num_colors=defaults.get("num_colors", 8),
+            cell_labels=cell_labels,
+            interleave_colors=defaults.get("interleave_colors", False),
+            hierarchy_shapes=_hier_shapes(layout),
+            precision=defaults.get("precision"),
+        )
+
+    _render(ax_a, a_layout, a_fn, a_labels, a_title)
+    _render(ax_b, bt_layout, bt_fn, b_labels, bt_title)
+    _render(ax_c, c_layout, c_fn, c_labels, c_title)
+
+    if main_title:
+        fig.suptitle(main_title, fontsize=12, fontweight="bold")
+
+    return fig
+
+
+def draw_gemm(
+    A, B, C,
+    filename: str = None,
+    main_title: Optional[str] = None,
+    dpi: int = 150,
+    **kwargs,
+):
+    """Draw GEMM operands in the standard matmul spatial arrangement.
+
+    Renders A, B, C as offset grids arranged so shared dimensions align::
+
+                  B^T (K×N)
+            A (M×K)    C (M×N)
+
+    B is automatically transposed for display so its K dimension aligns
+    vertically with A's K columns, and its N dimension aligns horizontally
+    with C's N columns.
+
+    Each operand can be a Layout (shows offsets) or a Tensor (shows data).
+
+    Args:
+        A: Layout or Tensor with shape (M, K)
+        B: Layout or Tensor with shape (N, K)
+        C: Layout or Tensor with shape (M, N)
+        filename: Output path (.svg, .png, .pdf) or None for inline display
+        main_title: Optional title for the entire figure
+        dpi: Resolution for raster formats
+        **kwargs: Rendering options (cell_labels, colorize, num_colors, etc.)
+
+    Example:
+        A = Tensor(Layout((4, 2), (1, 4)), data=[1,0,0,1, 2,1,1,0])
+        B = Tensor(Layout((3, 2), (1, 3)), data=[1,0,1, 0,1,1])
+        C = Tensor(Layout((4, 3), (1, 4)), data=[0]*12)
+        gemm(A, B, C)
+        draw_gemm(A, B, C, main_title='NT GEMM -- data')
+    """
+    fig = _build_gemm_figure(A, B, C, main_title=main_title, **kwargs)
+    return _save_figure(fig, filename, dpi)
+
+
 def draw_composite(
     panels: list,
-    filename: str,
+    filename: str = None,
     arrangement: str = "horizontal",
     titles: Optional[list] = None,
     main_title: Optional[str] = None,
     dpi: int = 150,
-    panel_size: Tuple[float, float] = (4, 4),
-    colorize: bool = False,
-    tv_mode: bool = False,
+    panel_size: Optional[Tuple[float, float]] = None,
+    **kwargs,
 ):
     """Draw multiple layouts in a single composite figure.
 
@@ -778,10 +1119,7 @@ def draw_composite(
 
     Args:
         panels: List of Layout/Tensor objects or (Layout/Tensor, options_dict)
-                tuples. Per-panel options override the top-level defaults:
-                  colorize, color_layout, num_colors -- offset-grid options
-                  tv_mode -- if True, render this panel as a TV grid
-                  grid_rows, grid_cols, thr_id_layout, col_major -- TV options
+                tuples.  Per-panel option dicts override the top-level defaults.
         filename: Output path (.svg, .png, or .pdf)
         arrangement: How to arrange panels:
             - "horizontal": side by side (1 row)
@@ -790,9 +1128,18 @@ def draw_composite(
         titles: Optional list of titles for each panel
         main_title: Optional title for the entire figure
         dpi: Resolution for raster formats
-        panel_size: Size of each panel in inches (width, height)
-        colorize: Default colorize setting for all panels
-        tv_mode: If True, render panels as TV layouts with T/V labels
+        panel_size: Size of each panel in inches (width, height).
+            If None (default), auto-computed from layout dimensions:
+            ~0.55 in per cell plus padding for titles and labels.
+        **kwargs: Default rendering options applied to every panel
+            unless overridden by a per-panel option dict.  Common options:
+              cell_labels -- True (auto), False, "offset", or a list
+              colorize, color_layout, num_colors -- coloring
+              slice_spec, highlight_mask -- per-cell highlighting
+              highlight_facecolor, highlight_edgecolor -- highlight styling
+              tv_mode, grid_rows, grid_cols -- TV layout rendering
+              flatten_hierarchical, label_hierarchy_levels -- hierarchy
+              precision -- significant digits for float cell labels
 
     Example:
         # Side-by-side comparison
@@ -809,10 +1156,9 @@ def draw_composite(
         titles=titles,
         main_title=main_title,
         panel_size=panel_size,
-        colorize=colorize,
-        tv_mode=tv_mode,
+        **kwargs,
     )
-    _save_figure(fig, filename, dpi)
+    return _save_figure(fig, filename, dpi)
 
 
 # =============================================================================
@@ -1212,7 +1558,10 @@ def _draw_hierarchical_grid(
     color_indices: Optional[np.ndarray] = None,
     flatten_hierarchical: bool = True,
     label_hierarchy_levels: bool = False,
+    cell_labels: bool = True,
     num_colors: int = 8,
+    interleave_colors: bool = False,
+    precision: Optional[int] = None,
 ):
     """Draw a hierarchical layout grid.
 
@@ -1244,7 +1593,7 @@ def _draw_hierarchical_grid(
 
     # Build palette
     if colorize:
-        colors = _make_rainbow_palette(num_colors)
+        colors = _make_rainbow_palette(num_colors, interleave=interleave_colors)
     else:
         colors = _make_grayscale_palette(num_colors)
 
@@ -1295,7 +1644,22 @@ def _draw_hierarchical_grid(
 
             is_dark_bg = _is_dark(facecolor)
             text_color = "white" if is_dark_bg else "black"
-            if flatten_hierarchical:
+            if cell_labels is False:
+                pass
+            elif not isinstance(cell_labels, (bool, str)):
+                # User-provided or auto-generated labels indexed by offset
+                val = _lookup_cell_label(cell_labels, idx)
+                label = _format_cell_value(val, precision)
+                ax.text(
+                    j + 0.5,
+                    i + 0.5,
+                    label,
+                    ha="center",
+                    va="center",
+                    fontsize=8,
+                    color=text_color,
+                )
+            elif flatten_hierarchical or cell_labels == "offset":
                 # Draw flat offset value in cell
                 ax.text(
                     j + 0.5,
@@ -1412,12 +1776,12 @@ def _draw_hierarchical_grid(
                         fontweight="bold",
                     )
         else:
-            # Single-level labels
+            # Single-level labels — plain integers, matching flat mode
             for i in range(rows):
                 ax.text(
                     -0.3,
                     i + 0.5,
-                    f"R{i}",
+                    str(i),
                     ha="center",
                     va="center",
                     fontsize=8,
@@ -1427,7 +1791,7 @@ def _draw_hierarchical_grid(
                 ax.text(
                     j + 0.5,
                     -0.3,
-                    f"C{j}",
+                    str(j),
                     ha="center",
                     va="center",
                     fontsize=8,
@@ -1445,20 +1809,33 @@ def _build_layout_figure(
     num_colors: int = 8,
     flatten_hierarchical: bool = True,
     label_hierarchy_levels: bool = False,
+    cell_labels: bool = True,
+    interleave_colors: bool = False,
+    transpose: bool = False,
+    precision: Optional[int] = None,
 ):
-    """Build the layout figure used by draw_layout/show_layout.
+    """Build the layout figure used by draw_layout.
 
     Accepts Layout or Tensor. When given a Tensor, cells display offset-adjusted
     values and the default title includes the base offset.
     """
     # Unwrap Tensor: use its layout for shape/structure, its __call__ for values
+    # (duck-typed to avoid class-identity mismatches after editable-install reloads)
     eval_fn = None
-    if isinstance(layout, Tensor):
+    tensor = None
+    if hasattr(layout, 'layout') and hasattr(layout, 'data') and callable(layout):
         tensor = layout
         eval_fn = tensor.__call__
         layout = tensor.layout
         if title is None:
-            title = repr(tensor)
+            title = str(tensor)
+        # Auto-label cells with data values when storage is present
+        if tensor.data is not None and cell_labels is True:
+            cell_labels = tensor.data
+
+    layout = as_layout_expr(layout)
+    if color_layout is not None:
+        color_layout = as_layout_expr(color_layout)
 
     # Resolve color_by shorthand to a color_layout
     if color_by is not None:
@@ -1478,64 +1855,51 @@ def _build_layout_figure(
             )
         colorize = True
 
-    # Rank >= 3: decompose into multiple 2D panels along the leading mode(s)
+    # Rank >= 3: decompose into multiple 2D panels along the trailing mode(s)
     r = rank(layout)
     if r >= 3:
-        # Group all leading modes (0..r-3) into a flat slice index,
-        # keeping the last two modes as the 2D grid per panel.
-        outer_sizes = [size(mode(layout.shape, i)) for i in range(r - 2)]
+        # Modes 0,1 form the 2D grid per panel; modes 2..r are the panel axes.
+        outer_sizes = [size(mode(layout.shape, i)) for i in range(2, r)]
         n_panels = 1
         for s in outer_sizes:
             n_panels *= s
-        inner_shape = as_shape(tuple(mode(layout.shape, i) for i in range(r - 2, r)))
-        inner_stride = as_shape(tuple(mode(layout.stride, i) for i in range(r - 2, r)))
 
         # Build per-panel sub-layouts and eval functions
         sub_layouts = []
         sub_evals = []
+        sub_color_layouts = []
         panel_titles = []
         for flat_idx in range(n_panels):
             outer_coord = idx2crd(flat_idx, as_shape(outer_sizes))
             if not isinstance(outer_coord, tuple):
                 outer_coord = (outer_coord,)
+            slice_spec = (None, None) + tuple(outer_coord)
 
-            # Offset contribution from fixed outer modes
-            offset = 0
-            for dim_idx, coord_val in enumerate(outer_coord):
-                m = mode(layout, dim_idx)
-                offset += crd2offset(coord_val, m.shape, m.stride)
-
-            sub = Layout(inner_shape, inner_stride, swizzle=layout.swizzle)
-            sub_layouts.append(sub)
-
-            # Eval function: offset + sub_layout(coord), optionally with swizzle
-            _off = offset
-            _sub = sub
-            if layout.swizzle is not None:
-                _sw = layout.swizzle
-
-                def _make_eval(o, s, sw):
-                    def fn(*args):
-                        coord = args[0] if len(args) == 1 else args
-                        linear = o + crd2offset(coord, s.shape, s.stride)
-                        return sw(linear)
-
-                    return fn
-
-                sub_evals.append(_make_eval(_off, _sub, _sw))
+            if tensor is not None:
+                panel = tensor[slice_spec]
+                sub_layouts.append(panel.layout)
+                sub_evals.append(panel.__call__)
             else:
+                sub, offset = slice_and_offset(slice_spec, as_layout_expr(layout))
+                sub = _normalize_display_layout(sub)
+                sub_layouts.append(sub)
 
-                def _make_eval_plain(o, s):
+                def _make_eval(o, s):
                     def fn(*args):
-                        coord = args[0] if len(args) == 1 else args
-                        return o + crd2offset(coord, s.shape, s.stride)
+                        return _eval_layout_with_offset(s, o, *args)
 
                     return fn
 
-                sub_evals.append(_make_eval_plain(_off, _sub))
+                sub_evals.append(_make_eval(offset, sub))
+
+            if color_layout is not None and rank(color_layout) == r:
+                color_sub, color_offset = slice_and_offset(slice_spec, as_layout_expr(color_layout))
+                sub_color_layouts.append(_layout_expr_with_offset(color_sub, color_offset))
+            else:
+                sub_color_layouts.append(color_layout)
 
             if len(outer_sizes) == 1:
-                panel_titles.append(f"mode[0]={outer_coord[0]}")
+                panel_titles.append(f"mode[2]={outer_coord[0]}")
             else:
                 coord_str = ", ".join(str(c) for c in outer_coord)
                 panel_titles.append(f"outer=({coord_str})")
@@ -1557,7 +1921,7 @@ def _build_layout_figure(
 
         for idx in range(n_panels):
             grid = _prepare_offset_grid(
-                sub_layouts[idx], color_layout=color_layout, eval_fn=sub_evals[idx]
+                sub_layouts[idx], color_layout=sub_color_layouts[idx], eval_fn=sub_evals[idx]
             )
             _draw_grid(
                 axes[idx],
@@ -1566,6 +1930,9 @@ def _build_layout_figure(
                 colorize=colorize,
                 color_indices=grid.color_indices,
                 num_colors=num_colors,
+                cell_labels=cell_labels,
+                interleave_colors=interleave_colors,
+                precision=precision,
             )
 
         for idx in range(n_panels, len(axes)):
@@ -1589,8 +1956,18 @@ def _build_layout_figure(
         eval_fn=eval_fn,
     )
 
+    # Transpose rank-1 layouts from 1×N row to N×1 column
+    if transpose and rank(layout) <= 1:
+        grid = OffsetGrid(
+            indices=grid.indices.T,
+            color_indices=grid.color_indices.T if grid.color_indices is not None else None,
+            cell_coords=grid.cell_coords,
+            row_shape=grid.row_shape,
+            col_shape=grid.col_shape,
+        )
+
     if figsize is None:
-        if grid.is_hierarchical:
+        if grid.is_hierarchical and cell_labels is True:
             figsize = _auto_hierarchical_figsize(
                 layout, grid.indices, grid.rows, grid.cols, label_hierarchy_levels
             )
@@ -1614,7 +1991,10 @@ def _build_layout_figure(
             color_indices=grid.color_indices,
             flatten_hierarchical=False,
             label_hierarchy_levels=label_hierarchy_levels,
+            cell_labels=cell_labels,
+            interleave_colors=interleave_colors,
             num_colors=num_colors,
+            precision=precision,
         )
     else:
         _draw_grid(
@@ -1624,6 +2004,9 @@ def _build_layout_figure(
             colorize=colorize,
             color_indices=grid.color_indices,
             num_colors=num_colors,
+            cell_labels=cell_labels,
+            interleave_colors=interleave_colors,
+            precision=precision,
         )
 
     return fig
@@ -1641,6 +2024,10 @@ def draw_layout(
     num_colors: int = 8,
     flatten_hierarchical: bool = True,
     label_hierarchy_levels: bool = False,
+    cell_labels: bool = True,
+    interleave_colors: bool = False,
+    transpose: bool = False,
+    precision: Optional[int] = None,
 ):
     """Draw a layout or tensor and save to file.
 
@@ -1674,6 +2061,18 @@ def draw_layout(
         label_hierarchy_levels: For hierarchical nested views, if True annotate
             axes with each hierarchy level at block/tile granularity. Label
             colors match the corresponding hierarchy boundary lines.
+        cell_labels: Controls text inside cells. True (default) shows full
+            detail (row/col/offset in hierarchical mode, offset in flat mode).
+            "offset" shows only the offset number. False suppresses all text.
+            A list/tuple of strings labels cells by offset (e.g.,
+            list("ABCDEFGHIJ...") to show letters).
+        interleave_colors: If True, reorder the rainbow palette so that
+            consecutive indices share hues (blue, lt blue, green, lt green, ...).
+            Matches the CuTe paper's coloring convention.
+        transpose: If True, render rank-1 layouts as a column vector (N×1)
+            instead of the default row vector (1×N). Ignored for rank >= 2.
+        precision: Number of significant digits for float cell labels.
+            None (default) uses full ``str()`` representation.
     """
     fig = _build_layout_figure(
         layout,
@@ -1685,27 +2084,64 @@ def draw_layout(
         num_colors=num_colors,
         flatten_hierarchical=flatten_hierarchical,
         label_hierarchy_levels=label_hierarchy_levels,
+        cell_labels=cell_labels,
+        interleave_colors=interleave_colors,
+        transpose=transpose,
+        precision=precision,
     )
-    _save_figure(fig, filename, dpi)
+    return _save_figure(fig, filename, dpi)
 
 
 def _infer_tv_grid_shape(layout, grid_shape=None, grid_rows=None, grid_cols=None):
-    """Infer (rows, cols) for a TV grid from layout cosize.
+    """Infer (rows, cols) for a TV grid from the addressed footprint span.
 
     Accepts either a (rows, cols) tuple via grid_shape, or separate
     grid_rows/grid_cols ints.  When dimensions are not fully specified,
-    falls back to a sqrt-based factorisation of cosize(layout).
+    falls back to a sqrt-based factorisation of the rebased output span.
     """
     if grid_shape is not None:
         return grid_shape
     if grid_rows is not None and grid_cols is not None:
         return (grid_rows, grid_cols)
-    cosize_val = cosize(layout)
-    cols = int(np.sqrt(cosize_val))
-    while cols > 0 and cosize_val % cols != 0:
+    min_offset, max_offset = _tv_output_bounds(layout)
+    footprint_span = max_offset - min_offset + 1
+    if grid_rows is not None:
+        return (grid_rows, (footprint_span + grid_rows - 1) // grid_rows)
+    if grid_cols is not None:
+        return ((footprint_span + grid_cols - 1) // grid_cols, grid_cols)
+    cols = int(np.sqrt(footprint_span))
+    while cols > 0 and footprint_span % cols != 0:
         cols -= 1
-    rows = cosize_val // cols if cols > 0 else cosize_val
+    rows = footprint_span // cols if cols > 0 else footprint_span
     return (rows, cols)
+
+
+def _tv_output_bounds(layout) -> tuple[int, int]:
+    """Return the minimum and maximum offsets produced by a TV layout."""
+    layout = as_layout_expr(layout)
+    t_shape = mode(layout.shape, 0)
+    v_shape = mode(layout.shape, 1)
+
+    num_t = size(t_shape)
+    num_v = size(v_shape)
+
+    min_offset = None
+    max_offset = None
+    for flat_t in range(num_t):
+        t_coord = idx2crd(flat_t, t_shape)
+        for flat_v in range(num_v):
+            v_coord = idx2crd(flat_v, v_shape)
+            out_idx = layout(t_coord, v_coord)
+            if min_offset is None:
+                min_offset = out_idx
+                max_offset = out_idx
+            else:
+                min_offset = min(min_offset, out_idx)
+                max_offset = max(max_offset, out_idx)
+
+    if min_offset is None:
+        return 0, 0
+    return min_offset, max_offset
 
 
 def _compute_tv_mapping(
@@ -1734,12 +2170,18 @@ def _compute_tv_mapping(
 
     If multiple (thread, value) pairs land on the same output cell, the first
     one encountered wins. This matches CuTe's print_latex* helpers.
+
+    Negative or shifted outputs are rebased by the minimum produced offset so
+    the mapping fills the addressed footprint rather than assuming the image
+    starts at 0.
     """
+    layout = as_layout_expr(layout)
     t_shape = mode(layout.shape, 0)
     v_shape = mode(layout.shape, 1)
 
     num_t = size(t_shape)
     num_v = size(v_shape)
+    min_offset, _ = _tv_output_bounds(layout)
 
     inv_map = {}
     for flat_t in range(num_t):
@@ -1747,28 +2189,30 @@ def _compute_tv_mapping(
             t_coord = idx2crd(flat_t, t_shape)
             v_coord = idx2crd(flat_v, v_shape)
             out_idx = layout(t_coord, v_coord)
+            rebased_idx = out_idx - min_offset
 
             phys_t = thr_id_layout(flat_t) if thr_id_layout is not None else flat_t
 
             if grid_rows is not None and grid_cols is not None:
                 if col_major:
-                    row = out_idx % grid_rows
-                    col = out_idx // grid_rows
+                    row = rebased_idx % grid_rows
+                    col = rebased_idx // grid_rows
                 else:
-                    row = out_idx // grid_cols
-                    col = out_idx % grid_cols
+                    row = rebased_idx // grid_cols
+                    col = rebased_idx % grid_cols
                 if not (0 <= row < grid_rows and 0 <= col < grid_cols):
                     raise ValueError(
                         f"TV layout output cell {(row, col)} is out of bounds for "
-                        f"grid_shape=({grid_rows}, {grid_cols}); offset={out_idx}"
+                        f"grid_shape=({grid_rows}, {grid_cols}); "
+                        f"offset={out_idx}, rebased_offset={rebased_idx}"
                     )
                 # Store (physical_thread_id, value_id, logical_thread_id)
                 key = (row, col)
                 if key not in inv_map:
                     inv_map[key] = (phys_t, flat_v, flat_t)
             else:
-                if out_idx not in inv_map:
-                    inv_map[out_idx] = (phys_t, flat_v, flat_t)
+                if rebased_idx not in inv_map:
+                    inv_map[rebased_idx] = (phys_t, flat_v, flat_t)
 
     return inv_map
 
@@ -1929,7 +2373,7 @@ def _build_tv_figure(
     thr_id_layout=None,
     col_major: bool = True,
 ):
-    """Build the TV figure used by draw_tv_layout/show_tv_layout."""
+    """Build the TV figure used by draw_tv_layout."""
     r = rank(layout)
     if r != 2:
         raise ValueError(f"TV layout must be rank 2, got rank {r}")
@@ -1980,8 +2424,10 @@ def draw_tv_layout(
         colorize: If True, use rainbow colors; if False, use grayscale
         num_colors: Override number of colors (defaults to T dimension)
         grid_shape: Optional (rows, cols) for the output grid. If None,
-                    inferred from cosize. Required for proper visualization
-                    of MMA-style layouts.
+                    inferred from the addressed footprint span. Negative
+                    offsets are rebased so the minimum offset maps to the
+                    first cell. Required for proper visualization of MMA-style
+                    layouts.
 
     Example:
         tv_layout = Layout((4, 2), (2, 1))  # 4 threads, 2 values each
@@ -2001,7 +2447,7 @@ def draw_tv_layout(
         thr_id_layout=thr_id_layout,
         col_major=col_major,
     )
-    _save_figure(fig, filename, dpi)
+    return _save_figure(fig, filename, dpi)
 
 
 def _build_mma_figure(
@@ -2013,7 +2459,7 @@ def _build_mma_figure(
     colorize=True,
     thr_id_layout=None,
 ):
-    """Build the MMA figure used by draw_mma_layout/show_mma_layout."""
+    """Build the MMA figure used by draw_mma_layout."""
     # Infer M, N, K from tile_mnk or layout dimensions
     if tile_mnk:
         M, N, K = tile_mnk
@@ -2232,13 +2678,13 @@ def draw_mma_layout(
         colorize=colorize,
         thr_id_layout=thr_id_layout,
     )
-    _save_figure(fig, filename, dpi)
+    return _save_figure(fig, filename, dpi)
 
 
 def _build_tiled_grid_figure(
     grid: dict, rows: int, cols: int, title: Optional[str] = None
 ):
-    """Build the tiled-grid figure used by draw_tiled_grid/show_tiled_grid."""
+    """Build the tiled-grid figure used by draw_tiled_grid."""
     colors = _make_rainbow_palette(8)
     font = max(4, min(7, int(60 / max(rows, cols))))
     fig, ax = plt.subplots(figsize=(cols * 0.45 + 1.5, rows * 0.4 + 1.0))
@@ -2272,7 +2718,7 @@ def draw_tiled_grid(
         title: plot title
     """
     fig = _build_tiled_grid_figure(grid, rows, cols, title=title)
-    _save_figure(fig, filename, dpi)
+    return _save_figure(fig, filename, dpi)
 
 
 def _build_combined_grid_figure(a_grid, b_grid, c_grid, M, N, K, title=None):
@@ -2360,7 +2806,7 @@ def draw_combined_mma_grid(
         title: plot title
     """
     fig = _build_combined_grid_figure(a_grid, b_grid, c_grid, M, N, K, title=title)
-    _save_figure(fig, filename, dpi)
+    return _save_figure(fig, filename, dpi)
 
 
 def _build_copy_figure(
@@ -2519,10 +2965,10 @@ def draw_copy_layout(
         thr_id_layout=thr_id_layout,
         col_major=col_major,
     )
-    _save_figure(fig, filename, dpi)
+    return _save_figure(fig, filename, dpi)
 
 
-def _swizzle_figsize(linear_idx, swizzle_idx, rows, cols):
+def _swizzle_figsize(linear_idx, swizzle_idx, rows, cols, arrangement="horizontal"):
     """Compute figure size for a two-panel swizzle comparison.
 
     Uses the larger of the "comfortable" cell width (0.5in, matching the
@@ -2534,6 +2980,8 @@ def _swizzle_figsize(linear_idx, swizzle_idx, rows, cols):
     # Minimum cell width so 7pt text fits: digit ≈ 0.6em
     min_cell_w = n_digits * 0.6 * 7 / 72
     cell_w = max(min_cell_w, 0.5)
+    if arrangement == "vertical":
+        return (cols * cell_w + 1.5, rows * 0.5 * 2 + 3)
     return (cols * cell_w * 2 + 3, rows * 0.5 + 1.5)
 
 
@@ -2543,8 +2991,9 @@ def _build_swizzle_figure(
     figsize: Optional[Tuple[float, float]] = None,
     colorize: bool = False,
     num_colors: int = 8,
+    arrangement: str = "horizontal",
 ):
-    """Build the swizzle comparison figure used by draw_swizzle/show_swizzle."""
+    """Build the swizzle comparison figure used by draw_swizzle."""
     sw_layout = compose(swizzle, base_layout)
 
     linear_idx = _get_indices_2d(base_layout)
@@ -2557,18 +3006,18 @@ def _build_swizzle_figure(
         effective_colors = blocks_per_row
         bit_shift = swizzle.base
         if figsize is None:
-            figsize = _swizzle_figsize(linear_idx, swizzle_idx, rows, cols)
+            figsize = _swizzle_figsize(linear_idx, swizzle_idx, rows, cols, arrangement)
     elif swizzle.base == 0:
         effective_colors = num_colors
         bit_shift = 0
         if figsize is None:
-            figsize = _swizzle_figsize(linear_idx, swizzle_idx, rows, cols)
+            figsize = _swizzle_figsize(linear_idx, swizzle_idx, rows, cols, arrangement)
     else:
         bit_shift = swizzle.base
         distinct_groups = len(set(int(v) >> bit_shift for v in linear_idx.flat))
         effective_colors = max(num_colors, distinct_groups)
         if figsize is None:
-            figsize = _swizzle_figsize(linear_idx, swizzle_idx, rows, cols)
+            figsize = _swizzle_figsize(linear_idx, swizzle_idx, rows, cols, arrangement)
 
     def _swizzle_color_indices(idx_array):
         return np.vectorize(lambda v: (int(v) >> bit_shift) % effective_colors)(
@@ -2578,7 +3027,10 @@ def _build_swizzle_figure(
     linear_ci = _swizzle_color_indices(linear_idx)
     swizzle_ci = _swizzle_color_indices(swizzle_idx)
 
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=figsize)
+    if arrangement == "vertical":
+        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=figsize)
+    else:
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=figsize)
     _draw_grid(
         ax1,
         linear_idx,
@@ -2612,6 +3064,7 @@ def draw_swizzle(
     figsize: Optional[Tuple[float, float]] = None,
     colorize: bool = False,
     num_colors: int = 8,
+    arrangement: str = "horizontal",
 ):
     """Draw side-by-side comparison of linear vs swizzled layout.
 
@@ -2632,11 +3085,14 @@ def draw_swizzle(
         figsize: Figure size in inches (auto-calculated if None)
         colorize: If True, use rainbow colors (makes swizzle movement clearer)
         num_colors: Number of colors in palette
+        arrangement: Panel layout — "horizontal" (side-by-side) or "vertical"
+            (stacked). Use "vertical" for wide layouts like 8×128.
     """
     fig = _build_swizzle_figure(
-        base_layout, swizzle, figsize=figsize, colorize=colorize, num_colors=num_colors
+        base_layout, swizzle, figsize=figsize, colorize=colorize,
+        num_colors=num_colors, arrangement=arrangement,
     )
-    _save_figure(fig, filename, dpi)
+    return _save_figure(fig, filename, dpi)
 
 
 def _expand_hier_slice(spec, shape):
@@ -2775,6 +3231,22 @@ def _get_slice_highlight_mask_2d(layout, slice_spec) -> np.ndarray:
                 if col_match:
                     mask[i, j] = True
 
+    elif isinstance(slice_spec, tuple) and r < 2:
+        if len(slice_spec) != 1:
+            raise ValueError(
+                f"Rank-{r} layout requires a 1-element tuple slice_spec, "
+                f"got {len(slice_spec)}"
+            )
+        (col_spec,) = slice_spec
+        col_flat = _is_flat_slice_component(col_spec)
+        for j in range(cols):
+            col_coord = idx2crd(j, layout.shape)
+            mask[0, j] = (
+                _match_flat_slice_component(j, col_spec, cols)
+                if col_flat
+                else _match_nested_slice_component(col_coord, col_spec, layout.shape)
+            )
+
     return mask
 
 
@@ -2786,8 +3258,10 @@ def _build_slice_figure(
     colorize=False,
     color_layout=None,
     num_colors=8,
+    highlight_facecolor: str = HIGHLIGHT_COLOR,
+    highlight_edgecolor: str = HIGHLIGHT_EDGE,
 ):
-    """Build the slice figure used by draw_slice/show_slice."""
+    """Build the slice figure used by draw_slice."""
     grid = _prepare_offset_grid(
         layout, color_layout=color_layout, slice_spec=slice_spec
     )
@@ -2796,13 +3270,21 @@ def _build_slice_figure(
         figsize = (grid.cols * 0.5 + 1, grid.rows * 0.5 + 1)
 
     if title is None:
-        title = f"{layout}[{slice_spec}]"
+        sub, offset = slice_and_offset(slice_spec, as_layout_expr(layout))
+        if isinstance(sub, Layout):
+            display_sub = _normalize_display_layout(sub)
+            title = str(display_sub) if offset == 0 else f"{{{offset}}}\u2218{display_sub}"
+        else:
+            display_sub = _layout_expr_with_offset(sub, offset)
+            title = str(display_sub)
 
     fig, ax = plt.subplots(figsize=figsize)
     _draw_grid(
         ax,
         grid.indices,
         highlight_mask=grid.highlight_mask,
+        highlight_facecolor=highlight_facecolor,
+        highlight_edgecolor=highlight_edgecolor,
         title=title,
         colorize=colorize,
         color_indices=grid.color_indices,
@@ -2821,6 +3303,10 @@ def draw_slice(
     colorize: bool = False,
     color_layout: Optional[Layout] = None,
     num_colors: int = 8,
+    highlight_facecolor: str = HIGHLIGHT_COLOR,
+    highlight_edgecolor: str = HIGHLIGHT_EDGE,
+    base_facecolor: Optional[str] = None,
+    show_text: bool = True,
 ):
     """Draw layout with sliced elements highlighted.
 
@@ -2839,6 +3325,10 @@ def draw_slice(
         color_layout: Optional layout controlling background-cell coloring in
             the same logical coordinate space as `layout` (None = color by value)
         num_colors: Number of colors in palette
+        highlight_facecolor: Fill color used for highlighted cells
+        highlight_edgecolor: Border color used for highlighted cells
+        base_facecolor: Optional fill color to apply to non-highlighted cells
+        show_text: Whether to show cell and axis labels
     """
     fig = _build_slice_figure(
         layout,
@@ -2848,116 +3338,20 @@ def draw_slice(
         colorize=colorize,
         color_layout=color_layout,
         num_colors=num_colors,
-    )
-    _save_figure(fig, filename, dpi)
-
-
-def show_layout(
-    layout,
-    title: Optional[str] = None,
-    figsize: Optional[Tuple[float, float]] = None,
-    colorize: bool = False,
-    color_layout: Optional[Layout] = None,
-    color_by: Optional[str] = None,
-    num_colors: int = 8,
-    flatten_hierarchical: bool = True,
-    label_hierarchy_levels: bool = False,
-):
-    """Display a layout or tensor inline (for Jupyter notebooks).
-
-    Args:
-        layout: Layout or Tensor to visualize. When given a Tensor, cells
-            display offset-adjusted values and the title includes the base offset.
-        title: Optional title
-        figsize: Figure size in inches
-        colorize: If True, use rainbow colors for distinct cells
-        color_layout: Optional layout controlling cell coloring in the same
-            logical coordinate space as `layout` (None = color by value)
-        color_by: Shorthand for common color_layout patterns ("row", "column",
-            or "offset"). Mutually exclusive with color_layout.
-        num_colors: Number of colors in palette
-        flatten_hierarchical: For hierarchical layouts, if True show flat grid with
-            offset values. If False, show explicit cell labels.
-        label_hierarchy_levels: For hierarchical nested views, if True annotate
-            axes with each hierarchy level at block/tile granularity.
-
-    Returns:
-        matplotlib Figure
-    """
-    return _build_layout_figure(
-        layout,
-        title=title,
-        figsize=figsize,
-        colorize=colorize,
-        color_layout=color_layout,
-        color_by=color_by,
-        num_colors=num_colors,
-        flatten_hierarchical=flatten_hierarchical,
-        label_hierarchy_levels=label_hierarchy_levels,
+        highlight_facecolor=highlight_facecolor,
+        highlight_edgecolor=highlight_edgecolor,
     )
 
+    for ax in fig.axes:
+        if base_facecolor is not None:
+            for patch in ax.patches:
+                if patch.get_zorder() < 6:
+                    patch.set_facecolor(base_facecolor)
+        if not show_text:
+            for text in list(ax.texts):
+                text.remove()
 
-def show_swizzle(
-    base_layout,
-    swizzle,
-    figsize: Optional[Tuple[float, float]] = None,
-    colorize: bool = False,
-    num_colors: int = 8,
-):
-    """Display swizzle comparison inline (for Jupyter notebooks).
-
-    Colors by the bits that the swizzle affects: (value >> swizzle.base) % num_colors.
-
-    Args:
-        base_layout: Base Layout object
-        swizzle: Swizzle object
-        figsize: Figure size in inches
-        colorize: If True, use rainbow colors (makes swizzle movement clearer)
-        num_colors: Number of colors in palette
-
-    Returns:
-        matplotlib Figure
-    """
-    return _build_swizzle_figure(
-        base_layout, swizzle, figsize=figsize, colorize=colorize, num_colors=num_colors
-    )
-
-
-def show_copy_layout(
-    src_layout,
-    dst_layout,
-    grid_shape=None,
-    title=None,
-    colorize=True,
-    thr_id_layout=None,
-    col_major=True,
-):
-    """Display a copy layout inline (for Jupyter notebooks).
-
-    Args:
-        src_layout: TV layout for source
-        dst_layout: TV layout for destination
-        grid_shape: Optional (rows, cols) for the output grids
-        title: Optional title
-        colorize: If True, use rainbow colors
-        thr_id_layout: Optional layout for thread ID mapping
-        col_major: If True (default), use column-major decomposition
-                    (CuTe A/C convention: row = offset % rows).
-                    If False, use row-major (CuTe B convention:
-                    row = offset // cols).
-
-    Returns:
-        matplotlib Figure
-    """
-    return _build_copy_figure(
-        src_layout,
-        dst_layout,
-        grid_shape=grid_shape,
-        title=title,
-        colorize=colorize,
-        thr_id_layout=thr_id_layout,
-        col_major=col_major,
-    )
+    return _save_figure(fig, filename, dpi)
 
 
 def draw_copy_atom(
@@ -2987,7 +3381,7 @@ def draw_copy_atom(
     """
     src = upcast(atom.src_layout_bits, element_bits)
     dst = upcast(atom.dst_layout_bits, element_bits)
-    draw_copy_layout(
+    return draw_copy_layout(
         src,
         dst,
         filename=filename,
@@ -2998,293 +3392,3 @@ def draw_copy_atom(
         thr_id_layout=atom.thr_id,
         col_major=col_major,
     )
-
-
-def show_copy_atom(
-    atom,
-    element_bits: int = 16,
-    grid_shape=None,
-    title=None,
-    colorize: bool = True,
-    col_major: bool = True,
-):
-    """Display a CopyAtom inline (for Jupyter notebooks).
-
-    Convenience wrapper around show_copy_layout that handles the upcast
-    from bit coordinates to element coordinates automatically.
-
-    Args:
-        atom: CopyAtom with src_layout_bits and dst_layout_bits in bit coords
-        element_bits: Bit width of the data type (default 16 for fp16)
-        grid_shape: Optional (rows, cols) for the output grids
-        title: Optional title (defaults to atom.name)
-        colorize: If True, use rainbow colors
-        col_major: If True (default), use column-major grid decomposition
-
-    Returns:
-        matplotlib Figure
-    """
-    src = upcast(atom.src_layout_bits, element_bits)
-    dst = upcast(atom.dst_layout_bits, element_bits)
-    return show_copy_layout(
-        src,
-        dst,
-        grid_shape=grid_shape,
-        title=title or f"{atom.name}  ({atom.ptx})",
-        colorize=colorize,
-        thr_id_layout=atom.thr_id,
-        col_major=col_major,
-    )
-
-
-def show_tv_layout(
-    layout,
-    title: Optional[str] = None,
-    figsize: Optional[Tuple[float, float]] = None,
-    colorize: bool = False,
-    num_colors: Optional[int] = None,
-    grid_shape: Optional[Tuple[int, int]] = None,
-    thr_id_layout=None,
-    col_major: bool = True,
-):
-    """Display a TV layout inline (for Jupyter notebooks).
-
-    Args:
-        layout: Layout object with shape (T, V) for Thread-Value
-        title: Optional title (defaults to "TV: {layout}")
-        figsize: Figure size in inches (auto-calculated if None)
-        colorize: If True, use rainbow colors; if False, use grayscale
-        num_colors: Override number of colors (defaults to T dimension)
-        grid_shape: Optional (rows, cols) for the output grid
-        thr_id_layout: Optional layout for thread ID mapping
-        col_major: If True (default), use column-major decomposition
-                    (CuTe A/C convention: row = offset % rows).
-                    If False, use row-major (CuTe B convention:
-                    row = offset // cols).
-
-    Returns:
-        matplotlib Figure
-    """
-    return _build_tv_figure(
-        layout,
-        title=title,
-        figsize=figsize,
-        colorize=colorize,
-        num_colors=num_colors,
-        grid_shape=grid_shape,
-        thr_id_layout=thr_id_layout,
-        col_major=col_major,
-    )
-
-
-def show_mma_layout(
-    layout_a,
-    layout_b,
-    layout_c,
-    tile_mnk=None,
-    main_title=None,
-    colorize=True,
-    thr_id_layout=None,
-):
-    """Display an MMA layout inline (for Jupyter notebooks).
-
-    Args:
-        layout_a: TV layout for matrix A (M×K)
-        layout_b: TV layout for matrix B (K×N)
-        layout_c: TV layout for matrix C (M×N)
-        tile_mnk: Optional (M, N, K) dimensions
-        main_title: Optional title for the entire figure
-        colorize: If True, use rainbow colors by thread ID
-        thr_id_layout: Optional layout for thread ID mapping
-
-    Returns:
-        matplotlib Figure
-    """
-    return _build_mma_figure(
-        layout_a,
-        layout_b,
-        layout_c,
-        tile_mnk=tile_mnk,
-        main_title=main_title,
-        colorize=colorize,
-        thr_id_layout=thr_id_layout,
-    )
-
-
-def show_tiled_grid(grid: dict, rows: int, cols: int, title: Optional[str] = None):
-    """Display a tiled MMA grid inline (for Jupyter notebooks).
-
-    Args:
-        grid:  dict mapping (row, col) → (phys_thread, value, logical_thread)
-        rows:  number of rows in the grid
-        cols:  number of columns in the grid
-        title: plot title
-
-    Returns:
-        matplotlib Figure
-    """
-    return _build_tiled_grid_figure(grid, rows, cols, title=title)
-
-
-def show_combined_mma_grid(a_grid, b_grid, c_grid, M, N, K, title=None):
-    """Display combined A/B/C grid-dict panels inline (for Jupyter).
-
-    Args:
-        a_grid: dict for A panel (M×K)
-        b_grid: dict for B panel (K×N)
-        c_grid: dict for C panel (M×N)
-        M, N, K: panel dimensions
-        title: plot title
-
-    Returns:
-        matplotlib Figure
-    """
-    return _build_combined_grid_figure(a_grid, b_grid, c_grid, M, N, K, title=title)
-
-
-def show_slice(
-    layout,
-    slice_spec,
-    title: Optional[str] = None,
-    figsize: Optional[Tuple[float, float]] = None,
-    colorize: bool = False,
-    color_layout: Optional[Layout] = None,
-    num_colors: int = 8,
-):
-    """Display a layout slice inline (for Jupyter notebooks).
-
-    Args:
-        layout: Layout object
-        slice_spec: Slice specification (see draw_slice for details)
-        title: Optional title
-        figsize: Figure size in inches (auto-calculated if None)
-        colorize: If True, use rainbow colors for background cells
-        color_layout: Optional layout controlling background-cell coloring
-        num_colors: Number of colors in palette
-
-    Returns:
-        matplotlib Figure
-    """
-    return _build_slice_figure(
-        layout,
-        slice_spec,
-        title=title,
-        figsize=figsize,
-        colorize=colorize,
-        color_layout=color_layout,
-        num_colors=num_colors,
-    )
-
-
-def show_composite(
-    panels: list,
-    arrangement: str = "horizontal",
-    titles: Optional[list] = None,
-    main_title: Optional[str] = None,
-    panel_size: Tuple[float, float] = (4, 4),
-    colorize: bool = False,
-    tv_mode: bool = False,
-):
-    """Display a composite figure inline (for Jupyter notebooks).
-
-    Args:
-        panels: List of Layout objects or (Layout, options_dict) tuples.
-        arrangement: "horizontal", "vertical", or "grid:RxC"
-        titles: Optional list of titles for each panel
-        main_title: Optional title for the entire figure
-        panel_size: Size of each panel in inches (width, height)
-        colorize: Default colorize setting for all panels
-        tv_mode: If True, render panels as TV layouts with T/V labels
-
-    Returns:
-        matplotlib Figure
-    """
-    return _build_composite_figure(
-        panels,
-        arrangement=arrangement,
-        titles=titles,
-        main_title=main_title,
-        panel_size=panel_size,
-        colorize=colorize,
-        tv_mode=tv_mode,
-    )
-
-
-# =============================================================================
-# Demo
-# =============================================================================
-
-
-def demo(output_dir: str = "."):
-    """Generate example visualizations in all formats."""
-    from pathlib import Path
-
-
-    output = Path(output_dir)
-    output.mkdir(parents=True, exist_ok=True)
-
-    print("=" * 60)
-    print("Layout Visualization Demo")
-    print("=" * 60)
-
-    # Basic layouts - all formats
-    layout_8x8 = Layout((8, 8), (8, 1))
-    draw_layout(layout_8x8, output / "row_major.svg")
-    draw_layout(layout_8x8, output / "row_major.png")
-    draw_layout(layout_8x8, output / "row_major.pdf")
-    print("✓ Row-major 8x8 (SVG, PNG, PDF)")
-
-    layout_col = Layout((8, 8), (1, 8))
-    draw_layout(layout_col, output / "col_major.svg")
-    print("✓ Column-major 8x8")
-
-    # Swizzle comparisons
-    draw_swizzle(Layout((8, 8), (8, 1)), Swizzle(3, 0, 3), output / "swizzle_303.svg")
-    draw_swizzle(Layout((8, 8), (8, 1)), Swizzle(3, 0, 3), output / "swizzle_303.png")
-    print("✓ Swizzle(3,0,3) comparison (SVG, PNG)")
-
-    draw_swizzle(Layout((8, 8), (8, 1)), Swizzle(2, 0, 3), output / "swizzle_203.svg")
-    print("✓ Swizzle(2,0,3) comparison")
-
-    draw_swizzle(Layout((4, 8), (8, 1)), Swizzle(2, 1, 3), output / "swizzle_213.svg")
-    print("✓ Swizzle(2,1,3) on 4x8")
-
-    # Slice highlights
-    layout_4x8 = Layout((4, 8), (8, 1))
-    draw_slice(layout_4x8, (2, None), output / "slice_row.svg")
-    draw_slice(layout_4x8, (2, None), output / "slice_row.png")
-    print("✓ Slice row 2 (SVG, PNG)")
-
-    draw_slice(layout_4x8, (None, 5), output / "slice_col.svg")
-    print("✓ Slice column 5")
-
-    draw_slice(layout_4x8, (2, 5), output / "slice_single.svg")
-    print("✓ Slice single element (2, 5)")
-
-    draw_slice(layout_4x8, (slice(1, 3), slice(2, 6)), output / "slice_rect.svg")
-    print("✓ Slice rectangular region")
-
-    # Hierarchical layout
-    hier = Layout(((2, 4), 8), ((1, 2), 8))
-    draw_layout(hier, output / "hierarchical.svg")
-    draw_layout(hier, output / "hierarchical.png")
-    print("✓ Hierarchical layout (SVG, PNG)")
-
-    # Logical divide
-    divided = Layout((4, 4), (1, 4))  # Result of logical_divide
-    draw_layout(divided, output / "divide_result.svg")
-    print("✓ Logical divide result")
-
-    # Different sizes
-    draw_layout(Layout((4, 16), (16, 1)), output / "wide.svg")
-    draw_layout(Layout((16, 4), (4, 1)), output / "tall.svg")
-    print("✓ Wide and tall layouts")
-
-    print(f"\n✓ All visualizations saved to {output_dir}/")
-    print("  Formats: .svg (vector), .png (raster), .pdf (print)")
-
-
-if __name__ == "__main__":
-    import sys
-
-    demo(sys.argv[1] if len(sys.argv) > 1 else "./viz_output")

@@ -1,3 +1,27 @@
+<!--
+MIT License
+
+Copyright (c) 2026 Meta Platforms, Inc. and affiliates.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+-->
+
 # Visualization API
 
 This document covers the `tensor_layouts.viz` module for drawing layouts,
@@ -27,8 +51,9 @@ Every `draw_*` function accepts a `filename` parameter:
 | `"out.png"` | Save as PNG (raster) at specified `dpi` |
 | `"out.pdf"` | Save as PDF (vector) |
 
-The `show_*` functions always display inline and return the matplotlib
-`Figure` for further customization.
+When `filename` is `None` (the default), figures are displayed inline
+in Jupyter notebooks and the matplotlib `Figure` is returned for
+further customization.
 
 ## draw_layout
 
@@ -47,7 +72,7 @@ draw_layout(Layout((8, 8), (8, 1)), title="Row-Major 8x8", colorize=True)
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `layout` | `Layout` | required | The layout to draw |
+| `layout` | `LayoutExpr` | required | The layout to draw |
 | `filename` | `str` | `None` | Output path (format from extension) |
 | `title` | `str` | `None` | Title above the grid |
 | `dpi` | `int` | `150` | Resolution for raster output |
@@ -58,6 +83,8 @@ draw_layout(Layout((8, 8), (8, 1)), title="Row-Major 8x8", colorize=True)
 | `num_shades` | `int` | `8` | Number of distinct grayscale shades |
 | `flatten_hierarchical` | `bool` | `True` | Flatten nested shapes to 2D grid |
 | `label_hierarchy_levels` | `bool` | `False` | In nested hierarchical mode, annotate hierarchy levels at tile/block granularity; label colors match boundary colors |
+| `cell_labels` | `bool`, `str`, or `list` | `True` | Controls cell text: `True` = full detail, `"offset"` = offset number only, `False` = no text, list/tuple = custom labels indexed by offset |
+| `interleave_colors` | `bool` | `False` | Reorder rainbow palette so consecutive indices share hues (blue, lt blue, green, lt green, ...). |
 
 ### Coloring
 
@@ -138,6 +165,31 @@ coordinates, e.g. `row[0]=...`, `row[1]=...`, `col[0]=...`, `col[1]=...`.
 
 For examples where the hierarchy itself is central to the lesson, enabling
 `label_hierarchy_levels=True` is recommended.
+
+#### Cell Label Modes
+
+The verbose row/col/offset labels can be distracting on larger grids. Use
+`cell_labels` to control what text appears inside cells:
+
+```python
+hier = Layout(((2, 2), (2, 2)), ((1, 4), (2, 8)))
+
+# Offset number only — hierarchy boundaries and axis labels are preserved
+draw_layout(hier, flatten_hierarchical=False, label_hierarchy_levels=True,
+            cell_labels="offset")
+
+# No text at all — just colored grid with hierarchy boundaries
+draw_layout(hier, flatten_hierarchical=False, label_hierarchy_levels=True,
+            cell_labels=False, colorize=True)
+
+# Custom labels indexed by offset value
+import string
+draw_layout(hier, cell_labels=list(string.ascii_uppercase[:size(hier)]),
+            colorize=True)
+```
+
+`cell_labels` also works in flat mode (`flatten_hierarchical=True`), where
+`False` suppresses offset numbers and a list provides custom labels.
 
 You can push this further with deeper asymmetric hierarchies to test how the
 level labels behave when cells become small:
@@ -257,13 +309,19 @@ layout = Layout(((3, 2), ((2, 3), 2)), ((4, 1), ((2, 15), 100)))
 draw_slice(layout, ((1, None), ((None, 0), None)), title="((1,:),((:,0),:))")
 ```
 
+For 1D layouts, wrap the slice in a single-element tuple:
+
+```python
+draw_slice(Layout(8, 1), (slice(2, 5),), title="1D slice [2:5]")
+```
+
 ![draw_slice](images/draw_slice.png)
 
 **Parameters:**
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `layout` | `Layout` | required | The layout to draw |
+| `layout` | `LayoutExpr` | required | The layout to draw |
 | `slice_spec` | `tuple` | required | Coordinate with `None` for free dims |
 | `filename` | `str` | `None` | Output path |
 | `title` | `str` | `None` | Title |
@@ -293,15 +351,64 @@ draw_composite(panels, "comparison.png",
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `panels` | `list` | required | List of Layouts to draw |
-| `filename` | `str` | required | Output path |
-| `arrangement` | `str` | `"horizontal"` | `"horizontal"` or `"vertical"` |
+| `panels` | `list` | required | List of Layout/Tensor objects to draw |
+| `filename` | `str` | `None` | Output path (or None for inline display) |
+| `arrangement` | `str` | `"horizontal"` | `"horizontal"`, `"vertical"`, or `"grid:RxC"` |
 | `titles` | `list` | `None` | Per-panel titles |
 | `main_title` | `str` | `None` | Overall title |
 | `dpi` | `int` | `150` | Resolution |
-| `panel_size` | `(w, h)` | `(4, 4)` | Size per panel |
-| `colorize` | `bool` | `False` | Rainbow colors |
-| `tv_mode` | `bool` | `False` | Use TV-layout rendering |
+| `panel_size` | `(w, h)` | `None` | Size per panel; auto-computed from layout dimensions when None |
+| `**kwargs` | | | Default rendering options for all panels (see below) |
+
+**Rendering options** (passed as `**kwargs` or per-panel via `(Layout, opts_dict)`):
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `cell_labels` | `True` | `True` (auto: offsets for Layout, data for Tensor), `False`, `"offset"`, or a list |
+| `colorize` | `False` | Rainbow colors |
+| `color_layout` | `None` | Custom coloring layout |
+| `num_colors` | `8` | Palette size |
+| `tv_mode` | `False` | Use TV-layout rendering |
+| `flatten_hierarchical` | `True` | Flatten nested shapes to 2D grid |
+| `label_hierarchy_levels` | `False` | Annotate hierarchy levels |
+
+Per-panel option dicts override top-level `**kwargs`.
+
+## draw_gemm
+
+Draw GEMM operands in the standard matmul spatial arrangement.
+
+```python
+from tensor_layouts import Layout, Tensor
+from tensor_layouts.viz import draw_gemm
+
+A = Layout((4, 2), (1, 4))
+B = Layout((3, 2), (1, 3))
+C = Layout((4, 3), (1, 4))
+draw_gemm(A, B, C, main_title="NT GEMM -- offset maps")
+```
+
+The figure arranges A, B, C so shared dimensions align visually:
+
+```
+              B^T (K×N)
+        A (M×K)    C (M×N)
+```
+
+B is automatically transposed for display.  Each operand can be a
+Layout (shows offsets) or a Tensor (shows data values).
+
+**Parameters:**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `A` | Layout/Tensor | required | Shape (M, K) |
+| `B` | Layout/Tensor | required | Shape (N, K) |
+| `C` | Layout/Tensor | required | Shape (M, N) |
+| `filename` | `str` | `None` | Output path (or None for inline display) |
+| `main_title` | `str` | `None` | Overall title |
+| `dpi` | `int` | `150` | Resolution |
+| `**kwargs` | | | Rendering options: `cell_labels`, `colorize`, `num_colors` |
 
 ## draw_tiled_grid
 
@@ -401,29 +508,17 @@ draw_combined_mma_grid(a_grid, b_grid, c_grid, M, N, K,
 
 ## Jupyter Inline Display
 
-Every `draw_*` function has a corresponding `show_*` that displays inline
-and returns the matplotlib `Figure`:
-
-| `draw_*` | `show_*` |
-|----------|----------|
-| `draw_layout` | `show_layout` |
-| `draw_swizzle` | `show_swizzle` |
-| `draw_tv_layout` | `show_tv_layout` |
-| `draw_mma_layout` | `show_mma_layout` |
-| `draw_tiled_grid` | `show_tiled_grid` |
-| `draw_copy_layout` | `show_copy_layout` |
-| `draw_combined_mma_grid` | `show_combined_mma_grid` |
-| `draw_slice` | `show_slice` |
-| `draw_composite` | `show_composite` |
+When `filename` is omitted (or `None`), all `draw_*` functions display
+inline in Jupyter notebooks and return the matplotlib `Figure`:
 
 ```python
-from tensor_layouts.viz import show_layout, show_swizzle, show_tv_layout
+from tensor_layouts.viz import draw_layout, draw_swizzle, draw_tv_layout
 
-fig = show_layout(Layout((8, 8), (8, 1)), colorize=True)
-fig = show_swizzle(Layout((8, 8), (8, 1)), Swizzle(3, 0, 3))
-fig = show_tv_layout(Layout((4, 2), (2, 1)), colorize=True)
+fig = draw_layout(Layout((8, 8), (8, 1)), colorize=True)
+fig = draw_swizzle(Layout((8, 8), (8, 1)), Swizzle(3, 0, 3))
+fig = draw_tv_layout(Layout((4, 2), (2, 1)), colorize=True)
 ```
 
-| `show_layout` | `show_swizzle` |
+| `draw_layout` | `draw_swizzle` |
 |----------------|----------------|
-| ![show_layout](images/show_layout.png) | ![show_swizzle](images/show_swizzle.png) |
+| ![draw_layout](images/draw_layout.png) | ![draw_swizzle](images/draw_swizzle.png) |

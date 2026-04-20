@@ -23,6 +23,7 @@
 import pytest
 
 from tensor_layouts import *
+from tensor_layouts.analysis import is_contiguous
 from tensor_layouts.layout_utils import round_up
 
 
@@ -534,14 +535,13 @@ def test_composition_truncation():
     # Layout((4, 6, 8, 10), (2, 3, 5, 7)) o Layout(6, 12)
     _test_composition_properties(Layout((4, 6, 8, 10), (2, 3, 5, 7)), Layout(6, 12))
 
-    # Layout((8, 8), (8, 1)) o Layout(2, 3) - invalid: stride 3 doesn't satisfy
-    # the divisibility requirement with coalesced shape 64. pycute also asserts.
-    with pytest.raises(ValueError):
-        _test_composition_properties(Layout((8, 8), (8, 1)), Layout(2, 3))
+    # Layout((8, 8), (8, 1)) o Layout(2, 3) - stride 3 doesn't divide shape 8,
+    # but (2-1)*3 = 3 < 8, so B fits within mode 0 and the composition
+    # succeeds via truncation (§3.3.2 of arXiv:2603.02298v1).
+    _test_composition_properties(Layout((8, 8), (8, 1)), Layout(2, 3))
 
-    # Layout((8, 8), (8, 1)) o Layout(3, 3) - same issue
-    with pytest.raises(ValueError):
-        _test_composition_properties(Layout((8, 8), (8, 1)), Layout(3, 3))
+    # Layout((8, 8), (8, 1)) o Layout(3, 3) - same truncation applies
+    _test_composition_properties(Layout((8, 8), (8, 1)), Layout(3, 3))
 
     # Layout(3, 1) o Layout(4)
     _test_composition_properties(Layout(3, 1), Layout(4))
@@ -1287,10 +1287,7 @@ def _test_left_inverse_cpp(layout):
         return
 
     # No broadcast modes — check injectivity and contiguity via enumeration
-    vals = set(layout(i) for i in range(size(layout)))
-    is_inj = len(vals) == size(layout)
-    is_contiguous = vals == set(range(size(layout)))
-    if is_inj and is_contiguous:
+    if is_contiguous(layout):
         for i in range(size(layout)):
             li = layout(i)
             ili = inv_layout(li)
@@ -1454,7 +1451,6 @@ def test_elem_scale():
     assert elem_scale((2, 3), (4, 5)) == (8, 15)
     assert elem_scale((1, 1), (7, 8)) == (7, 8)
     # Tuple x scalar -> error
-    import pytest
     with pytest.raises(TypeError):
         elem_scale((2, 3), 4)
 
@@ -1517,6 +1513,10 @@ def test_layout_slice():
     """Test Layout.__call__ with None coordinates for slicing."""
     layout = Layout((4, 8), (1, 4))
 
+    # Bare None is the CuTe full-slice entry point
+    sub = layout(None)
+    assert sub == layout
+
     # Slice: keep dim 0, fix dim 1
     # Result preserves tuple structure (matching pycute behavior)
     sub = layout(None, 0)
@@ -1531,6 +1531,12 @@ def test_layout_slice():
     # Keep both (identity slice)
     sub = layout(None, None)
     assert size(sub) == size(layout)
+
+    scalar = Layout(4, 1)
+    assert scalar(None) == scalar
+
+    swizzled = compose(Swizzle(2, 0, 2), Layout((4, 4), (4, 1)))
+    assert swizzled(None) == swizzled
 
     # Verify sublayout indexing: use slice_and_offset for offset-aware check
     layout_3d = Layout((2, 3, 4), (1, 2, 6))

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tensor-layouts"
-version = "0.1.1"
+version = "0.3.0"
 description = "Pure-Python GPU layout algebra for NVIDIA and AMD tensor core access patterns — no GPU required"
 readme = "README.md"
 license = "MIT"
@@ -54,6 +54,7 @@ python_files = ["*.py"]
 [tool.ruff]
 line-length = 100
 target-version = "py310"
+extend-exclude = ["*.ipynb"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W"]
@@ -63,6 +64,7 @@ ignore = ["E501"]
 "__init__.py" = ["F401", "F403"]
 "tests/*.py" = ["F403", "F405", "E741"]
 "examples/*" = ["E402", "F403", "F405", "F541"]
-"src/layout_algebra/layout_utils.py" = ["F403", "F405"]
-"src/layout_algebra/tensor.py" = ["F403", "F405"]
-"src/layout_algebra/viz.py" = ["F403", "F405"]
+"src/tensor_layouts/analysis.py" = ["F403", "F405"]
+"src/tensor_layouts/layout_utils.py" = ["F403", "F405"]
+"src/tensor_layouts/tensor.py" = ["F403", "F405"]
+"src/tensor_layouts/viz.py" = ["F403", "F405"]

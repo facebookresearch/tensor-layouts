@@ -23,6 +23,7 @@
 import pytest
 
 from tensor_layouts import *
+from tensor_layouts.analysis import functionally_equal
 from tensor_layouts.layout_utils import make_layout_like, make_ordered_layout, tile_to_shape
 
 
@@ -64,7 +65,7 @@ def test_tuple_single_element():
 
 
 def test_tuple_nested_single_element():
-    t = (((2,)))
+    t = (2,)
     assert len(t) == 1
     assert size(t) == 2
     assert rank(t) == 1
@@ -172,6 +173,42 @@ def test_congruent():
     assert not congruent((2, (3, 4)), (5, 6))
 
 
+def test_weakly_congruent():
+    # Both scalars → True (same as congruent)
+    assert weakly_congruent(3, 5)
+    # Scalar A matches any B (the key relaxation over congruent)
+    assert weakly_congruent(6, (2, 3))
+    assert weakly_congruent(1, ((2, 3), (4, 5)))
+    # Tuple A vs scalar B → False (A is more structured)
+    assert not weakly_congruent((2, 3), 6)
+    assert not weakly_congruent(((2, 3), 4), 24)
+    # Scalar A vs 1-tuple B → True
+    assert weakly_congruent(6, (6,))
+    # 1-tuple A vs scalar B → False
+    assert not weakly_congruent((6,), 6)
+    # Same flat rank → True
+    assert weakly_congruent((2, 3), (4, 5))
+    assert weakly_congruent((3, 128, 128), (1, 256, 64))
+    # Different flat rank → False
+    assert not weakly_congruent((3, 128), (1, 256, 64))
+    assert not weakly_congruent((1, 256, 64), (3, 128))
+    # Same nested structure → True
+    assert weakly_congruent((2, (3, 4)), (5, (6, 7)))
+    # A deeper than B in a sub-mode → False
+    assert not weakly_congruent((2, (3, 4)), (5, 6))
+    # A flatter than B in a sub-mode → True (scalar sub-mode matches nested B)
+    assert weakly_congruent((2, 3), (5, (6, 7)))
+    # Deeply nested: A flat sub-mode vs B's deep nesting
+    assert weakly_congruent((2, 3), ((4, 5), ((6, 7), 8)))
+    # Asymmetry: congruent ↔ weakly_congruent in both directions,
+    # but weakly_congruent only in one direction when profiles differ
+    assert congruent((2, 3), (4, 5))
+    assert weakly_congruent((2, 3), (4, 5))
+    assert weakly_congruent((4, 5), (2, 3))
+    assert weakly_congruent(6, (2, 3))
+    assert not weakly_congruent((2, 3), 6)
+
+
 def test_compatible():
     assert not compatible(24, 32)
     assert compatible(24, (4, 6))
@@ -201,7 +238,38 @@ def test_layout_basic():
     Layout((6, 1, 12, 2, 2), (2, 0, 12, 144, 1))  # Complex layout
 
 
+def test_layout_type_validation():
+    """Layout rejects invalid shape/stride types with clear messages."""
+    # Strings rejected
+    with pytest.raises(TypeError, match="stride.*str"):
+        Layout((4, 2), "row")
+    with pytest.raises(TypeError, match="shape.*str"):
+        Layout("abc")
+
+    # Floats rejected
+    with pytest.raises(TypeError, match="stride.*float"):
+        Layout((4, 2), 1.5)
+    with pytest.raises(TypeError, match="shape.*float"):
+        Layout(3.14)
+
+    # None rejected
+    with pytest.raises(TypeError, match="shape.*NoneType"):
+        Layout(None)
+
+    # Valid constructions still work
+    Layout((4, 2), (1, 4))
+    Layout(((2, 2), 4), ((1, 2), 4))
+    Layout(8)
+    Layout([4, 2])  # lists are fine
+
+
 def test_layout_rank_size_cosize():
+    # Single-mode layout is rank 1 (one mode), not rank 0
+    L_vec = Layout(31, 1)
+    assert rank(L_vec) == 1
+    assert size(L_vec) == 31
+    assert mode(L_vec, 0) == L_vec
+
     L5 = Layout((64, 32), (1, 128))
     assert rank(L5) == 2
     assert size(L5) == 2048
@@ -219,6 +287,13 @@ def test_layout_rank_size_cosize():
     assert cosize(L7) == 311
     assert mode(L7, 0) == Layout(2, 160)
     assert mode(L7, 4) == Layout(2, 10)
+
+
+def test_cosize_negative_stride_matches_cute():
+    """CuTe cosize uses absolute stride magnitudes, not signed max offsets."""
+    assert cosize(Layout(4, -1)) == 4
+    assert cosize(Layout((2, 4), (4, -1))) == 8
+    assert cosize(Layout((2, 2), (-1, -2))) == 4
 
 
 def test_layout_squeeze():
@@ -333,18 +408,222 @@ def test_coalesce_by_mode_with_profile():
     assert coalesce(L31, (8, 4)) == Layout((8, 4), (1, 8))
 
 
+def test_coalesce_per_mode_with_none_profile():
+    """coalesce with (None, ...) profile coalesces each mode independently."""
+    # Per-mode coalesce: simplify within each mode, preserve rank
+    A = Layout((2, (1, 6)), (1, (6, 2)))
+    assert coalesce(A, (None, None)) == Layout((2, 6), (1, 2))
+
+    # Hierarchical both modes
+    B = Layout(((2, 4), (2, 4)), ((1, 2), (8, 16)))
+    assert coalesce(B, (None, None)) == Layout((8, 8), (1, 8))
+
+    # Already flat — no-op
+    C = Layout((4, 8), (1, 4))
+    assert coalesce(C, (None, None)) == C
+
+    # Mode with size-1 sub-modes
+    E = Layout((2, (1, 1, 6)), (1, (0, 0, 2)))
+    assert coalesce(E, (None, None)) == Layout((2, 6), (1, 2))
+
+    # Without profile flattens across modes
+    assert coalesce(A) == Layout(12, 1)
+    assert coalesce(B) == Layout(64, 1)
+
+
 def test_complement_layouts():
     assert complement(Layout(), 8) == Layout(8, 1)
     assert complement(Layout(4, 2), 16) == Layout((2, 2), (1, 8))
     assert complement(Layout(4, 1), 16) == Layout(4, 4)
     assert complement(Layout(4, 1), 24) == Layout(6, 4)
     assert complement(Layout((2, 2), (1, 4)), 16) == Layout((2, 2), (2, 8))
+    assert complement(Layout(2, 1), (3, 4)) == Layout(8, 2)
     assert complement(Layout(6, 1), 24) == Layout(4, 6)
     assert complement(Layout((4, 2), (1, 16))) == Layout(4, 4)  # default cosize_bound
     # Contiguous layout - complement starts after the layout ends
     assert complement(Layout(8, 1), 32) == Layout(4, 8)
     # Layout with gaps
     assert complement(Layout(4, 4), 32) == Layout((4, 2), (1, 16))
+
+
+def test_logical_divide_layout_tilers_in_tuples():
+    """logical_divide with tuple of Layout tilers dispatches each mode
+    through the compose/complement path.
+
+    Regression: (Layout(4,1), Layout(8,2)) as a tiler caused TypeError.
+    """
+    A = Layout((8, 16), (20, 1))
+    R = logical_divide(A, (Layout(4, 1), Layout(8, 2)))
+    assert R == Layout(((4, 2), (8, 2)), ((20, 80), (2, 1)))
+    # Same set of offsets
+    R_offsets = sorted(R(i) for i in range(size(R)))
+    A_offsets = sorted(A(i) for i in range(size(A)))
+    assert R_offsets == A_offsets
+
+    # zipped_divide should work too
+    Z = zipped_divide(A, (Layout(4, 1), Layout(8, 2)))
+    assert Z == Layout(((4, 8), (2, 2)), ((20, 2), (80, 1)))
+    Z_offsets = sorted(Z(i) for i in range(size(Z)))
+    assert Z_offsets == A_offsets
+
+
+def test_divide_variants_preserve_true_layout_tilers_1d():
+    """True Layout tilers stay Layout tilers in the divide variants.
+
+    Regression: zipped/tiled/flat_divide reduced Layout(4, 2) to its shape 4.
+    """
+    A = Layout(8, 1)
+    T = Layout(4, 2)
+    expected = Layout((4, 2), (2, 1))
+
+    assert logical_divide(A, T) == expected
+    assert zipped_divide(A, T) == expected
+    assert tiled_divide(A, T) == expected
+    assert flat_divide(A, T) == expected
+
+
+def test_divide_variants_preserve_true_layout_tilers_2d():
+    """Layout tilers preserve their internal stride structure.
+
+    Validated against CuTe C++:
+      logical_divide -> ((_2,_2),(_2,_8)):((_1,_4),(_2,_8))
+      zipped_divide  -> same
+      tiled_divide   -> ((_2,_2),_2,_8):((_1,_4),_2,_8)
+      flat_divide    -> (_2,_2,_2,_8):(_1,_4,_2,_8)
+    """
+    A = Layout((8, 8), (1, 8))
+    T = Layout((2, 2), (1, 4))
+
+    logical = logical_divide(A, T)
+    assert logical == Layout(((2, 2), (2, 8)), ((1, 4), (2, 8)))
+
+    zipped = zipped_divide(A, T)
+    assert zipped == logical
+
+    tiled = tiled_divide(A, T)
+    assert tiled == Layout(((2, 2), 2, 8), ((1, 4), 2, 8))
+
+    flat = flat_divide(A, T)
+    assert flat == Layout((2, 2, 2, 8), (1, 4, 2, 8))
+
+    expected_offsets = sorted(A(i) for i in range(size(A)))
+    for result in (logical, zipped, tiled, flat):
+        assert sorted(result(i) for i in range(size(result))) == expected_offsets
+
+
+def test_compose_truncates_unreachable_modes():
+    """compose truncates modes beyond B's reach before checking divisibility.
+
+    When (remaining_shape-1)*remaining_stride < curr_shape, all of B fits
+    within the current mode. Modes beyond are unreachable and should not
+    trigger divisibility errors.
+
+    Regression: compose((4,2,8):(3,12,97), 3:3) raised ValueError instead
+    of returning 3:9.
+    """
+    # Paper §3.3.3 "apparent violation" example
+    A = Layout((4, 2, 8), (3, 12, 97))
+    B = Layout(3, 3)
+    C = compose(A, B)
+    assert C == Layout(3, 9)
+    for i in range(3):
+        assert C(i) == A(B(i))
+
+    # Same after manual coalescing
+    A2 = Layout((8, 8), (3, 97))
+    C2 = compose(A2, B)
+    assert C2 == Layout(3, 9)
+
+    # Row-major case: compose((8,8):(8,1), 3:3) = 3:24
+    A3 = Layout((8, 8), (8, 1))
+    C3 = compose(A3, Layout(3, 3))
+    assert C3 == Layout(3, 24)
+    for i in range(3):
+        assert C3(i) == A3(Layout(3, 3)(i))
+
+
+@pytest.mark.parametrize(
+    ("layout", "tiler"),
+    [
+        (Layout((4, 6, 8), (2, 3, 5)), Layout(6, 3)),
+        (Layout((4, 6, 8), (2, 3, 5)), Layout(6, 1)),
+        (Layout((4, 2, 8), (3, 12, 97)), Layout(4, 3)),
+        (Layout((4, 2, 8), (3, 15, 97)), Layout(3, 3)),
+    ],
+)
+def test_compose_divisibility_failures_match_pycute(layout, tiler):
+    """pycute-invalid 1D compositions raise ValueError instead of fabricating layouts."""
+    with pytest.raises(ValueError, match="divisible"):
+        compose(layout, tiler)
+
+
+def test_left_inverse_padded_layout():
+    """left_inverse of padded (non-contiguous) layouts must cover the full
+    codomain and satisfy L†(L(k)) = k for all k.
+
+    Regression: left_inverse((4,8):(1,5)) was returning 4:1 instead of
+    (5,8):(1,4).  The old implementation used right_inverse(Layout(L,
+    complement(L))) which failed because complement coalesced away stride
+    information.  The new implementation follows the CuTe C++ algorithm
+    (layout.hpp:1324) directly.
+    """
+    # Padded column-major
+    L = Layout((4, 8), (1, 5))
+    Li = left_inverse(L)
+    assert Li == Layout((5, 8), (1, 4))
+    for k in range(size(L)):
+        assert Li(L(k)) == k
+
+    # All Table 6 cases
+    cases = [
+        (Layout((4, 8), (1, 4)), Layout(32, 1)),
+        (Layout((4, 8), (8, 1)), Layout((8, 4), (4, 1))),
+        (Layout((3, 7, 5), (5, 15, 1)), Layout((5, 21), (21, 1))),
+    ]
+    for L, expected in cases:
+        Li = left_inverse(L)
+        assert Li == expected, f"left_inverse({L}) = {Li}, expected {expected}"
+        for k in range(size(L)):
+            assert Li(L(k)) == k
+
+
+def test_right_inverse_broadcast_unit_stride_matches_cute_cpp():
+    """right_inverse skips noncontiguous sorted modes and keeps later valid modes."""
+    L = Layout(((2, 2), (2, 4)), ((0, 1), (0, 2)))
+    R = right_inverse(L)
+    assert R == Layout((2, 4), (2, 8))
+    for i in range(size(R)):
+        assert L(R(i)) == i
+
+
+def test_right_inverse_preserves_embedded_swizzle():
+    """right_inverse keeps embedded swizzles on the canonical affine fast path."""
+    swizzle = Swizzle(2, 0, 2)
+    L = compose(swizzle, Layout((4, (4, 3)), (1, (4, 16))))
+    R = right_inverse(L)
+    proxy = compose(swizzle, Layout((4, 4, 3), (1, 4, 16)))
+
+    assert isinstance(R, Layout)
+    assert R.swizzle == swizzle
+    assert size(R) == 48
+    for i in range(size(R)):
+        assert R(i) == proxy(i)
+        assert L(R(i)) == i
+
+
+def test_left_inverse_preserves_embedded_swizzle():
+    """left_inverse keeps embedded swizzles on the canonical affine fast path."""
+    swizzle = Swizzle(2, 0, 2)
+    L = compose(swizzle, Layout((4, (4, 3)), (1, (4, 16))))
+    Li = left_inverse(L)
+    proxy = compose(swizzle, Layout((4, 4, 3), (1, 4, 16)))
+
+    assert isinstance(Li, Layout)
+    assert Li.swizzle == swizzle
+    assert size(Li) == 48
+    for i in range(size(L)):
+        assert Li(i) == proxy(i)
+        assert Li(L(i)) == i
 
 
 def test_complement_rejects_negative_strides():
@@ -410,9 +689,9 @@ def test_coordinate_validation():
         L([1, 2])
 
     # Valid cases still work
-    assert L(1) == 1          # flat index
-    assert L(1, 2) == 9       # tuple coord via *args
-    assert L((1, 2)) == 9     # tuple coord via single arg
+    assert L(1) == 1  # flat index
+    assert L(1, 2) == 9  # tuple coord via *args
+    assert L((1, 2)) == 9  # tuple coord via single arg
 
 
 def test_idx2crd_crd2flat_crd2offset():
@@ -434,6 +713,37 @@ def test_idx2crd_crd2flat_crd2offset():
     # crd2idx dispatches correctly
     assert crd2idx(16, layout.shape) == 16  # 2-arg -> crd2flat
     assert crd2idx(16, layout.shape, layout.stride) == 17  # 3-arg -> crd2offset
+
+
+def test_idx2crd_accepts_layout():
+    """idx2crd and crd2flat accept Layout objects as the shape argument."""
+    L = Layout((3, (2, 4)))
+    for i in range(size(L)):
+        assert idx2crd(i, L) == idx2crd(i, L.shape)
+        crd = idx2crd(i, L.shape)
+        assert crd2flat(crd, L) == crd2flat(crd, L.shape)
+
+
+def test_crd2crd_hierarchical_to_flat():
+    """crd2crd converts hierarchical coords to flat coords with src_shape."""
+    S = Layout(((2, 3), 2))
+    src = S.shape               # ((2, 3), 2)
+    dst = tuple(size(s) for s in src)  # (6, 2)
+
+    # Verify all coordinates round-trip correctly
+    for i in range(size(S)):
+        crd_hier = idx2crd(i, src)
+        crd_flat = crd2crd(crd_hier, dst, src)
+        assert crd_flat == idx2crd(i, dst)
+
+    # Spot-check specific values
+    assert crd2crd(((0, 1), 0), (6, 2), ((2, 3), 2)) == (2, 0)
+    assert crd2crd(((1, 2), 1), (6, 2), ((2, 3), 2)) == (5, 1)
+
+    # Existing behavior: expand int -> tuple, flatten tuple -> int
+    assert crd2crd(3, (2, 4)) == (1, 1)
+    assert crd2crd((1, 0), 8, (2, 4)) == 1
+    assert crd2crd((1, 2), (3, 4)) == (1, 2)
 
 
 def test_shape_division():
@@ -466,16 +776,16 @@ def test_shape_div_non_divisible():
     (e.g., shape_div/mod won't be complementary), so we assert.
     """
     # Valid cases where divisibility holds
-    assert shape_div(12, 4) == 3     # 12%4==0
-    assert shape_div(4, 12) == 1     # 12%4==0
-    assert shape_div(8, 2) == 4      # 8%2==0
-    assert shape_div(2, 8) == 1      # 8%2==0
+    assert shape_div(12, 4) == 3  # 12%4==0
+    assert shape_div(4, 12) == 1  # 12%4==0
+    assert shape_div(8, 2) == 4  # 8%2==0
+    assert shape_div(2, 8) == 1  # 8%2==0
 
     # Invalid cases should raise ValueError
     with pytest.raises(ValueError):
-        shape_div(6, 4)   # 6%4≠0, 4%6≠0
+        shape_div(6, 4)  # 6%4≠0, 4%6≠0
     with pytest.raises(ValueError):
-        shape_div(4, 6)   # 4%6≠0, 6%4≠0
+        shape_div(4, 6)  # 4%6≠0, 6%4≠0
 
 
 def test_shape_mod_non_divisible():
@@ -489,9 +799,9 @@ def test_shape_mod_non_divisible():
     #   shape_mod(2, 2) = gcd(2,2) = 2
     assert shape_mod((6, 2), 4) == (2, 2)
     # Scalar shape_mod: when modulus < shape, returns gcd
-    assert shape_mod(6, 4) == 2      # gcd(6,4) = 2
+    assert shape_mod(6, 4) == 2  # gcd(6,4) = 2
     # Scalar shape_mod: when modulus >= shape, returns shape
-    assert shape_mod(4, 6) == 4      # 6 >= 4, returns 4
+    assert shape_mod(4, 6) == 4  # 6 >= 4, returns 4
 
 
 def test_shape_div_mod_complementary():
@@ -500,11 +810,15 @@ def test_shape_div_mod_complementary():
     This holds when the divisor evenly divides each mode it consumes.
     """
     test_cases = [
-        ((6, 2), 2), ((6, 2), 3),
-        ((6, 2), 6), ((6, 2), 12),
-        ((4, 3), 2), ((4, 3), 4),
+        ((6, 2), 2),
+        ((6, 2), 3),
+        ((6, 2), 6),
+        ((6, 2), 12),
+        ((4, 3), 2),
+        ((4, 3), 4),
         ((4, 3), 12),
-        ((3, 6, 2, 8), 3), ((3, 6, 2, 8), 9),
+        ((3, 6, 2, 8), 3),
+        ((3, 6, 2, 8), 9),
         ((3, 6, 2, 8), 72),
     ]
     for shape, div in test_cases:
@@ -567,6 +881,16 @@ def test_compose_basic():
 
     # compose(8:2, 4:2) -> 4:4 (B selects every other element, combined with A's stride 2)
     assert compose(Layout(8, 2), Layout(4, 2)) == Layout(4, 4)
+
+
+def test_compose_negative_stride_matches_cute():
+    """Negative-stride 1D tilers follow CuTe's signed composition rules."""
+    a = Layout((2, 3), (2, 1))
+    b = Layout(6, -1)
+
+    # Verified against local CuTe C++: composition((2,3):(2,1), 6:-1)
+    # prints (_2,_3):(_-2,_-1).
+    assert compose(a, b) == Layout((2, 3), (-2, -1))
 
 
 def test_compose_2d_outer():
@@ -688,6 +1012,22 @@ def test_logical_divide_2d():
         assert divided(i) == L(i)
 
 
+@pytest.mark.parametrize(
+    ("layout", "tiler", "expected"),
+    [
+        (Layout(2, 5), 1, Layout((1, 2), (0, 5))),
+        (Layout(4, 3), 4, Layout((4, 1), (3, 0))),
+        (Layout(2, 5), 4, Layout((4, 1), (5, 0))),
+    ],
+)
+def test_logical_divide_canonicalizes_unit_extent_modes(layout, tiler, expected):
+    """CuTe canonicalizes every extent-1 tile/rest mode to stride 0."""
+    divided = logical_divide(layout, tiler)
+    assert divided == expected
+    for i in range(size(layout)):
+        assert divided(i) == layout(i)
+
+
 def test_logical_divide_hierarchical_stride():
     # Shape tiler with hierarchical strides should not crash.
     # CuTe C++ always uses compose/complement (no shortcut), so this
@@ -697,6 +1037,24 @@ def test_logical_divide_hierarchical_stride():
     assert size(divided) == size(L)
     for i in range(size(L)):
         assert divided(i) == L(i)
+
+
+def test_logical_divide_nested_tuple_tiler_recurses_mode_by_mode():
+    """Nested tuple tilers should divide each nested mode recursively."""
+    a = Layout(((2, 3), 8), ((1, 2), 6))
+    tiler = ((2, 3), 4)
+
+    result = logical_divide(a, tiler)
+    expected = Layout(
+        logical_divide(mode(a, 0), (2, 3)),
+        logical_divide(mode(a, 1), 4),
+    )
+
+    assert result == expected
+    assert result == Layout((((2, 1), (3, 1)), (4, 2)), (((1, 0), (2, 0)), (6, 24)))
+    assert sorted(result(i) for i in range(size(result))) == \
+        sorted(a(i) for i in range(size(a)))
+    assert functionally_equal(result, expected)
 
 
 def test_tiled_divide():
@@ -841,6 +1199,7 @@ def test_logical_divide_rejects_over_rank_tiler():
     logical_divide(Layout((4, 8, 3), (1, 4, 32)), (2, 4))
 
 
+
 def test_logical_product():
     # logical_product combines two layouts
     A = Layout(4, 1)
@@ -850,12 +1209,17 @@ def test_logical_product():
     assert product.stride == (1, 4)
 
     # logical_product with non-trivial strides
-    A = Layout(4, 2)
-    B = Layout(3, 1)
+    A = Layout(4, 1)
+    B = Layout(3, 2)
     product = logical_product(A, B)
-    # pycute: complement(4:2, 4*3=12) = 2:1, compose(2:1, 3:1) = 2:1
-    assert product.shape == (4, 2)
-    assert product.stride == (2, 1)
+    assert product.shape == (4, 3)
+    assert product.stride == (1, 8)
+
+
+def test_logical_product_rejects_nondivisible_complement_path():
+    """CuTe C++ rejects logical_product(4:2, 3:1) at the composition step."""
+    with pytest.raises(ValueError, match="divisible"):
+        logical_product(Layout(4, 2), Layout(3, 1))
 
 
 def test_tile_basic():
@@ -970,6 +1334,21 @@ def test_compose_shape_tiler_variants():
     assert result.stride[1] == 16  # Mode 1 stride unchanged
 
 
+def test_compose_nested_tuple_tiler_recurses_mode_by_mode():
+    """Nested tuple tilers should recurse instead of collapsing to Layout(..., 1)."""
+    a = Layout(((2, 3), 8), ((1, 2), 6))
+    tiler = ((2, 3), 4)
+
+    result = compose(a, tiler)
+    expected = Layout(compose(mode(a, 0), (2, 3)), compose(mode(a, 1), Layout(4, 1)))
+
+    assert result == expected
+    assert result == Layout(((2, 3), 4), ((1, 2), 6))
+
+    for i in range(size(result)):
+        assert result(i) == expected(i)
+
+
 def test_compose_mixed_tiler():
     ## Mixed tuple of Tilers
     # A Tiler can be: Layout, tuple of Tilers, or Shape (tuple of ints)
@@ -1030,7 +1409,9 @@ def test_core_matrix_operations():
     # For a 2-byte dtype such as f16, core matrix is 8x8
     tile1 = Layout((8, 1), (1, 0))  # (8,1):(1,0)
     mul1 = Layout((1, 8), (0, 1))
-    tile2 = coalesce(blocked_product(tile1, mul1), profile=(None, None))  # (8,8):(1,8) -> One core Matrix
+    tile2 = coalesce(
+        blocked_product(tile1, mul1), profile=(None, None)
+    )  # (8,8):(1,8) -> One core Matrix
     assert tile2 == Layout((8, 8), (1, 8))
     # Now organize core matrices into 8x8 pattern, so that we have a 64x64 Tile, say in SMem
     mul2 = Layout((8, 8), (1, 8))
@@ -1062,7 +1443,74 @@ def test_safe_div():
 def test_tile_repr():
     tiler = Tile(Layout(3, 4), Layout(8, 2))
     r = repr(tiler)
-    assert r == "Tile(3 : 4, 8 : 2)"
+    assert r == "Tile(Layout(3, 4), Layout(8, 2))"
+
+
+## Layout.__repr__ and __str__
+
+
+def test_layout_repr_scalar():
+    """repr() of a 1D layout returns an eval-safe constructor string."""
+    L = Layout(8, 2)
+    assert repr(L) == "Layout(8, 2)"
+
+
+def test_layout_repr_tuple():
+    """repr() of a multi-dimensional layout returns an eval-safe constructor string."""
+    L = Layout((4, 8), (1, 4))
+    assert repr(L) == "Layout((4, 8), (1, 4))"
+
+
+def test_layout_repr_hierarchical():
+    """repr() of a hierarchical layout returns an eval-safe constructor string."""
+    L = Layout(((2, 3), (2, 4)), ((1, 6), (2, 12)))
+    assert repr(L) == "Layout(((2, 3), (2, 4)), ((1, 6), (2, 12)))"
+
+
+def test_layout_repr_swizzled():
+    """repr() of a swizzled layout includes the swizzle keyword argument."""
+    sw = Swizzle(3, 0, 3)
+    L = compose(sw, Layout((8, 8), (8, 1)))
+    r = repr(L)
+    assert r == "Layout((8, 8), (8, 1), swizzle=Swizzle(3, 0, 3))"
+
+
+def test_layout_repr_eval_roundtrip():
+    """eval(repr(L)) reconstructs an equal Layout (the gold standard for repr)."""
+    cases = [
+        Layout(8, 2),
+        Layout((4, 8), (1, 4)),
+        Layout((4, 8), (0, 1)),
+        Layout(((2, 3), (2, 4)), ((1, 6), (2, 12))),
+    ]
+    for L in cases:
+        reconstructed = eval(repr(L))  # noqa: S307
+        assert reconstructed == L, f"Roundtrip failed for {repr(L)}"
+
+
+def test_layout_repr_eval_roundtrip_swizzled():
+    """eval(repr(L)) works for swizzled layouts too."""
+    L = compose(Swizzle(3, 0, 3), Layout((8, 8), (8, 1)))
+    reconstructed = eval(repr(L))  # noqa: S307
+    assert reconstructed == L
+
+
+def test_layout_str_scalar():
+    """str() returns the human-readable CuTe notation."""
+    L = Layout(8, 2)
+    assert str(L) == "8 : 2"
+
+
+def test_layout_str_tuple():
+    """str() returns the human-readable CuTe notation for multi-dim layouts."""
+    L = Layout((4, 8), (1, 4))
+    assert str(L) == "(4, 8) : (1, 4)"
+
+
+def test_layout_str_swizzled():
+    """str() returns the CuTe composition notation for swizzled layouts."""
+    L = compose(Swizzle(3, 0, 3), Layout((8, 8), (8, 1)))
+    assert str(L) == "(Swizzle(3, 0, 3)) o ((8, 8) : (8, 1))"
 
 
 ## Layout.__hash__
@@ -1083,6 +1531,52 @@ def test_layout_hash():
     # Can be used in sets
     s = {L1, L2, L3}
     assert len(s) == 2
+
+
+## Layout.__eq__ identity short-circuit
+
+
+def test_layout_eq_identity_shortcircuit():
+    """Same object identity returns True immediately."""
+    L = Layout((4, 8), (1, 4))
+    assert L == L
+    assert L is L
+
+    sw = Swizzle(3, 0, 3)
+    L_sw = compose(sw, L)
+    assert L_sw == L_sw
+
+
+def test_layout_eq_structural():
+    """Distinct objects with equal shape/stride/swizzle are equal."""
+    L1 = Layout((4, 8), (1, 4))
+    L2 = Layout((4, 8), (1, 4))
+    assert L1 is not L2
+    assert L1 == L2
+
+
+def test_layout_eq_non_layout():
+    """Comparing Layout with non-Layout returns False, not an error."""
+    L = Layout((4, 8), (1, 4))
+    assert L != 42
+    assert L != "not a layout"
+    assert L != (4, 8)
+    assert L != None  # noqa: E711
+
+
+def test_swizzle_eq_identity_shortcircuit():
+    """Same Swizzle identity returns True immediately."""
+    sw = Swizzle(3, 0, 3)
+    assert sw == sw
+    assert sw is sw
+
+
+def test_swizzle_eq_structural():
+    """Distinct Swizzle objects with equal fields are equal."""
+    sw1 = Swizzle(3, 0, 3)
+    sw2 = Swizzle(3, 0, 3)
+    assert sw1 is not sw2
+    assert sw1 == sw2
 
 
 ## compose() functional property
@@ -1142,11 +1636,12 @@ def test_swizzled_layout_eq_hash():
 
 def test_offset_swizzled_layout_basic():
     from tensor_layouts import Tensor
+
     sw_layout = compose(Swizzle(3, 0, 3), Layout((8, 8), (8, 1)))
     tensor = Tensor(sw_layout)
     # Slicing a Tensor produces a Tensor with offset
     row_slice = tensor[3, :]
-    assert hasattr(row_slice, 'offset')
+    assert hasattr(row_slice, "offset")
     assert row_slice.offset == Layout((8, 8), (8, 1))(3, 0)  # = 24
 
     # Check functional correctness: tensor[3, :](j) == tensor(3, j)
@@ -1154,8 +1649,27 @@ def test_offset_swizzled_layout_basic():
         assert row_slice(j) == tensor(3, j)
 
 
+def test_slice_and_offset_preserves_swizzle_for_partial_hierarchical_slice():
+    from tensor_layouts import Tensor
+
+    sw_layout = compose(Swizzle(2, 0, 2), Layout(((2, 2), 4), ((1, 2), 4)))
+    sublayout, offset = slice_and_offset(((None, 1), None), sw_layout)
+
+    assert sublayout.shape == (2, 4)
+    assert sublayout.stride == (1, 4)
+    assert sublayout.swizzle == sw_layout.swizzle
+    assert offset == 2
+
+    parent = Tensor(sw_layout)
+    sliced = Tensor(sublayout, offset)
+    for i0 in range(2):
+        for j in range(4):
+            assert sliced(i0, j) == parent((i0, 1), j)
+
+
 def test_offset_swizzled_layout_repr():
     from tensor_layouts import Tensor
+
     sw_layout = compose(Swizzle(3, 0, 3), Layout((8, 8), (8, 1)))
     tensor = Tensor(sw_layout)
     row_slice = tensor[2, :]
@@ -1166,6 +1680,7 @@ def test_offset_swizzled_layout_repr():
 
 def test_offset_swizzled_layout_eq():
     from tensor_layouts import Tensor
+
     sw_layout = compose(Swizzle(3, 0, 3), Layout((8, 8), (8, 1)))
     tensor = Tensor(sw_layout)
     slice1 = tensor[3, :]
@@ -1178,16 +1693,14 @@ def test_offset_swizzled_layout_eq():
 
 
 def test_compose_layout_with_swizzled_layout():
-    # compose(Layout, SwizzledLayout) should transform the swizzle through
-    # the outer layout, matching CuTe C++ composition(Layout, ComposedLayout).
-    # See layout_composed.hpp:379 and swizzle_layout.hpp:327.
+    # compose(Layout, swizzled Layout) is not safely reducible in general.
+    # It should preserve exact semantics via ComposedLayout rather than
+    # guessing a replacement single swizzle.
     swizzled = compose(Swizzle(3, 0, 3), Layout((8, 8), (8, 1)))
 
-    # Identity layout preserves the swizzle exactly
     result = compose(Layout(64, 1), swizzled)
-    assert result.swizzle == Swizzle(3, 0, 3)
+    assert isinstance(result, ComposedLayout)
     assert result.shape == (8, 8)
-    assert result.stride == (8, 1)
 
     # Verify point-wise correctness: result(i) == Layout(64,1)(swizzled(i))
     for i in range(size(result)):
@@ -1195,20 +1708,17 @@ def test_compose_layout_with_swizzled_layout():
 
 
 def test_compose_layout_with_swizzled_layout_nontrivial():
-    # Non-identity outer layout should transform the swizzle
+    # Non-identity outer layout also remains exact via ComposedLayout.
     swizzled = compose(Swizzle(2, 0, 2), Layout(16, 1))
 
     # Compose with a layout that doubles strides
     outer = Layout(16, 2)
     result = compose(outer, swizzled)
+    assert isinstance(result, ComposedLayout)
 
     # Verify point-wise: result(i) == outer(swizzled(i)) for all i in domain
     for i in range(size(result)):
         assert result(i) == outer(swizzled(i)), f"Mismatch at i={i}"
-
-    # The result should have a swizzle (transformed through outer)
-    assert result.swizzle is not None
-
 
 def test_make_layout_like_basic():
     # For a column-major layout, extracting a sub-shape preserves strides
@@ -1311,9 +1821,13 @@ def test_tile_to_shape_nested_block():
 
 ## is_layout
 
+
 def test_is_layout():
     assert is_layout(Layout(4, 1)) is True
     assert is_layout(Layout((2, 3), (1, 2))) is True
+    assert is_layout(ComposedLayout(Layout(4, 1), Layout(4, 1))) is True
+    assert is_affine_layout(Layout(4, 1)) is True
+    assert is_affine_layout(ComposedLayout(Layout(4, 1), Layout(4, 1))) is False
     assert is_layout(4) is False
     assert is_layout((4, 2)) is False
     assert is_layout(4) is False
@@ -1321,6 +1835,7 @@ def test_is_layout():
 
 
 ## unflatten
+
 
 def test_unflatten_tuple():
     # Flat tuple -> nested tuple
@@ -1419,6 +1934,7 @@ def test_make_ordered_layout_scalar():
 
 ## dice_modes
 
+
 def test_dice_modes_scalar_coord():
     # Scalar coord: identity (keep everything)
     layout = Layout((3, 4), (1, 4))
@@ -1475,6 +1991,7 @@ def test_dice_modes_complement_of_slice_modes():
 
 
 ## nullspace
+
 
 def test_nullspace_all_zero_strides():
     # All stride-0: everything is in the kernel
@@ -1543,6 +2060,7 @@ def test_nullspace_scalar_zero_stride():
 
 ## max_common_vector and max_common_layout
 
+
 def test_max_common_vector_identical():
     # Same layout: all elements are common
     a = Layout(8, 1)
@@ -1584,7 +2102,42 @@ def test_max_common_layout_partial():
         assert b(result(i)) == i
 
 
+def test_max_common_swizzled_vs_plain_is_representation_invariant():
+    swizzle = Swizzle(2, 1, 3)
+    embedded = compose(swizzle, Layout(32, 1))
+    composed = ComposedLayout(swizzle, Layout(32, 1), preoffset=0)
+    plain = Layout(32, 1)
+
+    assert max_common_vector(embedded, plain) == 2
+    assert max_common_vector(plain, embedded) == 2
+    assert max_common_vector(composed, plain) == 2
+    assert max_common_vector(plain, composed) == 2
+
+    for lhs in (embedded, composed):
+        common = max_common_layout(lhs, plain)
+        assert size(common) == 2
+        for i in range(size(common)):
+            assert lhs(common(i)) == i
+            assert plain(common(i)) == i
+
+
+def test_max_common_identical_swizzles_match_across_representations():
+    swizzle = Swizzle(2, 0, 2)
+    embedded = compose(swizzle, Layout((4, 4), (1, 4)))
+    composed = ComposedLayout(swizzle, Layout((4, 4), (1, 4)), preoffset=0)
+
+    for lhs in (embedded, composed):
+        for rhs in (embedded, composed):
+            assert max_common_vector(lhs, rhs) == 16
+            common = max_common_layout(lhs, rhs)
+            assert size(common) == 16
+            for i in range(size(common)):
+                assert lhs(common(i)) == i
+                assert rhs(common(i)) == i
+
+
 ## flat_product
+
 
 def test_flat_product_basic():
     # flat_product = zipped_product then unpack both modes
@@ -1611,6 +2164,7 @@ def test_flat_product_2d():
 
 
 ## raked_product
+
 
 def test_raked_product_basic():
     # raked_product vs blocked_product: reversed zip order
@@ -1726,8 +2280,11 @@ def test_upcast_known_copy_atoms():
     derived from the CUTLASS C++ copy_traits_sm75.hpp source.
     """
     from tensor_layouts.atoms_nv import (
-        SM75_U32x1_LDSM_N, SM75_U32x4_LDSM_N,
-        SM75_U16x2_LDSM_T, SM75_U16x4_LDSM_T, SM75_U16x8_LDSM_T,
+        SM75_U32x1_LDSM_N,
+        SM75_U32x4_LDSM_N,
+        SM75_U16x2_LDSM_T,
+        SM75_U16x4_LDSM_T,
+        SM75_U16x8_LDSM_T,
     )
 
     cases = [
@@ -1807,9 +2364,12 @@ def test_iter_layout_2d_col_major():
     layout = Layout((2, 3), (1, 2))
     result = list(iter_layout(layout))
     expected = [
-        ((0, 0), 0), ((1, 0), 1),   # col 0
-        ((0, 1), 2), ((1, 1), 3),   # col 1
-        ((0, 2), 4), ((1, 2), 5),   # col 2
+        ((0, 0), 0),
+        ((1, 0), 1),  # col 0
+        ((0, 1), 2),
+        ((1, 1), 3),  # col 1
+        ((0, 2), 4),
+        ((1, 2), 5),  # col 2
     ]
     assert result == expected
 
@@ -1879,160 +2439,6 @@ def test_layout_iter_protocol():
     # iter_layout still yields (coord, offset) pairs
     pairs = list(iter_layout(layout))
     assert all(layout(c) == o for c, o in pairs)
-
-
-## image, is_injective, is_surjective, is_bijective
-
-
-def test_image_contiguous():
-    """Contiguous layout visits every offset in [0, size)."""
-    assert image(Layout(4, 1)) == [0, 1, 2, 3]
-    assert image(Layout((2, 3), (1, 2))) == [0, 1, 2, 3, 4, 5]
-
-
-def test_image_strided():
-    """Strided layout has gaps in its image."""
-    assert image(Layout(4, 2)) == [0, 2, 4, 6]
-
-
-def test_image_broadcast():
-    """Broadcast (stride-0) layout collapses to few offsets."""
-    assert image(Layout((4, 2), (0, 1))) == [0, 1]
-    assert image(Layout(4, 0)) == [0]
-
-
-def test_image_swizzled():
-    """Swizzled layout image contains permuted offsets."""
-    sw = compose(Swizzle(2, 0, 2), Layout((4, 4), (4, 1)))
-    img = image(sw)
-    assert len(img) == 16  # bijective swizzle
-    assert img == list(range(16))
-
-
-def test_is_injective_contiguous():
-    assert is_injective(Layout(4, 1))
-    assert is_injective(Layout((2, 3), (3, 1)))
-
-
-def test_is_injective_strided():
-    assert is_injective(Layout(4, 2))
-
-
-def test_is_injective_broadcast():
-    """Broadcast layouts are not injective."""
-    assert not is_injective(Layout((4, 2), (0, 1)))
-    assert not is_injective(Layout(4, 0))
-
-
-def test_is_surjective_contiguous():
-    assert is_surjective(Layout(4, 1))
-    assert is_surjective(Layout((2, 3), (1, 2)))
-
-
-def test_is_surjective_strided():
-    """Strided layout is not surjective onto [0, cosize)."""
-    assert not is_surjective(Layout(4, 2))
-
-
-def test_is_surjective_custom_codomain():
-    """With explicit codomain, surjectivity can change."""
-    layout = Layout(4, 2)
-    # Not surjective onto [0, 7) -- has gaps
-    assert not is_surjective(layout)
-    # Surjective if codomain is exactly the image size
-    assert is_surjective(layout, codomain_size=4)
-
-
-def test_is_bijective_contiguous():
-    """Contiguous layouts are bijective."""
-    assert is_bijective(Layout(4, 1))
-    assert is_bijective(Layout((2, 3), (1, 2)))
-    assert is_bijective(Layout((2, 3), (3, 1)))
-
-
-def test_is_bijective_strided():
-    """Strided layout is not bijective (has gaps)."""
-    assert not is_bijective(Layout(4, 2))
-
-
-def test_is_bijective_broadcast():
-    """Broadcast layout is not bijective (has aliasing)."""
-    assert not is_bijective(Layout((4, 2), (0, 1)))
-
-
-def test_is_bijective_swizzled():
-    """Swizzle permutation is bijective."""
-    sw = compose(Swizzle(3, 0, 3), Layout((8, 8), (8, 1)))
-    assert is_bijective(sw)
-
-
-def test_is_bijective_identity():
-    """Identity (size-1) layout is trivially bijective."""
-    assert is_bijective(Layout(1, 0))
-
-
-def test_image_injectivity_consistency():
-    """image size equals domain size iff injective."""
-    layouts = [
-        Layout(8, 1),
-        Layout(4, 2),
-        Layout((4, 2), (0, 1)),
-        Layout((3, 3), (1, 3)),
-        Layout((2, 4), (4, 1)),
-    ]
-    for l in layouts:
-        img = image(l)
-        assert is_injective(l) == (len(img) == size(l))
-
-
-## functionally_equal
-
-
-def test_functionally_equal_identity():
-    """A layout is functionally equal to itself."""
-    layout = Layout((4, 8), (1, 4))
-    assert functionally_equal(layout, layout)
-
-
-def test_functionally_equal_coalesce():
-    """Coalescing preserves functional behavior."""
-    layout = Layout(((2, 2), (2, 4)), ((1, 4), (2, 8)))
-    assert functionally_equal(layout, coalesce(layout))
-
-
-def test_functionally_equal_flatten():
-    """Flattening preserves functional behavior."""
-    layout = Layout(((2, 2), (2, 4)), ((1, 4), (2, 8)))
-    assert functionally_equal(layout, flatten(layout))
-
-
-def test_functionally_equal_structurally_different():
-    """Different shapes/strides can produce the same mapping."""
-    a = Layout(((2, 2), 2), ((1, 4), 2))
-    b = coalesce(a)
-    assert a != b  # structurally different
-    assert functionally_equal(a, b)  # functionally same
-
-
-def test_functionally_equal_different_sizes():
-    """Different domain sizes are never functionally equal."""
-    assert not functionally_equal(Layout(4, 1), Layout(8, 1))
-
-
-def test_functionally_equal_broadcast():
-    """Broadcast layouts with same shape but different strides."""
-    a = Layout((4, 2), (0, 1))
-    b = Layout((4, 2), (0, 1))
-    assert functionally_equal(a, b)
-    c = Layout((4, 2), (1, 0))
-    assert not functionally_equal(a, c)
-
-
-def test_functionally_equal_row_col_major():
-    """Row-major and column-major are not functionally equal."""
-    col = Layout((3, 4), (1, 3))
-    row = Layout((3, 4), (4, 1))
-    assert not functionally_equal(col, row)
 
 
 if __name__ == "__main__":

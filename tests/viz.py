@@ -25,11 +25,8 @@ import tempfile
 
 import pytest
 
-from tensor_layouts import Layout, Swizzle
+from tensor_layouts import *
 from tensor_layouts.tensor import Tensor
-from tensor_layouts.layouts import (
-    mode, rank, flat_divide, tiled_divide, flat_product,
-)
 from tensor_layouts.atoms_amd import (
     CDNA3P_16x16x32_F32F16F16_MFMA,
     CDNA3_32x32x16_F32F8F8_MFMA,
@@ -46,9 +43,19 @@ try:
     import matplotlib.pyplot as plt
     from matplotlib.colors import to_rgba
     from matplotlib.transforms import Bbox
+    from tensor_layouts.viz import *
     import tensor_layouts.viz as viz_mod
     from tensor_layouts.viz import (
+        _build_combined_grid_figure,
+        _build_composite_figure,
+        _build_copy_figure,
+        _build_gemm_figure,
+        _build_layout_figure,
+        _build_mma_figure,
+        _build_slice_figure,
         _build_swizzle_figure,
+        _build_tiled_grid_figure,
+        _build_tv_figure,
         _compute_tv_mapping,
         _draw_hierarchical_grid,
         _format_hierarchical_cell_lines,
@@ -61,31 +68,10 @@ try:
         _get_hierarchical_indices_2d,
         _get_indices_2d,
         _get_color_indices_2d,
-        draw_composite,
-        draw_copy_layout,
-        draw_copy_atom,
-        draw_layout,
-        draw_mma_layout,
-        draw_combined_mma_grid,
-        draw_slice,
-        draw_swizzle,
-        draw_tiled_grid,
-        draw_tv_layout,
-        show_copy_layout,
-        show_copy_atom,
-        show_composite,
-        show_layout,
-        show_mma_layout,
-        show_combined_mma_grid,
-        show_slice,
-        show_swizzle,
-        show_tiled_grid,
-        show_tv_layout,
     )
     HAS_VIZ = True
 except ImportError:
     HAS_VIZ = False
-
 
 requires_viz = pytest.mark.skipif(
     not HAS_VIZ,
@@ -106,6 +92,40 @@ def _call_draw_hierarchical_grid(ax, layout, **kwargs):
         **kwargs,
     )
 
+
+def _cell_texts_by_pos(ax):
+    """Return in-grid text labels keyed by displayed cell-center position."""
+    return {
+        (round(t.get_position()[0], 1), round(t.get_position()[1], 1)): t.get_text()
+        for t in ax.texts
+        if t.get_position()[0] > 0 and t.get_position()[1] > 0
+    }
+
+
+def _cell_int(ax, x, y):
+    text = _cell_texts_by_pos(ax).get((x, y))
+    assert text is not None, f"missing cell text at {(x, y)}"
+    return int(text)
+
+
+def _base_patch_map(ax):
+    """Return non-highlight grid-cell patches keyed by their lower-left corner."""
+    return {
+        (round(p.get_x(), 1), round(p.get_y(), 1)): p
+        for p in ax.patches
+        if round(p.get_linewidth(), 1) == 1.0
+    }
+
+
+def _highlight_patch_positions(ax):
+    """Return highlighted cell origins for draw_slice-style overlays."""
+    return {
+        (round(p.get_x(), 1), round(p.get_y(), 1))
+        for p in ax.patches
+        if round(p.get_linewidth(), 1) == 2.0
+    }
+
+
 MIXED_VIZ_ATOMS = [
     # Representative cross-section for visualization smoke tests:
     # - NVIDIA: Ampere (SM80), Hopper-era scalar/legacy-style atom (SM90),
@@ -121,10 +141,11 @@ MIXED_VIZ_ATOMS = [
 ]
 
 
+
 @requires_viz
-def test_show_layout_returns_figure_without_raising():
-    """Smoke test for show_layout helper."""
-    fig = show_layout(Layout((8, 8), (8, 1)))
+def test_draw_layout_returns_figure_without_raising():
+    """Smoke test for draw_layout helper."""
+    fig = _build_layout_figure(Layout((8, 8), (8, 1)))
     try:
         assert isinstance(fig, matplotlib.figure.Figure)
         assert len(fig.axes) == 1
@@ -132,10 +153,11 @@ def test_show_layout_returns_figure_without_raising():
         plt.close(fig)
 
 
+
 @requires_viz
-def test_show_swizzle_returns_figure_without_raising():
-    """Regression test for show_swizzle helper."""
-    fig = show_swizzle(Layout((8, 8), (8, 1)), Swizzle(3, 0, 3))
+def test_draw_swizzle_returns_figure_without_raising():
+    """Regression test for draw_swizzle helper."""
+    fig = _build_swizzle_figure(Layout((8, 8), (8, 1)), Swizzle(3, 0, 3))
     try:
         assert isinstance(fig, matplotlib.figure.Figure)
         assert len(fig.axes) == 2
@@ -143,12 +165,13 @@ def test_show_swizzle_returns_figure_without_raising():
         plt.close(fig)
 
 
+
 @requires_viz
-def test_show_layout_accepts_tensor():
-    """draw_layout/show_layout accept Tensor and display offset-adjusted values."""
+def test_draw_layout_accepts_tensor():
+    """draw_layout/draw_layout accept Tensor and display offset-adjusted values."""
     layout = Layout((4, 8), (8, 1))
     tensor = Tensor(layout, offset=16)
-    fig = show_layout(tensor)
+    fig = _build_layout_figure(tensor)
     try:
         assert isinstance(fig, matplotlib.figure.Figure)
         # Cell (0,0) at position (0.5, 0.5) should show 16 (offset), not 0
@@ -163,13 +186,14 @@ def test_show_layout_accepts_tensor():
         plt.close(fig)
 
 
+
 @requires_viz
-def test_show_layout_tensor_zero_offset():
+def test_draw_layout_tensor_zero_offset():
     """Tensor with offset=0 produces same values as bare Layout."""
     layout = Layout((4, 4), (4, 1))
     tensor = Tensor(layout, offset=0)
-    fig_layout = show_layout(layout)
-    fig_tensor = show_layout(tensor)
+    fig_layout = _build_layout_figure(layout)
+    fig_tensor = _build_layout_figure(tensor)
     try:
         def _cell_values(fig):
             ax = fig.axes[0]
@@ -182,17 +206,19 @@ def test_show_layout_tensor_zero_offset():
         plt.close(fig_tensor)
 
 
+
 @requires_viz
-def test_show_layout_swizzled_tensor():
+def test_draw_layout_swizzled_tensor():
     """Swizzled Tensor renders without error."""
     sw = Swizzle(3, 0, 3)
     layout = Layout((8, 8), (8, 1), swizzle=sw)
     tensor = Tensor(layout, offset=0)
-    fig = show_layout(tensor)
+    fig = _build_layout_figure(tensor)
     try:
         assert isinstance(fig, matplotlib.figure.Figure)
     finally:
         plt.close(fig)
+
 
 
 @requires_viz
@@ -201,12 +227,62 @@ def test_draw_layout_smoke():
         draw_layout(Layout((8, 8), (8, 1)), filename=f.name)
 
 
+
+@requires_viz
+def test_draw_layout_negative_offset_list_labels_do_not_wrap():
+    """Negative offsets must not wrap around explicit cell_labels lists."""
+    fig = _build_layout_figure(Layout(4, -1), cell_labels=["a", "b", "c", "d"])
+    try:
+        ax = fig.axes[0]
+        texts = [
+            (round(t.get_position()[0], 1), round(t.get_position()[1], 1), t.get_text())
+            for t in ax.texts
+            if t.get_position()[0] > 0 and t.get_position()[1] > 0
+        ]
+        assert texts == [
+            (0.5, 0.5, "a"),
+            (1.5, 0.5, "-1"),
+            (2.5, 0.5, "-2"),
+            (3.5, 0.5, "-3"),
+        ]
+    finally:
+        plt.close(fig)
+
+
+
+@requires_viz
+def test_draw_layout_hierarchical_negative_offset_labels_do_not_wrap():
+    """Hierarchical grids must also avoid Python negative-index wraparound."""
+    layout = Layout(((2, 1), (2, 1)), ((-1, 0), (-2, 0)))
+    fig = _build_layout_figure(
+        layout,
+        flatten_hierarchical=False,
+        cell_labels=["a", "b", "c", "d"],
+    )
+    try:
+        ax = fig.axes[0]
+        texts = [
+            (round(t.get_position()[0], 1), round(t.get_position()[1], 1), t.get_text())
+            for t in ax.texts
+            if 0 < t.get_position()[0] < 2.1 and 0 < t.get_position()[1] < 2.1
+        ]
+        assert texts == [
+            (0.5, 0.5, "a"),
+            (1.5, 0.5, "-2"),
+            (0.5, 1.5, "-1"),
+            (1.5, 1.5, "-3"),
+        ]
+    finally:
+        plt.close(fig)
+
+
+
 @requires_viz
 def test_color_by_row_matches_color_layout():
     """color_by='row' produces the same color indices as the manual color_layout."""
     layout = Layout((4, 8), (8, 1))
-    fig_by = show_layout(layout, color_by="row")
-    fig_manual = show_layout(layout, color_layout=Layout((4, 8), (1, 0)),
+    fig_by = _build_layout_figure(layout, color_by="row")
+    fig_manual = _build_layout_figure(layout, color_layout=Layout((4, 8), (1, 0)),
                              colorize=True)
     try:
         # Both should have the same cell background colors
@@ -220,23 +296,26 @@ def test_color_by_row_matches_color_layout():
         plt.close(fig_manual)
 
 
+
 @requires_viz
 def test_color_by_column():
     """color_by='column' renders without error."""
-    fig = show_layout(Layout((4, 8), (8, 1)), color_by="column")
+    fig = _build_layout_figure(Layout((4, 8), (8, 1)), color_by="column")
     try:
         assert isinstance(fig, matplotlib.figure.Figure)
     finally:
         plt.close(fig)
 
 
+
 @requires_viz
 def test_color_by_and_color_layout_exclusive():
     """Providing both color_by and color_layout raises ValueError."""
     with pytest.raises(ValueError, match="mutually exclusive"):
-        show_layout(Layout((4, 4), (4, 1)),
+        draw_layout(Layout((4, 4), (4, 1)),
                     color_by="row",
                     color_layout=Layout((4, 4), (1, 0)))
+
 
 
 @requires_viz
@@ -245,13 +324,14 @@ def test_rank3_layout_produces_multi_panel():
     matrix = Layout((8, 8), (8, 1))
     divided = flat_divide(matrix, Layout(2, 1))
     assert rank(divided) == 3
-    fig = show_layout(divided)
+    fig = _build_layout_figure(divided)
     try:
-        # shape=(2, 4, 8) → 2 panels of 4×8
+        # shape=(2, 4, 8) → modes 0,1 are 2×4 grid, mode 2 = 8 panels
         with_content = [ax for ax in fig.axes if len(ax.patches) > 0]
-        assert len(with_content) == 2
+        assert len(with_content) == 8
     finally:
         plt.close(fig)
+
 
 
 @requires_viz
@@ -259,7 +339,7 @@ def test_rank3_panel_values_match_layout():
     """Each rank-3 panel shows correct offset values."""
     matrix = Layout((8, 8), (8, 1))
     divided = flat_divide(matrix, Layout(2, 1))
-    fig = show_layout(divided)
+    fig = _build_layout_figure(divided)
     try:
         def _cell_val(ax, x, y):
             for t in ax.texts:
@@ -272,10 +352,64 @@ def test_rank3_panel_values_match_layout():
                         pass
             return None
 
-        # Panel 0: divided(0, 0, 0)
+        # Panel 0: divided(0, 0, 0) — mode[2]=0
         assert _cell_val(fig.axes[0], 0.5, 0.5) == divided(0, 0, 0)
-        # Panel 1: divided(1, 0, 0)
-        assert _cell_val(fig.axes[1], 0.5, 0.5) == divided(1, 0, 0)
+        # Panel 1: divided(0, 0, 1) — mode[2]=1
+        assert _cell_val(fig.axes[1], 0.5, 0.5) == divided(0, 0, 1)
+    finally:
+        plt.close(fig)
+
+
+
+@requires_viz
+def test_draw_layout_composed_values_match_layout():
+    composed = compose(
+        Layout(16, 2),
+        compose(Swizzle(2, 0, 2), Layout((4, 4), (4, 1))),
+    )
+    fig = _build_layout_figure(composed)
+    try:
+        ax = fig.axes[0]
+        for i in range(4):
+            for j in range(4):
+                assert _cell_int(ax, j + 0.5, i + 0.5) == composed(i, j)
+    finally:
+        plt.close(fig)
+
+
+@requires_viz
+def test_draw_layout_composed_tensor_uses_tensor_addresses():
+    tensor = Tensor(
+        ComposedLayout(Swizzle(2, 0, 2), Layout((4, 4), (4, 1)), preoffset=4),
+        offset=100,
+    )
+    fig = _build_layout_figure(tensor)
+    try:
+        ax = fig.axes[0]
+        assert ax.get_title() == str(tensor)
+        for i in range(4):
+            for j in range(4):
+                assert _cell_int(ax, j + 0.5, i + 0.5) == tensor(i, j)
+    finally:
+        plt.close(fig)
+
+
+@requires_viz
+def test_rank3_composed_panel_values_match_layout():
+    composed = compose(
+        Layout(16, 2),
+        compose(Swizzle(2, 0, 2), Layout((4, 4), (4, 1))),
+    )
+    divided = flat_divide(composed, Layout(2, 1))
+    assert rank(divided) == 3
+    fig = _build_layout_figure(divided)
+    try:
+        axes_by_title = {ax.get_title(): ax for ax in fig.axes if ax.get_title()}
+        for panel in (0, 3):
+            ax = axes_by_title[f"mode[2]={panel}"]
+            for i in range(2):
+                for j in range(2):
+                    assert _cell_int(ax, j + 0.5, i + 0.5) == divided(i, j, panel)
     finally:
         plt.close(fig)
 
@@ -288,11 +422,59 @@ def test_rank4_layout_renders():
     # Use a simple manual rank-4 layout:
     L = Layout((2, 3, 4, 5), (60, 20, 5, 1))
     assert rank(L) == 4
-    fig = show_layout(L)
+    fig = _build_layout_figure(L)
     try:
-        # 2*3=6 panels of 4×5
+        # modes 0,1 = 2×3 grid, modes 2,3 = 4×5 = 20 panels
         with_content = [ax for ax in fig.axes if len(ax.patches) > 0]
-        assert len(with_content) == 6
+        assert len(with_content) == 20
+    finally:
+        plt.close(fig)
+
+
+
+@requires_viz
+def test_rank4_composed_panel_values_match_layout():
+    composed = compose(
+        Layout(16, 2),
+        compose(Swizzle(2, 0, 2), Layout((4, 4), (4, 1))),
+    )
+    rank4_layout = flat_product(flat_divide(composed, Layout(2, 1)), Layout(2, 1))
+    assert rank(rank4_layout) == 4
+    fig = _build_layout_figure(rank4_layout)
+    try:
+        axes_by_title = {ax.get_title(): ax for ax in fig.axes if ax.get_title()}
+        assert len(axes_by_title) == 8
+        for outer in ((0, 0), (0, 1)):
+            ax = axes_by_title[f"outer=({outer[0]}, {outer[1]})"]
+            for i in range(2):
+                for j in range(2):
+                    assert _cell_int(ax, j + 0.5, i + 0.5) == rank4_layout(i, j, *outer)
+    finally:
+        plt.close(fig)
+
+
+@requires_viz
+def test_rank3_composed_color_layout_slices_per_panel():
+    composed = compose(
+        Layout(16, 2),
+        compose(Swizzle(2, 0, 2), Layout((4, 4), (4, 1))),
+    )
+    divided = flat_divide(composed, Layout(2, 1))
+    color_layout = Layout(divided.shape, (0, 0, 1))
+    fig = _build_layout_figure(divided, colorize=True, color_layout=color_layout)
+    try:
+        axes_by_title = {ax.get_title(): ax for ax in fig.axes if ax.get_title()}
+        panel0_colors = {
+            patch.get_facecolor()
+            for patch in _base_patch_map(axes_by_title["mode[2]=0"]).values()
+        }
+        panel1_colors = {
+            patch.get_facecolor()
+            for patch in _base_patch_map(axes_by_title["mode[2]=1"]).values()
+        }
+        assert len(panel0_colors) == 1
+        assert len(panel1_colors) == 1
+        assert panel0_colors != panel1_colors
     finally:
         plt.close(fig)
 
@@ -303,14 +485,41 @@ def test_draw_swizzle_smoke():
         draw_swizzle(Layout((8, 8), (8, 1)), Swizzle(3, 0, 3), filename=f.name)
 
 
+
 @requires_viz
 def test_draw_slice_smoke():
     with tempfile.NamedTemporaryFile(suffix=".png") as f:
         draw_slice(Layout((4, 8), (8, 1)), (2, None), filename=f.name)
 
 
+
 @requires_viz
+def test_draw_slice_composed_uses_internal_preoffset_in_title_and_values():
+    composed = compose(
+        Layout(16, 2),
+        compose(Swizzle(2, 0, 2), Layout((4, 4), (4, 1))),
+    )
+    sublayout, offset = slice_and_offset((1, None), composed)
+    assert offset == 0
+
+    fig = _build_slice_figure(composed, (1, None))
+    try:
+        ax = fig.axes[0]
+        assert ax.get_title() == str(sublayout)
+        assert _highlight_patch_positions(ax) == {
+            (0.0, 1.0),
+            (1.0, 1.0),
+            (2.0, 1.0),
+            (3.0, 1.0),
+        }
+        for j in range(4):
+            assert _cell_int(ax, j + 0.5, 1.5) == sublayout(j)
+    finally:
+        plt.close(fig)
+
+
 @pytest.mark.parametrize("atom", MIXED_VIZ_ATOMS, ids=lambda a: a.name)
+@requires_viz
 def test_draw_tv_layout_smoke(atom):
     m, n, _ = atom.shape_mnk
     with tempfile.NamedTemporaryFile(suffix=".png") as f:
@@ -323,8 +532,9 @@ def test_draw_tv_layout_smoke(atom):
         )
 
 
-@requires_viz
+
 @pytest.mark.parametrize("atom", MIXED_VIZ_ATOMS, ids=lambda a: a.name)
+@requires_viz
 def test_draw_mma_layout_smoke(atom):
     with tempfile.NamedTemporaryFile(suffix=".png") as f:
         draw_mma_layout(
@@ -336,6 +546,7 @@ def test_draw_mma_layout_smoke(atom):
             colorize=True,
             thr_id_layout=atom.thr_id,
         )
+
 
 
 @requires_viz
@@ -356,8 +567,9 @@ def test_draw_mma_layout_raises_for_incompatible_panel_shape():
         plt.close("all")
 
 
-@requires_viz
+
 @pytest.mark.parametrize("atom", MIXED_VIZ_ATOMS, ids=lambda a: a.name)
+@requires_viz
 def test_draw_tiled_grid_smoke(atom):
     atom_layout = Layout((2, 2), (1, 2))
     grid, tile_shape = tile_mma_grid(atom, atom_layout, matrix="C")
@@ -369,6 +581,7 @@ def test_draw_tiled_grid_smoke(atom):
             filename=f.name,
             title="tiled grid smoke",
         )
+
 
 
 @requires_viz
@@ -384,6 +597,7 @@ def test_draw_composite_smoke():
         )
 
 
+
 @requires_viz
 def test_draw_composite_mixed_tv_and_offset():
     """Composite figure with per-panel tv_mode: one offset grid, one TV grid."""
@@ -392,12 +606,59 @@ def test_draw_composite_mixed_tv_and_offset():
         Layout((4, 4), (4, 1)),  # offset grid (default)
         (atom.c_layout, {'tv_mode': True}),  # TV grid
     ]
-    fig = show_composite(panels, titles=["Offset", "TV"])
+    fig = _build_composite_figure(panels, titles=["Offset", "TV"])
     try:
         assert isinstance(fig, matplotlib.figure.Figure)
         assert len(fig.axes) == 2
     finally:
         plt.close(fig)
+
+
+
+@requires_viz
+def test_draw_composite_hierarchical_panel():
+    """Composite figure with flatten_hierarchical=False renders hierarchy lines."""
+    hier = Layout(((2, 2), (2, 2)), ((1, 4), (2, 8)))
+    flat = Layout((4, 4), (4, 1))
+    panels = [
+        (hier, {'flatten_hierarchical': False}),
+        flat,
+    ]
+    fig = _build_composite_figure(panels, titles=["Hierarchical", "Flat"])
+    try:
+        assert isinstance(fig, matplotlib.figure.Figure)
+        # The hierarchical panel should have hierarchy boundary lines
+        hier_ax = fig.axes[0]
+        assert len(hier_ax.lines) > 0
+        # The flat panel should have no hierarchy lines
+        flat_ax = fig.axes[1]
+        assert len(flat_ax.lines) == 0
+    finally:
+        plt.close(fig)
+
+
+
+@requires_viz
+def test_draw_composite_hierarchical_top_level_default():
+    """flatten_hierarchical=False as top-level default applies to all panels."""
+    hier = Layout(((2, 2), (2, 2)), ((1, 4), (2, 8)))
+    fig = _build_composite_figure([hier], flatten_hierarchical=False)
+    try:
+        ax = fig.axes[0]
+        assert len(ax.lines) > 0
+    finally:
+        plt.close(fig)
+
+
+
+@requires_viz
+def test_draw_composite_warns_on_panel_truncation():
+    """Warning emitted when panels exceed grid capacity."""
+    panels = [Layout((2, 2), (2, 1)) for _ in range(5)]
+    with pytest.warns(UserWarning, match="5 panels.*4 cells"):
+        fig = _build_composite_figure(panels, arrangement="grid:2x2")
+        plt.close(fig)
+
 
 
 @requires_viz
@@ -409,6 +670,7 @@ def test_draw_copy_layout_smoke():
                          title="copy smoke", colorize=True)
 
 
+
 @requires_viz
 def test_draw_copy_layout_rejects_rank1():
     with pytest.raises(ValueError, match="rank 2"):
@@ -416,15 +678,17 @@ def test_draw_copy_layout_rejects_rank1():
                          filename="ignored.png")
 
 
+
 @requires_viz
-def test_show_copy_layout_returns_figure():
+def test_draw_copy_layout_returns_figure():
     src = Layout((4, 2), (2, 1))
     dst = Layout((4, 2), (1, 4))
-    fig = show_copy_layout(src, dst, title="copy show")
+    fig = _build_copy_figure(src, dst, title="copy show")
     try:
         assert isinstance(fig, matplotlib.figure.Figure)
     finally:
         plt.close(fig)
+
 
 
 @requires_viz
@@ -435,31 +699,54 @@ def test_draw_copy_atom_smoke():
         draw_copy_atom(SM75_U32x1_LDSM_N, element_bits=16, filename=f.name)
 
 
+
 @requires_viz
-def test_show_copy_atom_returns_figure():
-    """show_copy_atom returns a Figure for Jupyter display."""
+def test_draw_copy_atom_returns_figure():
+    """draw_copy_atom renders without raising."""
     from tensor_layouts.atoms_nv import SM90_U32x4_STSM_N
-    fig = show_copy_atom(SM90_U32x4_STSM_N, element_bits=16)
+    draw_copy_atom(SM90_U32x4_STSM_N, element_bits=16)
+
+
+
+@requires_viz
+def test_draw_tv_layout_returns_figure():
+    fig = _build_tv_figure(Layout((4, 2), (2, 1)))
     try:
         assert isinstance(fig, matplotlib.figure.Figure)
     finally:
         plt.close(fig)
 
 
+
 @requires_viz
-def test_show_tv_layout_returns_figure():
-    fig = show_tv_layout(Layout((4, 2), (2, 1)))
+def test_draw_tv_layout_negative_stride_returns_figure():
+    """Dense negative-stride TV layouts should render after rebasing."""
+    fig = _build_tv_figure(Layout((4, 2), (-1, 4)), grid_shape=(4, 2))
     try:
         assert isinstance(fig, matplotlib.figure.Figure)
     finally:
         plt.close(fig)
 
 
+
 @requires_viz
-def test_show_mma_layout_returns_figure():
+def test_draw_tv_layout_negative_stride_with_holes_renders_questions():
+    """Gappy negative-stride TV layouts should render holes rather than fail."""
+    fig = _build_tv_figure(Layout((4, 2), (-1, -8)))
+    try:
+        ax = fig.axes[0]
+        hole_texts = [t.get_text() for t in ax.texts if t.get_text() == "?"]
+        assert len(hole_texts) == 4
+    finally:
+        plt.close(fig)
+
+
+
+@requires_viz
+def test_draw_mma_layout_returns_figure():
     from tensor_layouts.atoms_nv import SM80_16x8x16_F16F16F16F16_TN
     atom = SM80_16x8x16_F16F16F16F16_TN
-    fig = show_mma_layout(atom.a_layout, atom.b_layout, atom.c_layout,
+    fig = _build_mma_figure(atom.a_layout, atom.b_layout, atom.c_layout,
                           tile_mnk=atom.shape_mnk, colorize=True,
                           thr_id_layout=atom.thr_id)
     try:
@@ -468,33 +755,36 @@ def test_show_mma_layout_returns_figure():
         plt.close(fig)
 
 
+
 @requires_viz
-def test_show_tiled_grid_returns_figure():
+def test_draw_tiled_grid_returns_figure():
     from tensor_layouts.atoms_nv import SM80_16x8x16_F16F16F16F16_TN
     atom = SM80_16x8x16_F16F16F16F16_TN
     atom_layout = Layout((2, 2), (1, 2))
     grid, tile_shape = tile_mma_grid(atom, atom_layout, matrix="C")
-    fig = show_tiled_grid(grid, tile_shape[0], tile_shape[1], title="tiled")
+    fig = _build_tiled_grid_figure(grid, tile_shape[0], tile_shape[1], title="tiled")
     try:
         assert isinstance(fig, matplotlib.figure.Figure)
     finally:
         plt.close(fig)
 
 
+
 @requires_viz
-def test_show_slice_returns_figure():
-    fig = show_slice(Layout((4, 8), (8, 1)), (2, None))
+def test_draw_slice_returns_figure():
+    fig = _build_slice_figure(Layout((4, 8), (8, 1)), (2, None))
     try:
         assert isinstance(fig, matplotlib.figure.Figure)
     finally:
         plt.close(fig)
 
 
+
 @requires_viz
-def test_show_composite_returns_figure():
+def test_draw_composite_returns_figure():
     l1 = Layout((4, 4), (4, 1))
     l2 = Layout((4, 4), (1, 4))
-    fig = show_composite([l1, l2], titles=["Row", "Col"])
+    fig = _build_composite_figure([l1, l2], titles=["Row", "Col"])
     try:
         assert isinstance(fig, matplotlib.figure.Figure)
         assert len(fig.axes) == 2
@@ -502,12 +792,202 @@ def test_show_composite_returns_figure():
         plt.close(fig)
 
 
+
+@requires_viz
+def test_draw_composite_tensor_data_labels():
+    """Tensor panels show data values, not raw offsets, in cell text."""
+    t = Tensor(Layout(4, 1), data=list("WXYZ"))
+    fig = _build_composite_figure([t], titles=["Data"])
+    try:
+        ax = fig.axes[0]
+        cell_texts = [c.get_text() for c in ax.texts
+                      if c.get_text() in ("W", "X", "Y", "Z")]
+        assert len(cell_texts) == 4, f"expected data labels, got {cell_texts}"
+    finally:
+        plt.close(fig)
+
+
+
+@requires_viz
+def test_draw_composite_layout_shows_offsets():
+    """Layout panels show offset integers, not data."""
+    fig = _build_composite_figure([Layout(4, 1)], titles=["Offsets"])
+    try:
+        ax = fig.axes[0]
+        cell_texts = sorted(c.get_text() for c in ax.texts
+                            if c.get_text().isdigit())
+        assert "0" in cell_texts and "3" in cell_texts
+    finally:
+        plt.close(fig)
+
+
+
+@requires_viz
+def test_draw_composite_auto_panel_size_compact_for_1d():
+    """Auto panel_size produces compact height for rank-1 layouts."""
+    fig = _build_composite_figure([Layout(8, 1)])
+    try:
+        _, h = fig.get_size_inches()
+        assert h < 3.0, f"1-row layout should be compact, got height={h}"
+    finally:
+        plt.close(fig)
+
+
+
+@requires_viz
+def test_draw_composite_auto_panel_size_scales_with_rows():
+    """Auto panel_size grows taller for layouts with more rows."""
+    fig_1d = _build_composite_figure([Layout(8, 1)])
+    fig_2d = _build_composite_figure([Layout((4, 8), (8, 1))])
+    try:
+        _, h_1d = fig_1d.get_size_inches()
+        _, h_2d = fig_2d.get_size_inches()
+        assert h_2d > h_1d, f"4×8 should be taller than 1×8: {h_2d} vs {h_1d}"
+    finally:
+        plt.close(fig_1d)
+        plt.close(fig_2d)
+
+
+
+@requires_viz
+def test_draw_composite_explicit_panel_size_overrides_auto():
+    """Explicit panel_size takes precedence over auto-compute."""
+    fig = _build_composite_figure([Layout(8, 1)], panel_size=(5.0, 5.0))
+    try:
+        w, h = fig.get_size_inches()
+        assert abs(w - 5.0) < 0.1 and abs(h - 5.0) < 0.1
+    finally:
+        plt.close(fig)
+
+
+
+@requires_viz
+def test_draw_composite_cell_labels_offset_kwarg():
+    """cell_labels='offset' passed as kwarg forces offset display for Tensors."""
+    t = Tensor(Layout(4, 1), data=list("WXYZ"))
+    fig = _build_composite_figure([t], cell_labels="offset")
+    try:
+        ax = fig.axes[0]
+        cell_texts = [c.get_text() for c in ax.texts]
+        # Should show offsets (0, 1, 2, 3), not letters
+        assert "0" in cell_texts and "3" in cell_texts
+        assert "W" not in cell_texts
+    finally:
+        plt.close(fig)
+
+
+
+@requires_viz
+def test_draw_composite_per_panel_override_wins():
+    """Per-panel option dict overrides top-level kwarg."""
+    t = Tensor(Layout(4, 1), data=list("WXYZ"))
+    # Top-level says offset, but per-panel says show data (True = auto)
+    fig = _build_composite_figure(
+        [(t, {"cell_labels": True})],
+        cell_labels="offset",
+    )
+    try:
+        ax = fig.axes[0]
+        cell_texts = [c.get_text() for c in ax.texts
+                      if c.get_text() in ("W", "X", "Y", "Z")]
+        assert len(cell_texts) == 4
+    finally:
+        plt.close(fig)
+
+
+
+# --- draw_gemm tests ---
+
+@requires_viz
+def test_draw_gemm_smoke():
+    """draw_gemm produces a figure with 4 axes (empty + A + B^T + C)."""
+    A = Layout((4, 2), (1, 4))
+    B = Layout((3, 2), (1, 3))
+    C = Layout((4, 3), (1, 4))
+    fig = _build_gemm_figure(A, B, C, main_title="GEMM smoke")
+    try:
+        assert isinstance(fig, matplotlib.figure.Figure)
+        # 4 axes: empty (hidden) + A + B^T + C
+        assert len(fig.axes) == 4
+    finally:
+        plt.close(fig)
+
+
+
+@requires_viz
+def test_draw_gemm_tensor_shows_data():
+    """Tensor operands display data values, not offsets."""
+    A = Tensor(Layout((2, 2), (1, 2)), data=list("ABCD"))
+    B = Tensor(Layout((2, 2), (1, 2)), data=list("WXYZ"))
+    C = Tensor(Layout((2, 2), (1, 2)), data=[0, 1, 2, 3])
+    fig = _build_gemm_figure(A, B, C)
+    try:
+        # Check A panel (axes[2] = bottom-left)
+        a_texts = [c.get_text() for c in fig.axes[2].texts
+                   if c.get_text() in ("A", "B", "C", "D")]
+        assert len(a_texts) == 4, f"expected A data labels, got {a_texts}"
+    finally:
+        plt.close(fig)
+
+
+
+@requires_viz
+def test_draw_gemm_b_transposed():
+    """B panel title shows transposed dimensions K×N."""
+    A = Layout((4, 2), (1, 4))
+    B = Layout((3, 2), (1, 3))
+    C = Layout((4, 3), (1, 4))
+    fig = _build_gemm_figure(A, B, C)
+    try:
+        # B^T panel is axes[1] (top-right)
+        b_title = fig.axes[1].get_title()
+        assert "2\u00d73" in b_title, f"B^T title should show K×N=2×3, got {b_title}"
+    finally:
+        plt.close(fig)
+
+
+
+@requires_viz
+def test_draw_gemm_cell_labels_offset():
+    """cell_labels='offset' forces offset display for Tensor operands."""
+    A = Tensor(Layout((2, 2), (1, 2)), data=list("ABCD"))
+    B = Tensor(Layout((2, 2), (1, 2)), data=list("WXYZ"))
+    C = Tensor(Layout((2, 2), (1, 2)), data=[0, 1, 2, 3])
+    fig = _build_gemm_figure(A, B, C, cell_labels="offset")
+    try:
+        a_texts = [c.get_text() for c in fig.axes[2].texts]
+        assert "A" not in a_texts, "should show offsets, not data"
+        assert "0" in a_texts
+    finally:
+        plt.close(fig)
+
+
+
+@requires_viz
+def test_draw_gemm_hierarchy_boundary_boxes():
+    """Hierarchical layouts get hierarchy boundary lines in draw_gemm."""
+    A = Layout(((2, 3), 2), ((1, 2), 6))
+    B = Layout((4, 2), (1, 4))
+    C = Layout(((2, 3), 4), ((1, 2), 6))
+    fig = _build_gemm_figure(A, B, C)
+    try:
+        # A panel (axes[2]) has hierarchical mode 0 → should have boundary lines
+        a_ax = fig.axes[2]
+        assert len(a_ax.lines) > 0, "A panel should have hierarchy boundary lines"
+        # B panel (axes[1]) is plain → no boundary lines
+        b_ax = fig.axes[1]
+        assert len(b_ax.lines) == 0, "B panel should have no hierarchy lines"
+    finally:
+        plt.close(fig)
+
+
+
 @requires_viz
 def test_draw_copy_layout_same_thread_colors_both_panels():
     """Src and dst panels should use the same color for the same thread."""
     src = Layout((4, 2), (2, 1))
     dst = Layout((4, 2), (1, 4))
-    fig = show_copy_layout(src, dst, colorize=True)
+    fig = _build_copy_figure(src, dst, colorize=True)
     try:
         ax = fig.axes[0]
         patches_list = ax.patches
@@ -519,6 +999,7 @@ def test_draw_copy_layout_same_thread_colors_both_panels():
         assert src_colors[0] == dst_colors[0]
     finally:
         plt.close(fig)
+
 
 
 @requires_viz
@@ -533,6 +1014,7 @@ def test_get_indices_2d_row_major_matches_logical_coordinates():
     ]
 
 
+
 @requires_viz
 def test_get_indices_2d_column_major_matches_logical_coordinates():
     layout = Layout((4, 3), (1, 4))
@@ -543,6 +1025,7 @@ def test_get_indices_2d_column_major_matches_logical_coordinates():
         [2, 6, 10],
         [3, 7, 11],
     ]
+
 
 
 @requires_viz
@@ -558,6 +1041,7 @@ def test_get_color_indices_2d_by_row_matches_logical_coordinates():
     ]
 
 
+
 @requires_viz
 def test_get_color_indices_2d_by_column_matches_logical_coordinates():
     layout = Layout((4, 3), (3, 1))
@@ -569,6 +1053,7 @@ def test_get_color_indices_2d_by_column_matches_logical_coordinates():
         [0, 1, 2],
         [0, 1, 2],
     ]
+
 
 
 @requires_viz
@@ -584,12 +1069,14 @@ def test_get_color_indices_2d_uniform_layout_is_uniform():
     ]
 
 
+
 @requires_viz
 def test_get_color_indices_2d_1d_layout_is_not_treated_as_uniform():
     layout = Layout(4, 1)
     color_layout = Layout(4, 1)
     color_indices = _get_color_indices_2d(layout, color_layout)
     assert color_indices.tolist() == [[0, 1, 2, 3]]
+
 
 
 @requires_viz
@@ -603,11 +1090,13 @@ def test_get_hierarchical_cell_coords_2d_preserves_nested_coordinates():
     assert coords[0, 2] == ((0, 0), (0, 1))
 
 
+
 @requires_viz
 def test_format_nested_coord_formats_hierarchical_labels():
     assert _format_nested_coord(3) == "3"
     assert _format_nested_coord((1, 2)) == "(1,2)"
     assert _format_nested_coord(((1, 2), 3)) == "((1,2),3)"
+
 
 
 @requires_viz
@@ -619,6 +1108,7 @@ def test_format_hierarchical_cell_lines_is_explicit_and_pedagogical():
     )
 
 
+
 @requires_viz
 def test_coord_levels_flattens_nested_coordinates_for_axis_labels():
     assert _coord_levels(3) == (3,)
@@ -626,14 +1116,17 @@ def test_coord_levels_flattens_nested_coordinates_for_axis_labels():
     assert _coord_levels(((1, 2), 3)) == (1, 2, 3)
 
 
+
 @requires_viz
 def test_level_spans_supports_three_level_hierarchy():
     assert _level_spans((2, 3, 4)) == (2, 6, 24)
 
 
+
 @requires_viz
 def test_level_block_sizes_supports_three_level_hierarchy():
     assert _level_block_sizes((2, 3, 4)) == (1, 2, 6)
+
 
 
 @requires_viz
@@ -662,6 +1155,7 @@ def test_draw_layout_nested_passes_color_indices_to_hierarchical_renderer(monkey
     assert seen["cols"] == 4
     assert seen["color_indices"] is not None
     assert seen["color_indices"].shape == (4, 4)
+
 
 
 @requires_viz
@@ -788,6 +1282,7 @@ def _cell_text_bboxes(ax, rows: int, cols: int):
     return boxes
 
 
+
 @requires_viz
 def test_draw_hierarchical_grid_draws_outer_perimeter_for_coarse_tiles():
     layout = Layout(((2, 2), (2, 2)), ((1, 4), (2, 8)))
@@ -801,6 +1296,7 @@ def test_draw_hierarchical_grid_draws_outer_perimeter_for_coarse_tiles():
         assert vertical == {0.0, 2.0, 4.0}
     finally:
         plt.close(fig)
+
 
 
 @requires_viz
@@ -818,6 +1314,7 @@ def test_draw_hierarchical_grid_cecka_hier_col_margin_labels_do_not_overlap():
         assert not _has_bbox_overlap(col_boxes)
     finally:
         plt.close(fig)
+
 
 
 @requires_viz
@@ -838,6 +1335,7 @@ def test_draw_hierarchical_grid_offset_values_clear_offset_equals_label():
         assert min_gap >= -1.0
     finally:
         plt.close(fig)
+
 
 
 @requires_viz
@@ -874,6 +1372,7 @@ def test_draw_layout_small_nested_hierarchy_keeps_text_inside_cells(monkeypatch)
         plt.close(fig)
 
 
+
 @requires_viz
 def test_draw_hierarchical_grid_leaves_corner_gap_between_axis_label_bands():
     layout = Layout(((3, 2), ((2, 3), 2)), ((4, 1), ((2, 15), 100)))
@@ -897,6 +1396,7 @@ def test_draw_hierarchical_grid_leaves_corner_gap_between_axis_label_bands():
         assert not _has_bbox_overlap(col_boxes)
     finally:
         plt.close(fig)
+
 
 
 @requires_viz
@@ -925,6 +1425,7 @@ def test_draw_hierarchical_grid_draws_outer_perimeter_for_multiple_levels():
         plt.close(fig)
 
 
+
 @requires_viz
 def test_draw_hierarchical_grid_closes_boxes_for_column_only_hierarchy():
     layout = Layout((4, (4, 2)), (4, (1, 16)))
@@ -940,6 +1441,7 @@ def test_draw_hierarchical_grid_closes_boxes_for_column_only_hierarchy():
         plt.close(fig)
 
 
+
 @requires_viz
 def test_draw_hierarchical_grid_closes_boxes_for_coarse_column_only_level():
     layout = Layout(((3, 2), ((2, 3), 2)), ((4, 1), ((2, 15), 100)))
@@ -953,6 +1455,7 @@ def test_draw_hierarchical_grid_closes_boxes_for_coarse_column_only_level():
         assert orange_vertical == {0.0, 6.0, 12.0}
     finally:
         plt.close(fig)
+
 
 
 @requires_viz
@@ -974,6 +1477,7 @@ def test_draw_hierarchical_grid_draws_coarser_lines_above_finer_lines():
         assert max(blue_zorders) < min(orange_zorders)
     finally:
         plt.close(fig)
+
 
 
 @requires_viz
@@ -1005,6 +1509,7 @@ def test_draw_slice_hierarchical_keeps_flat_grid_and_highlights_on_top(monkeypat
     assert max(seen["base_zorders"]) < min(seen["highlight_zorders"])
 
 
+
 @requires_viz
 def test_slice_highlight_mask_tracks_logical_cells_not_offsets():
     layout = Layout((2, 2), (0, 1))
@@ -1015,11 +1520,79 @@ def test_slice_highlight_mask_tracks_logical_cells_not_offsets():
     ]
 
 
+
+@requires_viz
+def test_slice_highlight_mask_1d_tuple_spec():
+    """1D layout with tuple slice_spec should highlight the correct elements."""
+    layout = Layout(8, 1)
+    mask = _get_slice_highlight_mask_2d(layout, (slice(2, 5),))
+    assert mask.shape == (1, 8)
+    assert mask.tolist() == [[False, False, True, True, True, False, False, False]]
+
+
+
+@requires_viz
+def test_slice_highlight_mask_1d_tuple_spec_rank1():
+    """Rank-1 layout with tuple slice_spec should highlight the correct elements."""
+    layout = Layout((8,), (1,))
+    mask = _get_slice_highlight_mask_2d(layout, (slice(2, 5),))
+    assert mask.shape == (1, 8)
+    assert mask.tolist() == [[False, False, True, True, True, False, False, False]]
+
+
+
+@requires_viz
+def test_slice_highlight_mask_1d_tuple_int_spec():
+    """1D layout with tuple (int,) slice_spec highlights a single element."""
+    layout = Layout(8, 1)
+    mask = _get_slice_highlight_mask_2d(layout, (3,))
+    assert mask.shape == (1, 8)
+    assert mask.tolist() == [[False, False, False, True, False, False, False, False]]
+
+
+
+@requires_viz
+def test_slice_highlight_mask_1d_tuple_none_spec():
+    """1D layout with tuple (None,) selects all elements."""
+    layout = Layout(4, 1)
+    mask = _get_slice_highlight_mask_2d(layout, (None,))
+    assert mask.tolist() == [[True, True, True, True]]
+
+
+
+@requires_viz
+def test_slice_highlight_mask_1d_wrong_tuple_length_raises():
+    """1D layout with 2-element tuple slice_spec raises ValueError."""
+    layout = Layout(4, 1)
+    with pytest.raises(ValueError, match="1-element tuple"):
+        _get_slice_highlight_mask_2d(layout, (1, 2))
+
+
+
 @requires_viz
 def test_compute_tv_mapping_uses_first_wins_for_duplicate_cells():
     layout = Layout((2, 2), (0, 0))
     tv_map = _compute_tv_mapping(layout, grid_rows=1, grid_cols=1)
     assert tv_map == {(0, 0): (0, 0, 0)}
+
+
+
+@requires_viz
+def test_compute_tv_mapping_rebases_negative_offsets():
+    """TV mapping should place shifted dense images into the rebased footprint."""
+    layout = Layout((4, 2), (-1, 4))
+    tv_map = _compute_tv_mapping(layout, grid_rows=4, grid_cols=2)
+    assert tv_map == {
+        (3, 0): (0, 0, 0),
+        (3, 1): (0, 1, 0),
+        (2, 0): (1, 0, 1),
+        (2, 1): (1, 1, 1),
+        (1, 0): (2, 0, 2),
+        (1, 1): (2, 1, 2),
+        (0, 0): (3, 0, 3),
+        (0, 1): (3, 1, 3),
+    }
+
 
 
 @requires_viz
@@ -1029,24 +1602,37 @@ def test_compute_tv_mapping_raises_for_out_of_bounds_grid():
         _compute_tv_mapping(layout, grid_rows=1, grid_cols=1)
 
 
+
 @requires_viz
-def test_show_swizzle_delegates_to_shared_builder(monkeypatch):
+def test_draw_swizzle_delegates_to_shared_builder(monkeypatch):
     layout = Layout((8, 64), (64, 1))
     swizzle = Swizzle(3, 4, 3)
     fig = plt.figure()
+    seen = {}
 
     def fake_builder(*args, **kwargs):
         return fig
 
+    def fake_save(passed_fig, filename, dpi=150):
+        seen["fig"] = passed_fig
+        seen["filename"] = filename
+        plt.close(passed_fig)
+        return "saved"
+
     monkeypatch.setattr(viz_mod, "_build_swizzle_figure", fake_builder)
+    monkeypatch.setattr(viz_mod, "_save_figure", fake_save)
     try:
-        assert show_swizzle(layout, swizzle) is fig
+        assert draw_swizzle(layout, swizzle) == "saved"
+        assert seen["fig"] is fig
+        assert seen["filename"] is None
     finally:
-        plt.close(fig)
+        if plt.fignum_exists(fig.number):
+            plt.close(fig)
+
 
 
 @requires_viz
-def test_draw_swizzle_delegates_to_shared_builder(monkeypatch):
+def test_draw_swizzle_saves_figure_from_shared_builder(monkeypatch):
     layout = Layout((8, 64), (64, 1))
     swizzle = Swizzle(3, 4, 3)
     fig = plt.figure()
@@ -1068,7 +1654,8 @@ def test_draw_swizzle_delegates_to_shared_builder(monkeypatch):
     assert seen["filename"] == "out.png"
 
 
-# ── draw_combined_mma_grid / show_combined_mma_grid ──────────────────────
+# ── draw_combined_mma_grid / draw_combined_mma_grid ──────────────────────
+
 
 
 @requires_viz
@@ -1090,8 +1677,9 @@ def test_draw_combined_mma_grid_smoke():
                                filename=f.name, title="test")
 
 
+
 @requires_viz
-def test_show_combined_mma_grid_returns_figure():
+def test_draw_combined_mma_grid_returns_figure():
     atom = SM80_16x8x16_F16F16F16F16_TN
     atom_layout = Layout((2, 2), (1, 2))
     c_grid, _ = tile_mma_grid(atom, atom_layout, "C")
@@ -1103,7 +1691,7 @@ def test_show_combined_mma_grid_returns_figure():
     M_a, N_a, K_a = atom.shape_mnk
     M, N, K = M_a * 2, N_a * 2, K_a
 
-    fig = show_combined_mma_grid(a_grid, b_display, c_grid, M, N, K,
+    fig = _build_combined_grid_figure(a_grid, b_display, c_grid, M, N, K,
                                  title="test")
     try:
         assert isinstance(fig, matplotlib.figure.Figure)

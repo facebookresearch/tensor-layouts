@@ -1,3 +1,27 @@
+<!--
+MIT License
+
+Copyright (c) 2026 Meta Platforms, Inc. and affiliates.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+-->
+
 # Analysis API
 
 GPU kernel performance lives or dies by memory access patterns.  Two
@@ -20,9 +44,77 @@ bijective layouts, and trace the algebra step by step.
 
 ```python
 from tensor_layouts.analysis import (
+    image, is_injective, is_surjective, is_bijective,
     offset_table, bank_conflicts, coalescing_efficiency,
     cycles, fixed_points, order, explain,
 )
+```
+
+## Layout Expressions vs Affine-Only Helpers
+
+Most of the analysis module now accepts any `LayoutExpr`
+(`Layout | ComposedLayout`) when it only needs:
+
+- `shape` / `size` / `rank`
+- pointwise evaluation `layout(coord)`
+- enumeration over the logical domain
+
+That includes:
+
+- `image`, `offset_table`, `footprint`
+- `bank_conflicts`, `per_group_bank_conflicts`
+- `coalescing_efficiency`, `segment_analysis`, `per_group_coalescing`
+- `cycles`, `fixed_points`, `order`
+
+Some helpers remain intentionally **affine-only** because they need a real
+stride tree or linear/F2 structure:
+
+- `contiguity`
+- `mode_contiguity`
+- `slice_contiguity`
+- `to_F2_matrix`
+
+Passing a `ComposedLayout` to those affine-only helpers raises `TypeError`.
+That boundary is deliberate and matches the CuTe distinction between
+generic layout-like objects and normal affine layouts.
+
+---
+
+## Image and Injectivity
+
+These functions analyze a layout viewed as a function from coordinates to
+memory offsets.  They enumerate all coordinates, so their cost is O(size).
+
+| Function | Description |
+|----------|-------------|
+| `image(L)` | Sorted list of distinct offsets produced |
+| `is_injective(L)` | True if no two coordinates share an offset |
+| `is_surjective(L, codomain_size=None)` | True if every offset in `[0, codomain)` is hit |
+| `is_bijective(L)` | True if both injective and surjective (a permutation) |
+| `is_contiguous(L)` | Alias for `is_bijective` — reads as "one dense block?" |
+
+```python
+layout = Layout((4, 8), (1, 4))
+image(layout)           # [0, 1, 2, ..., 31]
+is_bijective(layout)    # True
+
+broadcast = Layout((4, 8), (0, 1))
+image(broadcast)        # [0, 1, 2, 3, 4, 5, 6, 7]
+is_injective(broadcast) # False (stride-0 causes aliasing)
+```
+
+## Functional Equivalence
+
+`functionally_equal(a, b)` returns True if two layouts compute the same
+offset for every flat index, even when they have different shapes or strides.
+This is useful for verifying that algebraic transformations like `coalesce()`
+and `flatten()` preserve behavior.  Cost is O(size).
+
+```python
+L = Layout(((2, 2), (2, 4)), ((1, 4), (2, 8)))
+coalesce(L) == L                     # False (structurally different)
+functionally_equal(L, coalesce(L))   # True  (same mapping)
+functionally_equal(L, flatten(L))    # True
 ```
 
 ---
@@ -44,7 +136,7 @@ offset_table(Layout((4, 2), (0, 1)))
 #  1: [(0,1), (1,1), (2,1), (3,1)]}
 ```
 
-## bank_conflicts(layout, *, num_banks=32, element_bytes=2, bank_width_bytes=4, group_size=32)
+## bank_conflicts(layout, *, element_bytes, num_banks=32, bank_width_bytes=4, group_size=32)
 
 Analyze shared memory bank conflicts for a thread-to-offset layout.
 
@@ -75,6 +167,18 @@ The `max_ways` value is the worst-case serialization factor: 1 means no
 conflicts, N means N-way serialization.  Two threads accessing the
 *same* word get a broadcast (no conflict on NVIDIA hardware).
 
+For multi-mode (TV) layouts where mode 0 is the thread dimension and
+mode 1+ are value dimensions, all values per thread are included in the
+analysis.  This models vectorized loads where each thread accesses
+multiple elements:
+
+```python
+# TV layout: 32 threads, each loading 2 fp16 elements
+tv = Layout((32, 2), (1, 32))
+result = bank_conflicts(tv, element_bytes=2)
+result['conflict_free']  # True: values land in distinct banks
+```
+
 Returns a dict:
 
 | Key | Type | Description |
@@ -83,7 +187,7 @@ Returns a dict:
 | `max_ways` | int | Worst-case serialization factor across all banks |
 | `bank_to_threads` | dict | `{bank_id: [thread_ids...]}` for all accessed banks |
 
-## coalescing_efficiency(layout, *, warp_size=32, element_bytes=2, cache_line_bytes=128)
+## coalescing_efficiency(layout, *, element_bytes, warp_size=32, cache_line_bytes=128)
 
 Analyze global memory coalescing for a thread-to-offset layout.
 
@@ -98,7 +202,7 @@ result['transactions']  # 1
 result['efficiency']    # 1.0  (128 unique useful bytes / 128 transferred)
 
 # Worst case: each thread hits a separate cache line
-result = coalescing_efficiency(Layout(32, 64))
+result = coalescing_efficiency(Layout(32, 64), element_bytes=2)
 result['transactions']  # 32
 result['efficiency']    # 0.016  (64 unique useful bytes / 4096 transferred)
 ```
@@ -110,6 +214,17 @@ Returns a dict:
 | `transactions` | int | Number of cache line fetches needed |
 | `efficiency` | float | Unique useful bytes / transferred bytes (1.0 = perfect) |
 | `cache_lines` | list | Sorted cache line indices touched |
+
+For multi-mode (TV) layouts, all values per thread are included,
+modeling vectorized loads:
+
+```python
+# TV layout: 32 threads, 4 values each, contiguous within each thread
+tv = Layout((32, 4), (4, 1))
+result = coalescing_efficiency(tv, element_bytes=2)
+result['transactions']  # 2  (256 bytes spans 2 cache lines)
+result['efficiency']    # 1.0  (256 unique bytes / 256 transferred)
+```
 
 ## Permutation Analysis
 
@@ -241,3 +356,110 @@ explain(complement, Layout(4, 2), 16)
 #   complement = (2, 2) : (1, 8)
 #   image(complement) = [0, 1, 8, 9]
 ```
+
+`explain(compose, ...)` also handles tuple tilers directly and shows the
+mode-by-mode decomposition CuTe uses:
+
+```python
+explain(compose, Layout((4, 8), (8, 1)), (2, 4))
+# compose((4, 8) : (8, 1), (2, 4))
+#   For tuple tilers, composition is applied mode-by-mode.
+#
+#   A = (4, 8) : (8, 1)
+#   B = (2, 4)
+#   result = (2, 4) : (8, 1)
+#   mode 0: compose(4 : 8, 2 : 1) = 2 : 8
+#   mode 1: compose(8 : 1, 4 : 1) = 4 : 1
+```
+
+For true `Layout` tilers, the `logical_product` explanation follows CuTe's
+actual bound `size(A) * cosize(B)` rather than `size(A) * size(B)`:
+
+```python
+explain(logical_product, Layout(4, 1), Layout(3, 2))
+# ...
+#   size(A) = 4
+#   cosize(B) = 5
+#   size(A) * cosize(B) = 20
+```
+
+## F2 Linear Layout Matrix
+
+`to_F2_matrix(layout)` converts a layout with power-of-2 shapes to its
+binary matrix representation over GF(2).  The layout mapping becomes
+`offset_bits = M @ coord_bits (mod 2)`.
+
+This is the "linear layout" representation from arXiv 2603.02298 Section 2.4.4.
+Swizzles (XOR operations) are linear over F2 and fold into the matrix.
+
+```python
+from tensor_layouts.analysis import to_F2_matrix
+```
+
+### Identity (column-major)
+
+A contiguous column-major layout is the identity map over F2:
+
+```python
+to_F2_matrix(Layout((4, 8), (1, 4)))
+# [[1, 0, 0, 0, 0],
+#  [0, 1, 0, 0, 0],
+#  [0, 0, 1, 0, 0],
+#  [0, 0, 0, 1, 0],
+#  [0, 0, 0, 0, 1]]
+```
+
+### Row-major (bit permutation)
+
+Row-major swaps the row and column bit groups -- a permutation matrix:
+
+```python
+to_F2_matrix(Layout((4, 8), (8, 1)))
+# [[0, 0, 1, 0, 0],    coord bits: [row0, row1, col0, col1, col2]
+#  [0, 0, 0, 1, 0],    offset bits: row bits moved to high positions
+#  [0, 0, 0, 0, 1],
+#  [1, 0, 0, 0, 0],
+#  [0, 1, 0, 0, 0]]
+```
+
+### Swizzle (XOR connections)
+
+Swizzle(3,0,3) XORs offset bits 0-2 with bits 3-5, adding off-diagonal
+1s to the identity:
+
+```python
+to_F2_matrix(compose(Swizzle(3, 0, 3), Layout((8, 8), (8, 1))))
+# [[1, 0, 0, 1, 0, 0],    col0 = col0 XOR row0
+#  [0, 1, 0, 0, 1, 0],    col1 = col1 XOR row1
+#  [0, 0, 1, 0, 0, 1],    col2 = col2 XOR row2
+#  [1, 0, 0, 0, 0, 0],    row0 = row0
+#  [0, 1, 0, 0, 0, 0],    row1 = row1
+#  [0, 0, 1, 0, 0, 0]]    row2 = row2
+```
+
+### MMA register mapping
+
+The SM80 16x8x16 C accumulator layout maps (thread, value) bits to
+(m, n) coordinates of the output tile.  The F2 matrix reveals which
+thread and value bits control which output dimensions:
+
+```python
+from tensor_layouts.atoms_nv import SM80_16x8x16_F16F16F16F16_TN
+c = SM80_16x8x16_F16F16F16F16_TN.c_layout
+# ((4, 8), (2, 2)) : ((32, 1), (16, 8))
+# Thread bits T0-T4, Value bits V0-V1 -> m0-m3, n0-n2
+
+to_F2_matrix(c)
+#        T0  T1  T2  T3  T4  V0  V1
+#   m0 [  0,  0,  1,  0,  0,  0,  0]   m0 = T2
+#   m1 [  0,  0,  0,  1,  0,  0,  0]   m1 = T3
+#   m2 [  0,  0,  0,  0,  1,  0,  0]   m2 = T4
+#   m3 [  0,  0,  0,  0,  0,  0,  1]   m3 = V1
+#   n0 [  0,  0,  0,  0,  0,  1,  0]   n0 = V0
+#   n1 [  1,  0,  0,  0,  0,  0,  0]   n1 = T0
+#   n2 [  0,  1,  0,  0,  0,  0,  0]   n2 = T1
+```
+
+Reading: threads 0-3 (T0, T1) select N-dimension column pairs, threads
+within each group of 4 (T2-T4) select M-dimension rows, and the two
+value bits split across M bit 3 and N bit 0.

@@ -763,7 +763,7 @@ def example_analysis():
           f"efficiency {r1['efficiency']:.0%}")
 
     scattered = Layout(32, 64)
-    r2 = coalescing_efficiency(scattered)
+    r2 = coalescing_efficiency(scattered, element_bytes=2)
     print(f"  Stride-64 (fp16): {r2['transactions']} transactions, "
           f"efficiency {r2['efficiency']:.1%}")
 
@@ -798,8 +798,8 @@ def example_analysis():
         ("Gapped 4x8",          Layout((4, 8), (1, 8))),
         ("Row-major 4x8",       Layout((4, 8), (8, 1))),
     ]
-    for label, l in layouts:
-        print(f"  {label:20s} {str(l):25s} contiguity={contiguity(l)}")
+    for label, layout in layouts:
+        print(f"  {label:20s} {str(layout):25s} contiguity={contiguity(layout)}")
 
     # --- Atom summary ---
     print(f"\n  Atom Summary")
