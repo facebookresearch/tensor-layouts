@@ -511,23 +511,60 @@ SM90_16x8x16_C64C64C64C64_TN = MMAAtom(
 # PTX:    wgmma.mma_async.sync.aligned.m64nNk16.f16.f16.f16
 #         PTX ISA §9.7.14 (Warpgroup MMA)
 #
-# CLayout_64xN template (line 432):
+# What "warpgroup" means in CuTe terms
+# ------------------------------------
+# Earlier SM_xx MMA atoms are warp-level: 32 threads cooperate on one
+# instruction, and (T, V) = (32, V) describes which lane reads which
+# fragment register.  GMMA is *warpgroup*-level: four contiguous warps
+# (128 threads) cooperate, and the A/B operands live in shared memory
+# behind a hardware-managed descriptor rather than in registers.  In the
+# CuTe abstraction we still write (T, V) layouts, but the meaning differs:
+#
+#   c_layout (T=128, V=...) -> col-major offset in the 64xN accumulator
+#     The accumulator stays in registers; this layout tells you which
+#     fragment each lane in the warpgroup owns.  CLayout_64xN factors V
+#     into ((4, 8, 4), (2, 2, N/8)) — the inner triples encode register
+#     row/column groups within one warp's quad-pair, the outer triples
+#     replicate across warps and across N.
+#
+#   a_layout / b_layout (T=128, V=(M, K) or (N, K)) with stride-0 thread
+#     All 128 lanes see the *entire* tile; there is no per-thread A or B
+#     fragment.  The stride-0 thread dimension encodes "everyone reads
+#     the same SMEM descriptor" — the actual addressing is computed by
+#     the wgmma instruction from the descriptor, not by individual lanes.
+#
+# That is why GMMA atoms have ``thr_id=None``: the per-thread layout
+# doesn't carve up A/B the way warp-level MMA does, so there is no
+# meaningful thread mode to expose.
+#
+# CLayout_64xN template (mma_traits_sm90_gmma.hpp line 432):
 #   Shape:  ((4, 8, 4), (2, 2, N/8))
 #   Stride: ((128, 1, 16), (64, 8, 512))
 #
-# A/B use shared memory descriptors; all 128 threads see the entire
-# tile with stride-0 in the thread dimension (line 436-443 in 0t_mma_atom.md).
+# ABLayout<M,K> uses stride-0 in the thread dim (0t_mma_atom.md, lines
+# 436-443).
 # =============================================================================
 
 def gmma_c_layout(n: int) -> Layout:
     """CLayout_64xN: accumulator layout for SM90 GMMA with N columns.
-    Source: mma_traits_sm90_gmma.hpp line 432."""
+
+    Maps a (lane_in_warpgroup, register_idx) pair to the column-major
+    offset of the corresponding element in the 64×N accumulator tile.
+    See the section header above for the warpgroup-level meaning of T.
+    Source: mma_traits_sm90_gmma.hpp line 432.
+    """
     return Layout(((4, 8, 4), (2, 2, n // 8)),
                   ((128, 1, 16), (64, 8, 512)))
 
 def gmma_ab_layout(m: int, k: int) -> Layout:
-    """ABLayout<M,K>: shared memory descriptor layout — all threads see entire tile.
-    Source: mma_traits_sm90_gmma.hpp; 0t_mma_atom.md lines 436-443."""
+    """ABLayout<M,K>: shared-memory descriptor layout for an A or B tile.
+
+    Stride-0 in the thread dimension because all 128 warpgroup lanes see
+    the same SMEM descriptor — there is no per-lane A/B fragment.
+    The value dimension is the (row, col) coordinate inside the M×K
+    tile in column-major order.  Source: mma_traits_sm90_gmma.hpp;
+    0t_mma_atom.md lines 436-443.
+    """
     return Layout((128, (m, k)), (0, (1, m)))
 
 # line 657 — SM90_64x64x16_F16F16F16_SS
