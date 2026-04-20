@@ -479,6 +479,16 @@ def _setup_axes(
         ax.set_title(title, fontsize=title_fontsize, fontweight="bold", pad=10)
 
 
+def _new_axes(figsize: Tuple[float, float]):
+    """Create a single-panel ``(fig, ax)`` sized to ``figsize``.
+
+    All single-axis figure builders go through this helper so the
+    ``plt.subplots`` call -- and any future per-axes default like a custom
+    DPI or face-color -- lives in one place.
+    """
+    return plt.subplots(figsize=figsize)
+
+
 def _format_cell_value(val, precision: Optional[int] = None) -> str:
     """Format a cell label value, respecting *precision* for floats."""
     if precision is not None and isinstance(val, float):
@@ -1975,7 +1985,7 @@ def _build_layout_figure(
             cell_scale = 0.5
             figsize = (grid.cols * cell_scale + 1, grid.rows * cell_scale + 1)
 
-    fig, ax = plt.subplots(figsize=figsize)
+    fig, ax = _new_axes(figsize)
 
     if grid.is_hierarchical:
         _draw_hierarchical_grid(
@@ -2383,7 +2393,7 @@ def _build_tv_figure(
     if figsize is None:
         figsize = (cols * 0.6 + 1.5, rows * 0.5 + 1)
 
-    fig, ax = plt.subplots(figsize=figsize)
+    fig, ax = _new_axes(figsize)
     _draw_tv_grid(
         ax,
         layout,
@@ -2490,7 +2500,7 @@ def _build_mma_figure(
     fig_width = total_width * scale + 1.5
     fig_height = total_height * scale + 1.0
 
-    fig, ax = plt.subplots(figsize=(fig_width, fig_height))
+    fig, ax = _new_axes((fig_width, fig_height))
 
     def draw_tv_matrix(
         layout,
@@ -2687,7 +2697,7 @@ def _build_tiled_grid_figure(
     """Build the tiled-grid figure used by draw_tiled_grid."""
     colors = _make_rainbow_palette(8)
     font = max(4, min(7, int(60 / max(rows, cols))))
-    fig, ax = plt.subplots(figsize=(cols * 0.45 + 1.5, rows * 0.4 + 1.0))
+    fig, ax = _new_axes((cols * 0.45 + 1.5, rows * 0.4 + 1.0))
     _setup_axes(
         ax, (-0.5, cols + 0.5), (-0.5, rows + 0.5), title=title, title_fontsize=9
     )
@@ -2738,7 +2748,7 @@ def _build_combined_grid_figure(a_grid, b_grid, c_grid, M, N, K, title=None):
     total_h = K + gap + M + label_margin
 
     scale = 0.35
-    fig, ax = plt.subplots(figsize=(total_w * scale + 1.5, total_h * scale + 1.0))
+    fig, ax = _new_axes((total_w * scale + 1.5, total_h * scale + 1.0))
 
     b_ox, b_oy = K + gap, 0
     a_ox, a_oy = 0, K + gap
@@ -2850,7 +2860,7 @@ def _build_copy_figure(
     fig_width = total_width * scale + 1.5
     fig_height = total_height * scale + 1.0
 
-    fig, ax = plt.subplots(figsize=(fig_width, fig_height))
+    fig, ax = _new_axes((fig_width, fig_height))
 
     # Source grid (left)
     src_map = _compute_tv_mapping(
@@ -3278,7 +3288,7 @@ def _build_slice_figure(
             display_sub = _layout_expr_with_offset(sub, offset)
             title = str(display_sub)
 
-    fig, ax = plt.subplots(figsize=figsize)
+    fig, ax = _new_axes(figsize)
     _draw_grid(
         ax,
         grid.indices,
