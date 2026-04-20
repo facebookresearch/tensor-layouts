@@ -113,6 +113,12 @@ def test_shape_normalization():
     assert L3.shape == (1, (2, 3))
 
 
+def test_as_list():
+    assert as_list(8) == [8]
+    assert as_list((4, 8)) == [4, 8]
+    assert as_list(((2, 4), 8)) == [(2, 4), 8]
+
+
 def test_layout_from_layouts():
     # Making Layouts from Layouts, as per CuTe docs
     a = Layout(3, 1)
@@ -727,7 +733,7 @@ def test_idx2crd_accepts_layout():
 def test_crd2crd_hierarchical_to_flat():
     """crd2crd converts hierarchical coords to flat coords with src_shape."""
     S = Layout(((2, 3), 2))
-    src = S.shape               # ((2, 3), 2)
+    src = S.shape  # ((2, 3), 2)
     dst = tuple(size(s) for s in src)  # (6, 2)
 
     # Verify all coordinates round-trip correctly
@@ -1052,8 +1058,7 @@ def test_logical_divide_nested_tuple_tiler_recurses_mode_by_mode():
 
     assert result == expected
     assert result == Layout((((2, 1), (3, 1)), (4, 2)), (((1, 0), (2, 0)), (6, 24)))
-    assert sorted(result(i) for i in range(size(result))) == \
-        sorted(a(i) for i in range(size(a)))
+    assert sorted(result(i) for i in range(size(result))) == sorted(a(i) for i in range(size(a)))
     assert functionally_equal(result, expected)
 
 
@@ -1197,7 +1202,6 @@ def test_logical_divide_rejects_over_rank_tiler():
 
     # Fewer tiler modes is fine (undivided modes pass through)
     logical_divide(Layout((4, 8, 3), (1, 4, 32)), (2, 4))
-
 
 
 def test_logical_product():
@@ -1719,6 +1723,7 @@ def test_compose_layout_with_swizzled_layout_nontrivial():
     # Verify point-wise: result(i) == outer(swizzled(i)) for all i in domain
     for i in range(size(result)):
         assert result(i) == outer(swizzled(i)), f"Mismatch at i={i}"
+
 
 def test_make_layout_like_basic():
     # For a column-major layout, extracting a sub-shape preserves strides

@@ -85,6 +85,7 @@ __all__ = [
     # Shape conversions
     "as_tuple",
     "as_shape",
+    "as_list",
     "as_layout",
     "as_layout_expr",
     "as_affine_layout",
@@ -342,6 +343,21 @@ def as_shape(items) -> IntOrIntTuple:
     if len(items) == 1:
         return items[0]
     return tuple(items)
+
+
+def as_list(x) -> list:
+    """Convert a shape or stride to a list for mutation.
+
+    Unlike as_tuple (for iteration) or as_shape (for building results),
+    as_list is for when you need to modify the structure before creating
+    a new Layout.
+
+    Examples:
+        as_list(8)              # [8]
+        as_list((4, 8))         # [4, 8]
+        as_list(((2, 4), 8))    # [(2, 4), 8]  (nested structure preserved)
+    """
+    return list(as_tuple(x))
 
 
 def unwrap(t):
@@ -804,7 +820,7 @@ def size(obj: Any) -> int:
     """Returns the logical number of elements (product of shape)."""
     if is_layout(obj):
         return size(obj.shape)
-    if hasattr(obj, 'layout'):  # Tensor or any layout-backed object
+    if hasattr(obj, "layout"):  # Tensor or any layout-backed object
         return size(obj.layout)
     if is_tuple(obj) or is_int(obj):
         return fold(obj, 1, lambda acc, x: acc * x)
@@ -813,7 +829,7 @@ def size(obj: Any) -> int:
 
 def cosize(obj: LayoutExpr) -> int:
     """Returns the codomain size CuTe associates with a layout expression."""
-    if hasattr(obj, 'layout') and not is_layout(obj):
+    if hasattr(obj, "layout") and not is_layout(obj):
         return cosize(obj.layout)
     if isinstance(obj, ComposedLayout):
         return cosize(obj.inner)
@@ -825,7 +841,7 @@ def cosize(obj: LayoutExpr) -> int:
 
 
 def rank(obj: Any) -> int:
-    if hasattr(obj, 'layout') and not is_layout(obj):
+    if hasattr(obj, "layout") and not is_layout(obj):
         return rank(obj.layout)
     if is_tuple(obj):
         return len(obj)
@@ -847,7 +863,7 @@ def depth(obj: Any) -> int:
     """
     if is_layout(obj):
         return depth(obj.shape)
-    if hasattr(obj, 'layout'):
+    if hasattr(obj, "layout"):
         return depth(obj.layout)
     if is_int(obj):
         return 0
@@ -859,7 +875,7 @@ def depth(obj: Any) -> int:
 
 
 def mode(obj: Any, idx):
-    if hasattr(obj, 'layout') and not is_layout(obj):
+    if hasattr(obj, "layout") and not is_layout(obj):
         return mode(obj.layout, idx)
     if is_tuple(obj):
         if not obj:
@@ -1044,8 +1060,8 @@ def replace(layout: LayoutExpr, idx: int, new_layout: Layout) -> LayoutExpr:
     forwarded = _forward_layout_domain(layout, lambda inner: replace(inner, idx, new_layout))
     if forwarded is not _NO_FORWARD:
         return forwarded
-    shapes = list(as_tuple(layout.shape))
-    strides = list(as_tuple(layout.stride))
+    shapes = as_list(layout.shape)
+    strides = as_list(layout.stride)
 
     shapes[idx] = new_layout.shape
     strides[idx] = new_layout.stride
@@ -1066,8 +1082,8 @@ def group(layout: LayoutExpr, start: int, end: int) -> LayoutExpr:
     if start < 0 or end > r or start >= end:
         raise ValueError(f"Invalid group range [{start}, {end}) for layout of rank {r}")
 
-    shapes = list(as_tuple(layout.shape))
-    strides = list(as_tuple(layout.stride))
+    shapes = as_list(layout.shape)
+    strides = as_list(layout.stride)
 
     # Extract the modes to group
     grouped_shape = tuple(shapes[start:end])
@@ -1099,7 +1115,7 @@ def flatten(obj: Any) -> Any:
         return (obj,)
     if is_tuple(obj):
         return _flatten(obj)
-    if hasattr(obj, 'layout') and not is_layout(obj):
+    if hasattr(obj, "layout") and not is_layout(obj):
         return flatten(obj.layout)
     elif isinstance(obj, ComposedLayout):
         return ComposedLayout(obj.outer, flatten(obj.inner), preoffset=obj.preoffset)
@@ -1649,13 +1665,9 @@ def complement(layout: Layout, cosize_bound: Any = None) -> Layout:
     # Flatten, filter size-1 and stride-0 dims, sort by stride
     flat = flatten(layout)
 
-    # Convert to lists for uniform processing
-    if is_int(flat.shape):
-        flat_shapes = [flat.shape]
-        flat_strides = [flat.stride]
-    else:
-        flat_shapes = list(flat.shape)
-        flat_strides = list(flat.stride)
+    # Convert to lists for uniform processing (as_tuple promotes scalars).
+    flat_shapes = as_list(flat.shape)
+    flat_strides = as_list(flat.stride)
 
     modes = sorted(((d, s) for s, d in zip(flat_shapes, flat_strides) if s != 1 and d != 0))
 
@@ -1740,13 +1752,9 @@ def right_inverse(layout: Any) -> Any:
 
     flat = flatten(layout)
 
-    # Handle scalar layouts
-    if is_int(flat.shape):
-        flat_shapes = [flat.shape]
-        flat_strides = [flat.stride]
-    else:
-        flat_shapes = list(flat.shape)
-        flat_strides = list(flat.stride)
+    # Convert to lists for uniform processing (as_tuple promotes scalars).
+    flat_shapes = as_list(flat.shape)
+    flat_strides = as_list(flat.stride)
 
     # Compute prefix products for inverse strides
     pp = prefix_product(flat.shape)
@@ -1816,13 +1824,9 @@ def left_inverse(layout: Any) -> Any:
 
     flat = coalesce(layout)
 
-    # Get shapes and strides as lists
-    if is_int(flat.shape):
-        flat_shapes = [flat.shape]
-        flat_strides = [flat.stride]
-    else:
-        flat_shapes = list(flat.shape)
-        flat_strides = list(flat.stride)
+    # Convert to lists for uniform processing (as_tuple promotes scalars).
+    flat_shapes = as_list(flat.shape)
+    flat_strides = as_list(flat.stride)
 
     R = len(flat_shapes)
 
@@ -2071,7 +2075,9 @@ def _slice_for_composition(crd, layout: LayoutExpr):
     if layout.swizzle is None or coords_all_none(crd):
         return (sublayout, offset)
 
-    exact = ComposedLayout(layout.swizzle, Layout(sublayout.shape, sublayout.stride), preoffset=offset)
+    exact = ComposedLayout(
+        layout.swizzle, Layout(sublayout.shape, sublayout.stride), preoffset=offset
+    )
     return (exact, 0)
 
 
@@ -2661,8 +2667,8 @@ def _composition_1d(layout_a: "Layout", b_shape: int, b_stride: int) -> "Layout"
         return Layout(b_shape, 0)
 
     flat_a = coalesce(layout_a)
-    flat_shapes = [flat_a.shape] if is_int(flat_a.shape) else list(flat_a.shape)
-    flat_strides = [flat_a.stride] if is_int(flat_a.stride) else list(flat_a.stride)
+    flat_shapes = as_list(flat_a.shape)
+    flat_strides = as_list(flat_a.stride)
 
     result_shape = []
     result_stride = []
@@ -2836,9 +2842,7 @@ def _compose_swizzled_layout_lhs(layout_a: "Layout", layout_b: Any) -> Any:
     """
     inner_composed = compose(_affine_inner(layout_a), layout_b)
     if isinstance(inner_composed, Layout) and inner_composed.swizzle is None:
-        return Layout(
-            inner_composed.shape, inner_composed.stride, swizzle=layout_a.swizzle
-        )
+        return Layout(inner_composed.shape, inner_composed.stride, swizzle=layout_a.swizzle)
     return ComposedLayout(layout_a.swizzle, inner_composed)
 
 
@@ -2914,8 +2918,7 @@ def _compose_with_tuple_tiler(layout_a: Any, layout_b: tuple) -> Any:
         tiler = Tile(*tiler)
     if len(tiler) > rank(layout_a):
         raise ValueError(
-            f"Tiler has {len(tiler)} elements but layout has only "
-            f"{rank(layout_a)} modes"
+            f"Tiler has {len(tiler)} elements but layout has only {rank(layout_a)} modes"
         )
     return _compose_with_tiler(layout_a, tiler)
 
@@ -3000,8 +3003,7 @@ def compose(layout_a: Any, layout_b: Any) -> Any:
     if isinstance(layout_b, Tile):
         if len(layout_b) > rank(layout_a):
             raise ValueError(
-                f"Tiler has {len(layout_b)} elements but layout has only "
-                f"{rank(layout_a)} modes"
+                f"Tiler has {len(layout_b)} elements but layout has only {rank(layout_a)} modes"
             )
         return _compose_with_tiler(layout_a, layout_b)
     if is_tuple(layout_b):
@@ -3107,8 +3109,7 @@ def _logical_divide_with_tiler(layout: Layout, tiler) -> Layout:
     # would indicate that the earlier generic forwarding path was bypassed.
     if len(tiler) > rank(layout):
         raise ValueError(
-            f"logical_divide: tiler has more modes ({len(tiler)}) "
-            f"than layout ({rank(layout)})"
+            f"logical_divide: tiler has more modes ({len(tiler)}) than layout ({rank(layout)})"
         )
 
     result_shapes = []
@@ -3629,8 +3630,8 @@ def blocked_product(layout_a: LayoutExpr, layout_b: Layout) -> LayoutExpr:
     if a_rank == 0:
         # Scalar a with non-scalar b:
         # Pair scalar a with first mode of b, append remaining modes
-        b_shapes = list(as_tuple(layout_b.shape))
-        b_strides = list(as_tuple(layout_b.stride))
+        b_shapes = as_list(layout_b.shape)
+        b_strides = as_list(layout_b.stride)
 
         # First mode: pair (a_size, b[0])
         result_shapes = [(size(layout_a), b_shapes[0])]
@@ -3645,8 +3646,8 @@ def blocked_product(layout_a: LayoutExpr, layout_b: Layout) -> LayoutExpr:
     if b_rank == 0:
         # Non-scalar a with scalar b:
         # Pair b with first mode of a, keep remaining modes
-        a_shapes = list(as_tuple(layout_a.shape))
-        a_strides = list(as_tuple(layout_a.stride))
+        a_shapes = as_list(layout_a.shape)
+        a_strides = as_list(layout_a.stride)
 
         # First mode: pair (a[0], b_size)
         result_shapes = [(a_shapes[0], size(layout_b))]
@@ -3670,8 +3671,8 @@ def _pad_to_rank(layout: Layout, target_rank: int) -> Layout:
     current_rank = rank(layout)
     if current_rank >= target_rank:
         return layout
-    shapes = list(as_tuple(layout.shape))
-    strides = list(as_tuple(layout.stride))
+    shapes = as_list(layout.shape)
+    strides = as_list(layout.stride)
     for _ in range(target_rank - current_rank):
         shapes.append(1)
         strides.append(0)
