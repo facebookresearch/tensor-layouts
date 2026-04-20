@@ -45,6 +45,7 @@ __all__ = [
     "functionally_equal",
     # GPU analysis
     "offset_table",
+    "aliasing_profile",
     "footprint",
     "bank_conflicts",
     "per_group_bank_conflicts",
@@ -227,6 +228,55 @@ def offset_table(layout: LayoutExpr) -> dict:
         offset = layout(i)
         table.setdefault(offset, []).append(coord)
     return table
+
+
+def aliasing_profile(layout: Layout) -> dict:
+    """Summarize aliasing severity and structure for a layout.
+
+    While :func:`offset_table` exposes the exact inverse mapping, this helper
+    computes compact metrics that are easier to track in tests and reports:
+    whether aliasing exists, how severe the worst alias is, and the reuse
+    histogram (``ways -> number of offsets``).
+
+    Args:
+        layout: Layout to analyze.
+
+    Returns:
+        dict with:
+            has_aliasing: True if any offset has multiple coordinates
+            max_alias_ways: maximum coordinates sharing one offset
+            aliased_offset_count: number of offsets with aliasing
+            duplicate_elements: logical elements beyond the first write to each
+                offset. Equals ``size(layout) - unique_offsets``.
+            reuse_histogram: ``{ways: num_offsets}`` for all observed ways
+            aliased_offsets: sorted offsets whose aliasing ways > 1
+
+    Examples:
+        aliasing_profile(Layout(4, 1))
+        # {'has_aliasing': False, 'max_alias_ways': 1, ...}
+
+        aliasing_profile(Layout((4, 2), (0, 1)))  # broadcast
+        # {'has_aliasing': True, 'max_alias_ways': 4, ...}
+    """
+    layout = as_layout(layout)
+    table = offset_table(layout)
+    ways_per_offset = {off: len(coords) for off, coords in table.items()}
+    reuse_histogram = {}
+    for ways in ways_per_offset.values():
+        reuse_histogram[ways] = reuse_histogram.get(ways, 0) + 1
+
+    aliased_offsets = sorted(off for off, ways in ways_per_offset.items() if ways > 1)
+    n_unique = len(ways_per_offset)
+    n_total = sum(ways_per_offset.values())
+
+    return {
+        'has_aliasing': bool(aliased_offsets),
+        'max_alias_ways': max(ways_per_offset.values(), default=0),
+        'aliased_offset_count': len(aliased_offsets),
+        'duplicate_elements': n_total - n_unique,
+        'reuse_histogram': dict(sorted(reuse_histogram.items())),
+        'aliased_offsets': aliased_offsets,
+    }
 
 
 def footprint(layout: LayoutExpr) -> dict:
