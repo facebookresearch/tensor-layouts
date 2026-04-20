@@ -124,7 +124,8 @@ draw_swizzle(Layout((8, 8), (8, 1)), Swizzle(3, 0, 3), colorize=True)
 </p>
 
 See [`examples/viz.ipynb`](https://github.com/facebookresearch/tensor-layouts/blob/main/examples/viz.ipynb) for a full
-gallery of layout, swizzle, MMA atom, and tiled MMA visualizations.
+gallery of layout, swizzle, MMA atom, and tiled MMA visualizations, and the
+[Notebook gallery](#notebook-gallery) below for the full set.
 
 ## Documentation
 
@@ -135,7 +136,13 @@ gallery of layout, swizzle, MMA atom, and tiled MMA visualizations.
 - [Visualization API](https://github.com/facebookresearch/tensor-layouts/blob/main/docs/viz_api.md) — draw_layout, draw_swizzle, draw_mma_layout, and more
 - [Layout Examples](https://github.com/facebookresearch/tensor-layouts/blob/main/examples/layouts.py) — runnable script covering the full algebra (`python3 examples/layouts.py`)
 - [Visualization Examples](https://github.com/facebookresearch/tensor-layouts/blob/main/examples/viz.py) — runnable script generating all visualization types (`python3 examples/viz.py`)
-- [Visualization Notebook](https://github.com/facebookresearch/tensor-layouts/blob/main/examples/viz.ipynb) — Jupyter gallery
+
+### Notebook gallery
+
+- [Visualization Notebook](https://github.com/facebookresearch/tensor-layouts/blob/main/examples/viz.ipynb) — `viz.ipynb`: layout, swizzle, MMA atom, and tiled MMA visualizations
+- [Algorithms Notebook](https://github.com/facebookresearch/tensor-layouts/blob/main/examples/algorithms.ipynb) — `algorithms.ipynb`: derivations of compose, complement, divide, product
+- [Applications Notebook](https://github.com/facebookresearch/tensor-layouts/blob/main/examples/applications.ipynb) — `applications.ipynb`: applied examples (paper-style)
+- [GEMM Notebook](https://github.com/facebookresearch/tensor-layouts/blob/main/examples/gemm.ipynb) — `gemm.ipynb`: a fully explained NVIDIA GEMM kernel built up using layout algebra
 
 ## Testing
 
