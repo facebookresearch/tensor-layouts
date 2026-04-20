@@ -57,13 +57,13 @@ from typing import Optional, Tuple
 
 import matplotlib
 
-# Use Agg (non-interactive) backend unless already set (e.g. by Jupyter)
-if matplotlib.get_backend() == "agg" or not hasattr(matplotlib, "_called_from_jupyter"):
-    try:
-        # Check if we're in an IPython/Jupyter environment
-        get_ipython()  # noqa: F821
-    except NameError:
-        matplotlib.use("Agg")
+# Default to the Agg (non-interactive) backend for plain Python runs.
+# Inside IPython/Jupyter the `get_ipython` builtin is defined, so we leave
+# the user's chosen backend (typically `inline`) alone.
+try:
+    get_ipython()  # noqa: F821 -- injected by IPython
+except NameError:
+    matplotlib.use("Agg")
 import matplotlib.patches as patches
 import matplotlib.pyplot as plt
 import matplotlib.transforms as mtransforms
