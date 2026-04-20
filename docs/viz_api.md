@@ -72,7 +72,7 @@ draw_layout(Layout((8, 8), (8, 1)), title="Row-Major 8x8", colorize=True)
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `layout` | `Layout` | required | The layout to draw |
+| `layout` | `LayoutExpr` | required | The layout to draw |
 | `filename` | `str` | `None` | Output path (format from extension) |
 | `title` | `str` | `None` | Title above the grid |
 | `dpi` | `int` | `150` | Resolution for raster output |
@@ -321,7 +321,7 @@ draw_slice(Layout(8, 1), (slice(2, 5),), title="1D slice [2:5]")
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `layout` | `Layout` | required | The layout to draw |
+| `layout` | `LayoutExpr` | required | The layout to draw |
 | `slice_spec` | `tuple` | required | Coordinate with `None` for free dims |
 | `filename` | `str` | `None` | Output path |
 | `title` | `str` | `None` | Title |

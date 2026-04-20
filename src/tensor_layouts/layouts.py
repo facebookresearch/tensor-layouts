@@ -58,6 +58,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Iterable as IterableType
+from dataclasses import dataclass
 from typing import Any, Union
 
 try:
@@ -71,22 +72,27 @@ IntOrIntTuple = Union[int, tuple["IntOrIntTuple", ...]]
 __all__ = [
     # Type alias
     "IntOrIntTuple",
+    "LayoutExpr",
     # Type predicates
     "is_tuple",
     "is_int",
     "is_scalar",
     "is_iterable",
     "is_layout",
+    "is_affine_layout",
     "is_pure_shape",
     "has_none",
     # Shape conversions
     "as_tuple",
     "as_shape",
     "as_layout",
+    "as_layout_expr",
+    "as_affine_layout",
     "unwrap",
     "normalize",
     # Core types
     "Layout",
+    "ComposedLayout",
     "Tile",
     "Swizzle",
     "make_swizzle",
@@ -185,17 +191,45 @@ def is_int(x) -> bool:
 
 
 def as_layout(obj):
-    """Convert a Layout-like object to a Layout.
+    """Convert an affine Layout-like object to a Layout.
 
     Accepts our Layout, or any object with .shape and .stride attributes
     (e.g. pycute Layout). This allows viz and analysis functions to accept
-    foreign layout objects without requiring them as a dependency.
+    foreign affine layout objects without requiring them as a dependency.
+
+    ComposedLayout is intentionally rejected here because it has a logical
+    domain but no affine stride tree. Generic consumers should use
+    as_layout_expr() instead.
     """
+    if hasattr(obj, "layout") and not isinstance(obj, (Layout, ComposedLayout)):
+        return as_layout(obj.layout)
     if isinstance(obj, Layout):
         return obj
+    if isinstance(obj, ComposedLayout):
+        raise TypeError("Expected affine Layout, got ComposedLayout")
     if hasattr(obj, "shape") and hasattr(obj, "stride"):
         return Layout(obj.shape, obj.stride)
     raise TypeError(f"Expected Layout, got {type(obj).__name__}")
+
+
+def as_layout_expr(obj):
+    """Convert a layout-like object to Layout or ComposedLayout.
+
+    Accepts our Layout / ComposedLayout, Tensor-like objects with a .layout
+    attribute, or foreign affine layout objects with .shape/.stride.
+    """
+    if hasattr(obj, "layout") and not isinstance(obj, (Layout, ComposedLayout)):
+        return as_layout_expr(obj.layout)
+    if isinstance(obj, (Layout, ComposedLayout)):
+        return obj
+    if hasattr(obj, "shape") and hasattr(obj, "stride"):
+        return Layout(obj.shape, obj.stride)
+    raise TypeError(f"Expected LayoutExpr, got {type(obj).__name__}")
+
+
+def as_affine_layout(obj):
+    """Convert an object to an affine Layout, rejecting composed layouts."""
+    return as_layout(obj)
 
 
 def is_scalar(x) -> bool:
@@ -209,7 +243,12 @@ def is_iterable(x) -> bool:
 
 
 def is_layout(x) -> bool:
-    """Check if x is a Layout (matches CuTe's is_layout convention)."""
+    """Check if x is a supported layout object (matches CuTe's is_layout trait)."""
+    return isinstance(x, (Layout, ComposedLayout))
+
+
+def is_affine_layout(x) -> bool:
+    """Check if x is an affine Layout with shape/stride access."""
     return isinstance(x, Layout)
 
 
@@ -227,7 +266,7 @@ def is_pure_shape(t) -> bool:
         is_pure_shape(Layout(4, 1)) -> False
         is_pure_shape((Layout(4, 1), 3)) -> False
     """
-    if isinstance(t, Layout):
+    if is_layout(t):
         return False
     if is_int(t):
         return True
@@ -248,6 +287,11 @@ def has_none(a) -> bool:
         has_none((1, (2, None))) -> True
     """
     return fold(a, False, lambda acc, v: acc or v is None)
+
+
+def coords_all_none(a) -> bool:
+    """Return True if every terminal coordinate is None."""
+    return fold(a, True, lambda acc, v: acc and v is None)
 
 
 # =============================================================================
@@ -593,6 +637,109 @@ class Layout:
             yield idx2crd(i, self._shape)
 
 
+@dataclass(frozen=True)
+class ComposedLayout:
+    """An exact layout-expression node for compositions that are not affine.
+
+    Semantics:
+        ComposedLayout(outer, inner, preoffset)(coord) ==
+            outer(preoffset + inner(coord))
+
+    The inner layout defines the logical domain (shape, size, rank, depth).
+    The preoffset remains inside the composition, before the outer nonlinear
+    map, which is why ComposedLayout intentionally does not expose .stride.
+    """
+
+    outer: Any
+    inner: "LayoutExpr"
+    preoffset: int = 0
+
+    def __post_init__(self):
+        if not callable(self.outer):
+            raise TypeError(
+                f"ComposedLayout outer must be callable, got {type(self.outer).__name__}"
+            )
+        if not is_layout(self.inner):
+            raise TypeError(
+                f"ComposedLayout inner must be Layout or ComposedLayout, "
+                f"got {type(self.inner).__name__}"
+            )
+        if not is_int(self.preoffset):
+            raise TypeError(
+                f"ComposedLayout preoffset must be int, got {type(self.preoffset).__name__}"
+            )
+
+    @property
+    def shape(self):
+        return self.inner.shape
+
+    def __repr__(self) -> str:
+        return f"ComposedLayout({self.outer!r}, {self.inner!r}, preoffset={self.preoffset!r})"
+
+    def __str__(self) -> str:
+        if self.preoffset:
+            return f"({self.outer}) o {{{self.preoffset}}} o ({self.inner})"
+        return f"({self.outer}) o ({self.inner})"
+
+    def __call__(self, *args):
+        if len(args) == 1:
+            coords = args[0]
+        else:
+            coords = args
+        if coords is None:
+            return self
+        if has_none(coords):
+            return slice_and_offset(coords, self)[0]
+        return self.outer(self.preoffset + self.inner(coords))
+
+    def __len__(self):
+        return size(self)
+
+    def __iter__(self):
+        for i in range(size(self)):
+            yield idx2crd(i, self.shape)
+
+
+LayoutExpr = Layout | ComposedLayout
+
+
+_NO_FORWARD = object()
+
+
+def _affine_inner(layout: Layout) -> Layout:
+    """Return the affine portion of a possibly swizzled Layout."""
+    return Layout(layout.shape, layout.stride)
+
+
+def _split_zero_preoffset_swizzle(layout: LayoutExpr):
+    """Return (swizzle, inner_layout) for canonical zero-preoffset swizzle wrappers."""
+    if isinstance(layout, Layout) and layout.swizzle is not None:
+        return layout.swizzle, _affine_inner(layout)
+    if (
+        isinstance(layout, ComposedLayout)
+        and isinstance(layout.outer, Swizzle)
+        and layout.preoffset == 0
+    ):
+        return layout.outer, layout.inner
+    return None
+
+
+def _forward_layout_domain(layout, transform):
+    """Apply a domain-only transform to the inner layout of a layout expression.
+
+    Swizzled Layout stays on the canonical embedded-swizzle fast path when the
+    transformed inner result is affine. ComposedLayout always stays composed.
+    """
+    if isinstance(layout, ComposedLayout):
+        return ComposedLayout(layout.outer, transform(layout.inner), preoffset=layout.preoffset)
+    if isinstance(layout, Layout) and layout.swizzle is not None:
+        inner_result = transform(_affine_inner(layout))
+        if isinstance(inner_result, Layout) and inner_result.swizzle is None:
+            return Layout(inner_result.shape, inner_result.stride, swizzle=layout.swizzle)
+        return ComposedLayout(layout.swizzle, inner_result)
+    return _NO_FORWARD
+
+
 def compute_col_major_strides(shape: IntOrIntTuple) -> IntOrIntTuple:
     """Compute column-major (leftmost-fastest) strides for a shape.
 
@@ -655,7 +802,7 @@ def _zero_leading_unit_strides(shape, strides):
 
 def size(obj: Any) -> int:
     """Returns the logical number of elements (product of shape)."""
-    if isinstance(obj, Layout):
+    if is_layout(obj):
         return size(obj.shape)
     if hasattr(obj, 'layout'):  # Tensor or any layout-backed object
         return size(obj.layout)
@@ -664,10 +811,12 @@ def size(obj: Any) -> int:
     raise TypeError(f"Cannot calculate size of {type(obj).__name__}")
 
 
-def cosize(obj: Layout) -> int:
-    """Returns the memory span (max_offset + 1)."""
-    if hasattr(obj, 'layout') and not isinstance(obj, Layout):
+def cosize(obj: LayoutExpr) -> int:
+    """Returns the codomain size CuTe associates with a layout expression."""
+    if hasattr(obj, 'layout') and not is_layout(obj):
         return cosize(obj.layout)
+    if isinstance(obj, ComposedLayout):
+        return cosize(obj.inner)
     if is_int(obj.shape):
         return obj._calculate_max_offset(obj.shape, obj.stride) + 1
     if len(obj.shape) == 0:
@@ -676,11 +825,11 @@ def cosize(obj: Layout) -> int:
 
 
 def rank(obj: Any) -> int:
-    if hasattr(obj, 'layout') and not isinstance(obj, Layout):
+    if hasattr(obj, 'layout') and not is_layout(obj):
         return rank(obj.layout)
     if is_tuple(obj):
         return len(obj)
-    if isinstance(obj, Layout):
+    if is_layout(obj):
         if is_int(obj.shape):
             return 1
         return len(obj.shape)
@@ -696,7 +845,7 @@ def depth(obj: Any) -> int:
     - tuple has depth 1 + max depth of its elements
     - Layout delegates to its shape
     """
-    if isinstance(obj, Layout):
+    if is_layout(obj):
         return depth(obj.shape)
     if hasattr(obj, 'layout'):
         return depth(obj.layout)
@@ -710,18 +859,20 @@ def depth(obj: Any) -> int:
 
 
 def mode(obj: Any, idx):
-    if hasattr(obj, 'layout') and not isinstance(obj, Layout):
+    if hasattr(obj, 'layout') and not is_layout(obj):
         return mode(obj.layout, idx)
     if is_tuple(obj):
         if not obj:
             return ()
         return obj[idx]
+    if isinstance(obj, ComposedLayout):
+        return ComposedLayout(obj.outer, mode(obj.inner, idx), preoffset=obj.preoffset)
     if isinstance(obj, Layout):
         if is_int(obj.shape):
             if idx != 0:
                 raise IndexError(f"Index {idx} out of range for scalar layout")
             return obj
-        return Layout(obj.shape[idx], obj.stride[idx])
+        return Layout(obj.shape[idx], obj.stride[idx], swizzle=obj.swizzle)
     if is_int(obj):
         if idx != 0:
             raise IndexError(f"Index {idx} out of range for scalar")
@@ -835,7 +986,7 @@ def _can_group_a_into_b(a_modes: list, b) -> bool:
 #
 
 
-def iter_layout(layout: Layout):
+def iter_layout(layout: LayoutExpr):
     """Yield (coordinate, offset) pairs for every element in the layout.
 
     Iterates in colexicographic order (flat index 0, 1, 2, ...).
@@ -862,28 +1013,37 @@ def iter_layout(layout: Layout):
 #
 
 
-def append(a: Layout, b: Layout) -> Layout:
+def append(a: LayoutExpr, b: Layout) -> LayoutExpr:
     """Appends layout b as a new mode at the end of layout a.
 
     append(3:1, 4:3) -> (3,4):(1,3)
     append((3,4):(1,3), (3,4):(1,3)) -> (3,4,(3,4)):(1,3,(1,3))
     """
+    forwarded = _forward_layout_domain(a, lambda inner: append(inner, b))
+    if forwarded is not _NO_FORWARD:
+        return forwarded
     return Layout(as_tuple(a.shape) + (b.shape,), as_tuple(a.stride) + (b.stride,))
 
 
-def prepend(a: Layout, b: Layout) -> Layout:
+def prepend(a: LayoutExpr, b: Layout) -> LayoutExpr:
     """Prepends layout b as a new mode at the beginning of layout a.
 
     prepend(3:1, 4:3) -> (4,3):(3,1)
     """
+    forwarded = _forward_layout_domain(a, lambda inner: prepend(inner, b))
+    if forwarded is not _NO_FORWARD:
+        return forwarded
     return Layout((b.shape,) + as_tuple(a.shape), (b.stride,) + as_tuple(a.stride))
 
 
-def replace(layout: Layout, idx: int, new_layout: Layout) -> Layout:
+def replace(layout: LayoutExpr, idx: int, new_layout: Layout) -> LayoutExpr:
     """Replaces the mode at index idx with new_layout.
 
     replace((3,4,(3,4)):(1,3,(1,3)), 2, 4:3) -> (3,4,4):(1,3,3)
     """
+    forwarded = _forward_layout_domain(layout, lambda inner: replace(inner, idx, new_layout))
+    if forwarded is not _NO_FORWARD:
+        return forwarded
     shapes = list(as_tuple(layout.shape))
     strides = list(as_tuple(layout.stride))
 
@@ -893,12 +1053,15 @@ def replace(layout: Layout, idx: int, new_layout: Layout) -> Layout:
     return Layout(tuple(shapes), tuple(strides))
 
 
-def group(layout: Layout, start: int, end: int) -> Layout:
+def group(layout: LayoutExpr, start: int, end: int) -> LayoutExpr:
     """Groups modes from index start to end (exclusive) into a nested tuple.
 
     group((2,3,5,7):(1,2,6,30), 0, 2) -> ((2,3),5,7):((1,2),6,30)
     group(((2,3),5,7):((1,2),6,30), 1, 3) -> ((2,3),(5,7)):((1,2),(6,30))
     """
+    forwarded = _forward_layout_domain(layout, lambda inner: group(inner, start, end))
+    if forwarded is not _NO_FORWARD:
+        return forwarded
     r = rank(layout)
     if start < 0 or end > r or start >= end:
         raise ValueError(f"Invalid group range [{start}, {end}) for layout of rank {r}")
@@ -936,9 +1099,14 @@ def flatten(obj: Any) -> Any:
         return (obj,)
     if is_tuple(obj):
         return _flatten(obj)
-    if hasattr(obj, 'layout') and not isinstance(obj, Layout):
+    if hasattr(obj, 'layout') and not is_layout(obj):
         return flatten(obj.layout)
+    elif isinstance(obj, ComposedLayout):
+        return ComposedLayout(obj.outer, flatten(obj.inner), preoffset=obj.preoffset)
     elif isinstance(obj, Layout):
+        if obj.swizzle is not None:
+            flat_inner = flatten(_affine_inner(obj))
+            return Layout(flat_inner.shape, flat_inner.stride, swizzle=obj.swizzle)
         flat_shape = _flatten(obj.shape)
         flat_stride = _flatten(obj.stride)
         return Layout(as_shape(list(flat_shape)), as_shape(list(flat_stride)))
@@ -1028,8 +1196,11 @@ def product_each(shape: Any) -> tuple:
     return tuple(size(s) for s in shape)
 
 
-def sort(obj: Layout) -> Layout:
+def sort(obj: LayoutExpr) -> LayoutExpr:
     """Returns a new Layout with modes sorted by stride."""
+    forwarded = _forward_layout_domain(obj, sort)
+    if forwarded is not _NO_FORWARD:
+        return forwarded
     if rank(obj) <= 1:
         return obj
 
@@ -1291,7 +1462,7 @@ def suffix_product(a: Any, init: Any = 1) -> Any:
 #
 
 
-def coalesce(obj: Layout, profile: Any = None) -> Layout:
+def coalesce(obj: LayoutExpr, profile: Any = None) -> LayoutExpr:
     """Returns a new Layout where contiguous dimensions are merged.
 
     Args:
@@ -1304,6 +1475,9 @@ def coalesce(obj: Layout, profile: Any = None) -> Layout:
         coalesce(Layout((2,4), (1,2))) -> Layout(8, 1)
         coalesce(Layout((2,4,2,2), (1,2,8,16)), (4,4)) -> Layout((8,4), (1,8))
     """
+    forwarded = _forward_layout_domain(obj, lambda inner: coalesce(inner, profile))
+    if forwarded is not _NO_FORWARD:
+        return forwarded
     if rank(obj) == 0:
         if is_int(obj.shape):
             return Layout(1, 0) if obj.shape == 1 else obj
@@ -1463,11 +1637,10 @@ def complement(layout: Layout, cosize_bound: Any = None) -> Layout:
         gap_size = stride // current_stride if stride > current_stride else 1
         return gap_size, stride * shape
 
-    # Handle cosize_bound as a shape (tuple) - use its size
     if cosize_bound is None:
         cosize_bound = cosize(layout)
-    elif is_tuple(cosize_bound):
-        cosize_bound = size(cosize_bound)
+    elif is_layout(cosize_bound):
+        cosize_bound = cosize_bound.shape
 
     # Handle empty layout (empty tuple shape)
     if is_tuple(layout.shape) and len(layout.shape) == 0:
@@ -1504,17 +1677,24 @@ def complement(layout: Layout, cosize_bound: Any = None) -> Layout:
             result_strides.append(current_stride)
         current_stride = next_stride
 
-    # Fill remaining space up to cosize_bound (ceiling division).
-    # Always append (even if shape-1) to match pycute; coalesce cleans up.
-    remaining = _ceil_div(cosize_bound, current_stride)
+    # Fill remaining space up to cosize_bound. Shape bounds stay hierarchical
+    # instead of collapsing eagerly to size(...), matching CuTe C++.
+    if is_tuple(cosize_bound):
+        remaining = _coalesce_shape(_shape_ceil_div(cosize_bound, current_stride))
+        remaining_stride = elem_scale(current_stride, compute_col_major_strides(remaining))
+    else:
+        remaining = _ceil_div(cosize_bound, current_stride)
+        remaining_stride = current_stride
+
+    # Always append (even if shape-1) to match CuTe/pycute; coalesce cleans up.
     result_shapes.append(remaining)
-    result_strides.append(current_stride)
+    result_strides.append(remaining_stride)
 
     # Coalesce the result (merges contiguous modes, removes size-1 modes)
     return coalesce(Layout(as_shape(result_shapes), as_shape(result_strides)))
 
 
-def right_inverse(layout: Any) -> Layout:
+def right_inverse(layout: Any) -> Any:
     """Compute the right-inverse of a layout.
 
     For a layout L, the right-inverse R satisfies: L(R(i)) == i
@@ -1543,6 +1723,18 @@ def right_inverse(layout: Any) -> Layout:
 
     if layout is None:
         return None
+    if isinstance(layout, Swizzle):
+        return layout
+    if isinstance(layout, ComposedLayout):
+        if isinstance(layout.outer, Swizzle) and layout.preoffset == 0:
+            return compose(right_inverse(layout.inner), layout.outer)
+        return ComposedLayout(
+            right_inverse(layout.inner),
+            right_inverse(layout.outer),
+            preoffset=-layout.preoffset,
+        )
+    if isinstance(layout, Layout) and layout.swizzle is not None:
+        return compose(right_inverse(_affine_inner(layout)), layout.swizzle)
     if isinstance(layout, int):
         return Layout(layout)
 
@@ -1573,7 +1765,7 @@ def right_inverse(layout: Any) -> Layout:
     for stride, shape, rstride in triples:
         contiguous, current_idx = _step_mode(current_idx, stride, shape)
         if not contiguous:
-            break
+            continue
         if shape != 1:
             result_shape.append(shape)
             result_stride.append(rstride)
@@ -1584,7 +1776,7 @@ def right_inverse(layout: Any) -> Layout:
     return coalesce(Layout(tuple(result_shape), tuple(result_stride)))
 
 
-def left_inverse(layout: Any) -> Layout:
+def left_inverse(layout: Any) -> Any:
     """Compute the left-inverse of a layout.
 
     For an injective layout L, the left-inverse R satisfies:
@@ -1607,6 +1799,18 @@ def left_inverse(layout: Any) -> Layout:
     """
     if layout is None:
         return None
+    if isinstance(layout, Swizzle):
+        return layout
+    if isinstance(layout, ComposedLayout):
+        if isinstance(layout.outer, Swizzle) and layout.preoffset == 0:
+            return compose(left_inverse(layout.inner), layout.outer)
+        return ComposedLayout(
+            left_inverse(layout.inner),
+            left_inverse(layout.outer),
+            preoffset=-layout.preoffset,
+        )
+    if isinstance(layout, Layout) and layout.swizzle is not None:
+        return compose(left_inverse(_affine_inner(layout)), layout.swizzle)
     if isinstance(layout, int):
         return Layout(layout)
 
@@ -1705,7 +1909,7 @@ def nullspace(layout: Layout) -> Layout:
     return Layout(as_shape(zero_shapes), as_shape(zero_strides))
 
 
-def max_common_layout(layout_a: Layout, layout_b: Layout) -> Layout:
+def max_common_layout(layout_a: LayoutExpr, layout_b: LayoutExpr) -> Layout:
     """Return a layout pointing to the maximum contiguous elements common to both.
 
     Two layouts "logically correspond" when indexing through one produces the
@@ -1728,6 +1932,16 @@ def max_common_layout(layout_a: Layout, layout_b: Layout) -> Layout:
         max_common_layout(Layout((4,2), (2,1)), Layout(8,1)) -> 1:0
         max_common_layout(Layout(8, 1), Layout((4,2), (1,4))) -> 4:1
     """
+    if (
+        _split_zero_preoffset_swizzle(layout_a) is not None
+        or _split_zero_preoffset_swizzle(layout_b) is not None
+    ):
+        vec = max_common_vector(layout_a, layout_b)
+        inv_b = right_inverse(layout_b)
+        return coalesce(compose(inv_b, Layout(vec, 1)))
+
+    layout_a = as_affine_layout(layout_a)
+    layout_b = as_affine_layout(layout_b)
     inv_b = right_inverse(layout_b)
     common = coalesce(compose(layout_a, inv_b))
 
@@ -1750,7 +1964,7 @@ def max_common_layout(layout_a: Layout, layout_b: Layout) -> Layout:
         return Layout(1, 0)
 
 
-def max_common_vector(layout_a: Layout, layout_b: Layout) -> int:
+def max_common_vector(layout_a: LayoutExpr, layout_b: LayoutExpr) -> int:
     """Return the number of contiguous elements that logically correspond in both layouts.
 
     This is the size of max_common_layout(a, b) — the length of the longest
@@ -1769,10 +1983,24 @@ def max_common_vector(layout_a: Layout, layout_b: Layout) -> int:
         max_common_vector(Layout((4,2), (2,1)), Layout(8,1)) -> 1
         max_common_vector(Layout(8, 1), Layout((4,2), (1,4))) -> 4
     """
+    split_a = _split_zero_preoffset_swizzle(layout_a)
+    split_b = _split_zero_preoffset_swizzle(layout_b)
+    if split_a is not None:
+        swizzle_a, inner_a = split_a
+        if split_b is not None:
+            swizzle_b, inner_b = split_b
+            vec = max_common_vector(inner_a, inner_b)
+            if swizzle_a == swizzle_b:
+                return vec
+            return min(vec, 1 << swizzle_a.base, 1 << swizzle_b.base)
+        return min(max_common_vector(inner_a, layout_b), 1 << swizzle_a.base)
+    if split_b is not None:
+        swizzle_b, inner_b = split_b
+        return min(max_common_vector(layout_a, inner_b), 1 << swizzle_b.base)
     return size(max_common_layout(layout_a, layout_b))
 
 
-def slice_and_offset(crd, layout: Layout):
+def slice_and_offset(crd, layout: LayoutExpr):
     """Slice a layout by a coordinate and return (sublayout, offset).
 
     Given a coordinate with None values marking sliced (free) dimensions
@@ -1791,6 +2019,10 @@ def slice_and_offset(crd, layout: Layout):
         slice_and_offset((None, 3), Layout((4, 8), (1, 4)))
         -> (Layout((4,), (1,)), 12)  # sublayout over dim 0, offset = 3*4
     """
+    if isinstance(layout, ComposedLayout):
+        sublayout, offset = _slice_for_composition(crd, layout)
+        return (sublayout, offset)
+
     sliced_shape = slice_modes(crd, layout.shape)
     sliced_stride = slice_modes(crd, layout.stride)
     # When slicing drops some top-level modes, a single surviving hierarchical
@@ -1807,6 +2039,40 @@ def slice_and_offset(crd, layout: Layout):
     )
     offset = crd2offset(crd, layout.shape, layout.stride)
     return (sublayout, offset)
+
+
+def _slice_for_composition(crd, layout: LayoutExpr):
+    """Slice a layout expression for use inside an outer composition.
+
+    Returns (sublayout_expr, delta) such that the original sliced expression is
+    equivalent to:
+
+        delta + sublayout_expr(free_coord)
+
+    for affine layouts, or to just ``sublayout_expr(free_coord)`` when the
+    sliced contribution must remain inside a nonlinear inner expression.
+    """
+    if isinstance(layout, ComposedLayout):
+        inner_slice, delta = _slice_for_composition(crd, layout.inner)
+        return (ComposedLayout(layout.outer, inner_slice, preoffset=layout.preoffset + delta), 0)
+
+    sliced_shape = slice_modes(crd, layout.shape)
+    sliced_stride = slice_modes(crd, layout.stride)
+    if len(sliced_shape) == 1 and is_tuple(sliced_shape[0]):
+        sliced_shape = sliced_shape[0]
+        sliced_stride = sliced_stride[0]
+    sublayout = Layout(
+        sliced_shape if sliced_shape else (),
+        sliced_stride if sliced_stride else (),
+        swizzle=layout.swizzle,
+    )
+    offset = crd2offset(crd, layout.shape, layout.stride)
+
+    if layout.swizzle is None or coords_all_none(crd):
+        return (sublayout, offset)
+
+    exact = ComposedLayout(layout.swizzle, Layout(sublayout.shape, sublayout.stride), preoffset=offset)
+    return (exact, 0)
 
 
 # =============================================================================
@@ -2267,6 +2533,25 @@ def _ceil_div(a: int, b: int) -> int:
     return (a + b - 1) // b
 
 
+def _shape_ceil_div(shape: Any, divisor: int) -> Any:
+    """CuTe-style ceil_div for shapes, preserving nested structure."""
+    if divisor == 1:
+        return shape
+
+    def _scalar(s, d):
+        return _ceil_div(s, d)
+
+    def _update(first, d):
+        return _ceil_div(d, size(first))
+
+    return fold_accumulate(shape, divisor, _scalar, _update)
+
+
+def _coalesce_shape(shape: Any) -> Any:
+    """Coalesce a pure shape through its compact column-major layout."""
+    return coalesce(Layout(shape, compute_col_major_strides(shape))).shape
+
+
 def upcast(layout: "Layout", n: int) -> "Layout":
     """Reinterpret a layout from a finer to a coarser coordinate space.
 
@@ -2384,34 +2669,49 @@ def _composition_1d(layout_a: "Layout", b_shape: int, b_stride: int) -> "Layout"
     remaining_shape = b_shape
     remaining_stride = b_stride
 
-    # Process all modes except the last. Match the pre-existing dynamic
-    # truncation behavior, but consume RHS strides by magnitude and carry
-    # the sign separately so negative-stride composition matches CuTe.
+    # Match pycute's post-coalesce truncation path for tuple-LHS / integral-
+    # RHS composition. In particular:
+    # - exact shape/stride divisibility still passes immediately
+    # - otherwise a non-divisible stride may only continue when the remaining
+    #   RHS has multiple points and all of them fit inside the current mode
+    # - the chunk we consume from the RHS shape must divide the remaining
+    #   shape exactly
     for curr_shape, curr_stride in zip(flat_shapes[:-1], flat_strides[:-1]):
         abs_stride = abs(remaining_stride)
         negative_stride = remaining_stride < 0
 
-        # If all of B fits inside the current mode, stop before checking
-        # later unreachable modes.
-        if remaining_shape > 1 and (remaining_shape - 1) * abs_stride < curr_shape:
+        divisible = curr_shape % abs_stride == 0 or abs_stride % curr_shape == 0
+        fits_in_mode = remaining_shape > 1 and (remaining_shape - 1) * abs_stride < curr_shape
+        if not divisible and not fits_in_mode:
+            raise ValueError(
+                f"compose: shape {curr_shape} and stride {remaining_stride} are not divisible"
+            )
+
+        if fits_in_mode:
             result_shape.append(remaining_shape)
             result_stride.append(remaining_stride * curr_stride)
             remaining_shape = 1
             break
 
-        if curr_shape % abs_stride != 0 and abs_stride % curr_shape != 0:
+        next_shape = _ceil_div(curr_shape, abs_stride)
+        next_stride = _ceil_div(abs_stride, curr_shape)
+        if negative_stride:
+            next_stride = -next_stride
+
+        if next_shape == 1 or remaining_shape == 1:
+            remaining_stride = next_stride
+            continue
+
+        new_shape = min(next_shape, remaining_shape)
+        if remaining_shape % new_shape != 0:
             raise ValueError(
-                f"compose: shape {curr_shape} and stride {remaining_stride} are not divisible"
+                f"compose: shape {remaining_shape} and consumed extent {new_shape} are not divisible"
             )
 
-        new_shape = min(max(1, curr_shape // abs_stride), remaining_shape)
-        if new_shape != 1:
-            result_shape.append(new_shape)
-            result_stride.append(remaining_stride * curr_stride)
-        remaining_shape = remaining_shape // new_shape
-        remaining_stride = _ceil_div(abs_stride, curr_shape)
-        if negative_stride:
-            remaining_stride = -remaining_stride
+        result_shape.append(new_shape)
+        result_stride.append(remaining_stride * curr_stride)
+        remaining_shape //= new_shape
+        remaining_stride = next_stride
 
     # Last mode absorbs all remaining shape
     if remaining_shape != 1 or not result_shape:
@@ -2447,12 +2747,20 @@ def _compose_layouts(layout_a: Layout, layout_b: Layout) -> Layout:
 
 def _compose_with_tiler(layout_a: Layout, tiler) -> Layout:
     """Compose a layout mode-by-mode with a tiler (Tile or tuple)."""
+    # ComposedLayout inputs should already have been intercepted by
+    # _forward_layout_domain() before we get here.  This helper rebuilds an
+    # affine Layout by reading per-mode .shape/.stride, so a composed result
+    # would mean a caller escaped the generic forwarding path.
     result_shapes = []
     result_strides = []
 
     for i, elem in enumerate(tiler):
         mode_layout = mode(layout_a, i)
         composed = compose(mode_layout, elem)
+        assert isinstance(composed, Layout), (
+            "_compose_with_tiler expects affine per-mode results; "
+            "ComposedLayout inputs should be forwarded earlier"
+        )
         result_shapes.append(unwrap(composed.shape))
         result_strides.append(unwrap(composed.stride))
 
@@ -2473,6 +2781,11 @@ def _normalize_compose_tiler_element(elem):
     """
     if isinstance(elem, Layout):
         return elem
+    if isinstance(elem, ComposedLayout):
+        raise TypeError(
+            "ComposedLayout tiler elements are not supported in tuple composition; "
+            "pass a single LayoutExpr as the second argument instead"
+        )
     if isinstance(elem, int):
         return Layout(elem, 1)
     if is_tuple(elem):
@@ -2537,28 +2850,69 @@ def compose(layout_a: Any, layout_b: Any) -> Any:
         # Swizzle composition (returns Layout with embedded swizzle):
         compose(Swizzle(3, 0, 3), Layout((8, 8), (8, 1))) -> Layout with swizzle
     """
+    # Push composition into the inner domain of an already-composed layout.
+    if isinstance(layout_a, ComposedLayout):
+        return ComposedLayout(
+            layout_a.outer,
+            compose(layout_a.inner, layout_b),
+            preoffset=layout_a.preoffset,
+        )
+
     # Swizzle composition
     if isinstance(layout_a, Swizzle):
-        if not isinstance(layout_b, Layout):
+        if not is_layout(layout_b):
             raise TypeError(
-                f"When composing with Swizzle, second argument must be Layout, got {type(layout_b).__name__}"
+                f"When composing with Swizzle, second argument must be a layout expression, "
+                f"got {type(layout_b).__name__}"
             )
-        return Layout(layout_b.shape, layout_b.stride, swizzle=layout_a)
+        if layout_a.bits == 0:
+            return layout_b
+        if isinstance(layout_b, Layout) and layout_b.swizzle is None:
+            return Layout(layout_b.shape, layout_b.stride, swizzle=layout_a)
+        return ComposedLayout(layout_a, layout_b)
+
+    if isinstance(layout_a, Layout) and layout_a.swizzle is not None:
+        inner_composed = compose(_affine_inner(layout_a), layout_b)
+        if isinstance(inner_composed, Layout) and inner_composed.swizzle is None:
+            return Layout(inner_composed.shape, inner_composed.stride, swizzle=layout_a.swizzle)
+        return ComposedLayout(layout_a.swizzle, inner_composed)
+
+    if isinstance(layout_b, Swizzle):
+        if not isinstance(layout_a, Layout):
+            raise TypeError(
+                f"When composing with Swizzle, first argument must be Layout, got {type(layout_a).__name__}"
+            )
+        # TODO: This push-through heuristic is not proven sound for all
+        # Layout × bare-Swizzle combinations.  It works for the cases
+        # currently exercised, but a general proof is missing.  Consider
+        # returning ComposedLayout as the exact fallback once bare-Swizzle
+        # as rhs is needed in a broader context (see COMPOSED_LAYOUTS.md §9).
+        active_Y = layout_a(layout_b.yyy_msk)
+        active_Z = layout_a(layout_b.zzz_msk)
+        return compose(make_swizzle(active_Y, active_Z), layout_a)
 
     # Layout-with-Layout composition
     if isinstance(layout_b, Layout):
-        if layout_b._swizzle is not None:
-            # CuTe C++: compose(A, Swizzle o B) = NewSwizzle o compose(A, B)
-            # where NewSwizzle = make_swizzle(A(yyy_msk), A(zzz_msk))
-            # See layout_composed.hpp:379 and swizzle_layout.hpp:327
-            swz = layout_b._swizzle
-            active_Y = layout_a(swz.yyy_msk)
-            active_Z = layout_a(swz.zzz_msk)
-            new_swizzle = make_swizzle(active_Y, active_Z)
-            inner_b = Layout(layout_b.shape, layout_b.stride)  # strip swizzle
-            composed = _compose_layouts(layout_a, inner_b)
-            return Layout(composed.shape, composed.stride, swizzle=new_swizzle)
+        if not isinstance(layout_a, Layout):
+            raise TypeError(
+                f"When composing with Layout, first argument must be Layout, Swizzle, "
+                f"or ComposedLayout, got {type(layout_a).__name__}"
+            )
+        if layout_b.swizzle is not None:
+            return ComposedLayout(layout_a, layout_b)
         return _compose_layouts(layout_a, layout_b)
+
+    if isinstance(layout_b, ComposedLayout):
+        if not isinstance(layout_a, Layout):
+            raise TypeError(
+                f"When composing with ComposedLayout, first argument must be Layout, "
+                f"Swizzle, or ComposedLayout, got {type(layout_a).__name__}"
+            )
+        if layout_b.preoffset == 0 and (
+            isinstance(layout_b.outer, Swizzle) or is_layout(layout_b.outer)
+        ):
+            return compose(compose(layout_a, layout_b.outer), layout_b.inner)
+        return ComposedLayout(layout_a, layout_b)
 
     # Tiler composition (Tile or tuple)
     if isinstance(layout_b, Tile):
@@ -2588,7 +2942,7 @@ def compose(layout_a: Any, layout_b: Any) -> Any:
 # =============================================================================
 #
 # Division factors a layout into (tile, rest):
-#   logical_divide(A, B) = compose(A, Layout(B, complement(B, size(A))))
+#   logical_divide(A, B) = compose(A, Layout(B, complement(B, shape(coalesce(A)))))
 #
 # The tile part tells you where within a tile, the rest part tells you
 # which tile. Division answers: "how do I iterate in tiles of size T?"
@@ -2600,7 +2954,7 @@ def compose(layout_a: Any, layout_b: Any) -> Any:
 #
 
 
-def logical_divide(layout: Layout, tiler: Any) -> Layout:
+def logical_divide(layout: LayoutExpr, tiler: Any) -> LayoutExpr:
     """Divide a layout into (tile, rest) --- the core tiling operation.
 
     Division answers: "if I want to process this layout in tiles of size T,
@@ -2608,7 +2962,8 @@ def logical_divide(layout: Layout, tiler: Any) -> Layout:
     - Tile: coordinates *within* a tile (the inner loop)
     - Rest: coordinates *across* tiles (the outer loop)
 
-    Formally: logical_divide(A, B) = compose(A, Layout(B, complement(B, size(A))))
+    Formally: logical_divide(A, B) =
+        compose(A, Layout(B, complement(B, shape(coalesce(A)))))
 
     Intuition: to tile A by B, we need two coordinates:
     - "which element within a tile?" -> B (the tiler itself)
@@ -2638,11 +2993,14 @@ def logical_divide(layout: Layout, tiler: Any) -> Layout:
         logical_divide(Layout(16), 4) -> Layout((4, 4), (1, 4))
         logical_divide(Layout((4,2,3), (2,1,8)), Layout(4, 2)) -> ((2,2),(2,3)):((4,1),(2,8))
     """
+    forwarded = _forward_layout_domain(layout, lambda inner: logical_divide(inner, tiler))
+    if forwarded is not _NO_FORWARD:
+        return forwarded
     if isinstance(tiler, Layout):
         # Layout tiler: use CuTe formula
-        # logical_divide(A, B) = compose(A, Layout(B, complement(B, size(A))))
-        layout_size = size(layout)
-        tiler_complement = complement(tiler, layout_size)
+        # logical_divide(A, B) =
+        #   compose(A, Layout(B, complement(B, size(coalesce(A)))))
+        tiler_complement = complement(tiler, size(coalesce(layout)))
 
         # Create bundled layout: (tiler, complement)
         combined = Layout(tiler, tiler_complement)
@@ -2670,6 +3028,10 @@ def logical_divide(layout: Layout, tiler: Any) -> Layout:
 
 def _logical_divide_with_tiler(layout: Layout, tiler) -> Layout:
     """Divide a layout mode-by-mode with a possibly nested tuple tiler."""
+    # ComposedLayout inputs should already have been intercepted by
+    # _forward_layout_domain() before we get here.  This helper rebuilds an
+    # affine Layout from per-mode .shape/.stride pairs, so a composed result
+    # would indicate that the earlier generic forwarding path was bypassed.
     if len(tiler) > rank(layout):
         raise ValueError(
             f"logical_divide: tiler has more modes ({len(tiler)}) "
@@ -2682,6 +3044,10 @@ def _logical_divide_with_tiler(layout: Layout, tiler) -> Layout:
     for i, elem in enumerate(tiler):
         mode_layout = mode(layout, i)
         divided = logical_divide(mode_layout, elem)
+        assert isinstance(divided, Layout), (
+            "_logical_divide_with_tiler expects affine per-mode results; "
+            "ComposedLayout inputs should be forwarded earlier"
+        )
         result_shapes.append(unwrap(divided.shape))
         result_strides.append(unwrap(divided.stride))
 
@@ -2834,7 +3200,7 @@ def _layout_from_modes(modes: list[Layout]) -> Layout:
     )
 
 
-def zipped_divide(layout: Layout, tiler: Any) -> Layout:
+def zipped_divide(layout: LayoutExpr, tiler: Any) -> LayoutExpr:
     """Divide a layout and zip the tile/rest modes together.
 
     Result structure: ((TileM, TileN), (RestM, RestN, L, ...))
@@ -2854,6 +3220,9 @@ def zipped_divide(layout: Layout, tiler: Any) -> Layout:
     Examples:
         zipped_divide(Layout((4,8)), (2,4)) -> Layout(((2,4),(2,2)), ((1,4),(2,16)))
     """
+    forwarded = _forward_layout_domain(layout, lambda inner: zipped_divide(inner, tiler))
+    if forwarded is not _NO_FORWARD:
+        return forwarded
     # True Layout tilers are terminals in CuTe's tile_unzip(). Preserve their
     # stride semantics instead of reducing them to tiler.shape.
     if isinstance(tiler, Layout):
@@ -2874,7 +3243,7 @@ def zipped_divide(layout: Layout, tiler: Any) -> Layout:
     return Layout((tiles_shape, rests_shape), (tiles_stride, rests_stride))
 
 
-def tiled_divide(layout: Layout, tiler: Any) -> Layout:
+def tiled_divide(layout: LayoutExpr, tiler: Any) -> LayoutExpr:
     """Divide a layout into tiles and tile indices.
 
     Result structure: ((TileM, TileN), RestM, RestN, L, ...)
@@ -2891,13 +3260,16 @@ def tiled_divide(layout: Layout, tiler: Any) -> Layout:
     Examples:
         tiled_divide(Layout((8,8)), (2,2)) -> Layout(((2,2), 4, 4), ...)
     """
+    forwarded = _forward_layout_domain(layout, lambda inner: tiled_divide(inner, tiler))
+    if forwarded is not _NO_FORWARD:
+        return forwarded
     result = zipped_divide(layout, tiler)
     modes = [mode(result, 0)]
     modes.extend(_unpack_grouped_mode(mode(result, 1)))
     return _layout_from_modes(modes)
 
 
-def flat_divide(layout: Layout, tiler: Any) -> Layout:
+def flat_divide(layout: LayoutExpr, tiler: Any) -> LayoutExpr:
     """Divide a layout and flatten all modes.
 
     Result structure: (TileM, TileN, RestM, RestN, L, ...)
@@ -2915,6 +3287,9 @@ def flat_divide(layout: Layout, tiler: Any) -> Layout:
     Examples:
         flat_divide(Layout((8,8)), (2,2)) -> Layout((2, 2, 4, 4), ...)
     """
+    forwarded = _forward_layout_domain(layout, lambda inner: flat_divide(inner, tiler))
+    if forwarded is not _NO_FORWARD:
+        return forwarded
     result = zipped_divide(layout, tiler)
     modes = _unpack_grouped_mode(mode(result, 0))
     modes.extend(_unpack_grouped_mode(mode(result, 1)))
@@ -2940,7 +3315,7 @@ def flat_divide(layout: Layout, tiler: Any) -> Layout:
 #
 
 
-def zipped_product(layout_a: Layout, layout_b) -> Layout:
+def zipped_product(layout_a: LayoutExpr, layout_b) -> LayoutExpr:
     """Apply logical_product hierarchically and gather split modes into two modes.
 
     Like zipped_divide but uses logical_product instead of logical_divide.
@@ -2952,10 +3327,13 @@ def zipped_product(layout_a: Layout, layout_b) -> Layout:
     Returns:
         A rank-2 Layout with ((A-modes), (product-modes)) structure
     """
+    forwarded = _forward_layout_domain(layout_a, lambda inner: zipped_product(inner, layout_b))
+    if forwarded is not _NO_FORWARD:
+        return forwarded
     return hier_unzip(logical_product, layout_a, layout_b)
 
 
-def tiled_product(layout_a: Layout, layout_b) -> Layout:
+def tiled_product(layout_a: LayoutExpr, layout_b) -> LayoutExpr:
     """Apply logical_product hierarchically and flatten the second mode.
 
     Like tiled_divide but uses logical_product instead of logical_divide.
@@ -2967,6 +3345,9 @@ def tiled_product(layout_a: Layout, layout_b) -> Layout:
     Returns:
         A Layout with ((A-modes), rest0, rest1, ...) structure
     """
+    forwarded = _forward_layout_domain(layout_a, lambda inner: tiled_product(inner, layout_b))
+    if forwarded is not _NO_FORWARD:
+        return forwarded
     result = zipped_product(layout_a, layout_b)
     second = mode(result, 1)
     all_modes = [mode(result, 0)]
@@ -3035,7 +3416,7 @@ def hier_unzip(splitter, layout_a: Layout, layout_b) -> Layout:
     return splitter(layout_a, layout_b)
 
 
-def logical_product(layout_a: Layout, layout_b: Layout) -> Layout:
+def logical_product(layout_a: LayoutExpr, layout_b: Layout) -> LayoutExpr:
     """Reproduce layout A's pattern at each position B describes.
 
     Product is the reverse of division. If division splits A into tiles,
@@ -3056,6 +3437,9 @@ def logical_product(layout_a: Layout, layout_b: Layout) -> Layout:
     Examples:
         logical_product(Layout(4,1), Layout(3,1)) -> Layout((4,3), (1,4))
     """
+    forwarded = _forward_layout_domain(layout_a, lambda inner: logical_product(inner, layout_b))
+    if forwarded is not _NO_FORWARD:
+        return forwarded
     if layout_b is None:
         return layout_a
     if isinstance(layout_b, int):
@@ -3127,7 +3511,7 @@ def _product_interleave(layout_a: Layout, layout_b: Layout) -> Layout:
     return Layout(tuple(result_shapes), tuple(result_strides))
 
 
-def blocked_product(layout_a: Layout, layout_b: Layout) -> Layout:
+def blocked_product(layout_a: LayoutExpr, layout_b: Layout) -> LayoutExpr:
     """Compute a blocked product of two layouts.
 
     Unlike logical_product which concatenates (A, B) for 1D, blocked_product
@@ -3154,6 +3538,9 @@ def blocked_product(layout_a: Layout, layout_b: Layout) -> Layout:
     Examples:
         blocked_product((2,2):(1,2), (2,2):(1,2)) -> ((2,2),(2,2)):((1,4),(2,8))
     """
+    forwarded = _forward_layout_domain(layout_a, lambda inner: blocked_product(inner, layout_b))
+    if forwarded is not _NO_FORWARD:
+        return forwarded
     a_cosize_val = cosize(layout_a)
     a_rank = rank(layout_a)
     b_rank = rank(layout_b)
@@ -3248,7 +3635,7 @@ def _zip_layouts(layout_a: Layout, layout_b: Layout) -> Layout:
     return Layout(tuple(result_shapes), tuple(result_strides))
 
 
-def flat_product(block: Layout, tiler) -> Layout:
+def flat_product(block: LayoutExpr, tiler) -> LayoutExpr:
     """Compute a flat product: zipped_product with both modes unpacked.
 
     Like zipped_product, but flattens both the block modes and the product
@@ -3265,6 +3652,9 @@ def flat_product(block: Layout, tiler) -> Layout:
         flat_product(Layout((2,4), (1,2)), Layout(3,1))
             -> Layout with shape (2, 4, 3, ...) and appropriate strides
     """
+    forwarded = _forward_layout_domain(block, lambda inner: flat_product(inner, tiler))
+    if forwarded is not _NO_FORWARD:
+        return forwarded
     result = zipped_product(block, tiler)
 
     # Unpack both modes: result(repeat<R0>(_), repeat<R1>(_))
@@ -3296,7 +3686,7 @@ def flat_product(block: Layout, tiler) -> Layout:
     return Layout(tuple(shapes), tuple(strides))
 
 
-def raked_product(block: Layout, tiler: Layout) -> Layout:
+def raked_product(block: LayoutExpr, tiler: Layout) -> LayoutExpr:
     """Compute a raked product: block-interleaved reproduction.
 
     Like blocked_product, but with the tiler varying fastest within each mode.
@@ -3323,6 +3713,9 @@ def raked_product(block: Layout, tiler: Layout) -> Layout:
         # Compare with blocked_product which gives:
             -> ((2,2),(2,2)):((1,4),(2,8))
     """
+    forwarded = _forward_layout_domain(block, lambda inner: raked_product(inner, tiler))
+    if forwarded is not _NO_FORWARD:
+        return forwarded
     r = max(rank(block), rank(tiler))
     padded_block = _pad_to_rank(block, r)
     padded_tiler = _pad_to_rank(tiler, r)
@@ -3401,6 +3794,9 @@ class Swizzle:
         if not isinstance(other, Swizzle):
             return False
         return self.bits == other.bits and self.base == other.base and self.shift == other.shift
+
+    def __hash__(self) -> int:
+        return hash((self.bits, self.base, self.shift))
 
     @property
     def yyy_msk(self) -> int:

@@ -79,7 +79,7 @@ __all__ = [
 #
 
 
-def image(layout: Layout) -> list:
+def image(layout: LayoutExpr) -> list:
     """Return the sorted list of distinct offsets produced by the layout.
 
     The image (or range) of a layout is the subset of offsets that are
@@ -92,12 +92,11 @@ def image(layout: Layout) -> list:
         image(Layout(4, 2))              # [0, 2, 4, 6]
         image(Layout((4, 2), (0, 1)))    # [0, 1]  (broadcast)
     """
-    if hasattr(layout, 'layout') and not isinstance(layout, Layout):
-        return image(layout.layout)
+    layout = as_layout_expr(layout)
     return sorted({layout(i) for i in range(size(layout))})
 
 
-def is_injective(layout: Layout) -> bool:
+def is_injective(layout: LayoutExpr) -> bool:
     """True if every coordinate maps to a distinct offset.
 
     An injective layout has no aliasing --- no two logical positions
@@ -111,7 +110,7 @@ def is_injective(layout: Layout) -> bool:
     return len(image(layout)) == size(layout)
 
 
-def is_surjective(layout: Layout, codomain_size: int = None) -> bool:
+def is_surjective(layout: LayoutExpr, codomain_size: int = None) -> bool:
     """True if every offset in [0, codomain_size) is produced.
 
     A surjective layout has no gaps --- the image covers the entire
@@ -133,7 +132,7 @@ def is_surjective(layout: Layout, codomain_size: int = None) -> bool:
     return len(image(layout)) == codomain_size
 
 
-def is_bijective(layout: Layout) -> bool:
+def is_bijective(layout: LayoutExpr) -> bool:
     """True if the layout is a bijection on [0, cosize).
 
     A bijective layout is both injective (no aliasing) and surjective
@@ -149,7 +148,7 @@ def is_bijective(layout: Layout) -> bool:
     return len(img) == size(layout) and len(img) == cosize(layout)
 
 
-def is_contiguous(layout: Layout) -> bool:
+def is_contiguous(layout: LayoutExpr) -> bool:
     """True if the layout maps to a dense range of size ``size(layout)``.
 
     A contiguous layout visits a dense run of memory offsets exactly
@@ -174,7 +173,7 @@ def is_contiguous(layout: Layout) -> bool:
 # =============================================================================
 
 
-def functionally_equal(a: Layout, b: Layout) -> bool:
+def functionally_equal(a: LayoutExpr, b: LayoutExpr) -> bool:
     """True if two layouts compute the same mapping for every flat index.
 
     Layout.__eq__ checks structural equality (same shape and stride).
@@ -208,7 +207,7 @@ def _normalize_explain_compose_tiler(tiler):
 # Inverse mapping
 # =============================================================================
 
-def offset_table(layout: Layout) -> dict:
+def offset_table(layout: LayoutExpr) -> dict:
     """Return {offset: [coord, ...]} mapping each offset to its coordinates.
 
     This is the inverse of the layout function.  It immediately reveals
@@ -222,7 +221,7 @@ def offset_table(layout: Layout) -> dict:
         offset_table(Layout((4, 2), (0, 1)))
         # {0: [0, 1, 2, 3], 1: [4, 5, 6, 7]}  -- broadcast aliasing
     """
-    layout = as_layout(layout)
+    layout = as_layout_expr(layout)
     table = {}
     for i in range(size(layout)):
         coord = idx2crd(i, layout.shape)
@@ -280,7 +279,7 @@ def aliasing_profile(layout: Layout) -> dict:
     }
 
 
-def footprint(layout: Layout) -> dict:
+def footprint(layout: LayoutExpr) -> dict:
     """Summarize the memory footprint of a layout.
 
     Answers the questions users most often ask about a layout's memory
@@ -311,7 +310,7 @@ def footprint(layout: Layout) -> dict:
         #  'unique_offsets': 2, 'total_elements': 8,
         #  'reuse_factor': 4.0, 'holes': 0}
     """
-    layout = as_layout(layout)
+    layout = as_layout_expr(layout)
     offsets = image(layout)  # sorted list of unique offsets
     n_unique = len(offsets)
     n_total = size(layout)
@@ -334,7 +333,7 @@ def footprint(layout: Layout) -> dict:
 # Bank conflict analysis
 # =============================================================================
 
-def bank_conflicts(layout: Layout, *, element_bytes: int,
+def bank_conflicts(layout: LayoutExpr, *, element_bytes: int,
                    num_banks: int = 32, bank_width_bytes: int = 4,
                    group_size: int = 32):
     """Analyze shared memory bank conflicts for a thread-to-offset layout.
@@ -380,7 +379,7 @@ def bank_conflicts(layout: Layout, *, element_bytes: int,
         bank_conflicts(Layout(32, 0), element_bytes=2)
         # {'conflict_free': True, 'max_ways': 1, ...}  (broadcast, not a conflict)
     """
-    layout = as_layout(layout)
+    layout = as_layout_expr(layout)
     if group_size <= 0:
         raise ValueError(f"group_size must be positive, got {group_size}")
     thread_count, value_count = _tv_dimensions(layout)
@@ -430,7 +429,7 @@ def bank_conflicts(layout: Layout, *, element_bytes: int,
 # =============================================================================
 
 
-def _group_access_offsets(layout: Layout, start_thread: int = 0,
+def _group_access_offsets(layout: LayoutExpr, start_thread: int = 0,
                           end_thread: int | None = None) -> tuple[list[int], int]:
     """Return accessed offsets for a thread group and their minimum offset.
 
@@ -454,7 +453,7 @@ def _group_access_offsets(layout: Layout, start_thread: int = 0,
     return offsets, min(offsets)
 
 
-def coalescing_efficiency(layout: Layout, *, element_bytes: int,
+def coalescing_efficiency(layout: LayoutExpr, *, element_bytes: int,
                           warp_size: int = 32,
                           cache_line_bytes: int = 128):
     """Analyze global memory coalescing for a thread-to-offset layout.
@@ -502,7 +501,7 @@ def coalescing_efficiency(layout: Layout, *, element_bytes: int,
         coalescing_efficiency(Layout(32, 64), element_bytes=2)
         # {'transactions': 32, ...}
     """
-    layout = as_layout(layout)
+    layout = as_layout_expr(layout)
     thread_count, _ = _tv_dimensions(layout)
     n = min(thread_count, warp_size)
 
@@ -530,7 +529,7 @@ def coalescing_efficiency(layout: Layout, *, element_bytes: int,
     }
 
 
-def segment_analysis(layout: Layout, *, element_bytes: int,
+def segment_analysis(layout: LayoutExpr, *, element_bytes: int,
                       warp_size: int = 32,
                       segment_bytes: int = 32,
                       cache_line_bytes: int = 128):
@@ -569,7 +568,7 @@ def segment_analysis(layout: Layout, *, element_bytes: int,
             first_byte_addr: byte address of the first thread's access
             first_alignment: alignment of first_byte_addr to segment_bytes
     """
-    layout = as_layout(layout)
+    layout = as_layout_expr(layout)
     thread_count, value_count = _tv_dimensions(layout)
     n = min(thread_count, warp_size)
 
@@ -612,7 +611,7 @@ def segment_analysis(layout: Layout, *, element_bytes: int,
 # =============================================================================
 
 
-def _tv_dimensions(layout: Layout):
+def _tv_dimensions(layout: LayoutExpr):
     """Extract (thread_count, value_count) from a layout.
 
     For rank-1 (scalar shape) layouts: thread_count = size, value_count = 1.
@@ -624,7 +623,7 @@ def _tv_dimensions(layout: Layout):
     return size(mode(layout, 0)), size(layout) // size(mode(layout, 0))
 
 
-def per_group_bank_conflicts(layout: Layout, *, element_bytes: int,
+def per_group_bank_conflicts(layout: LayoutExpr, *, element_bytes: int,
                               group_size: int = 32,
                               num_banks: int = 32,
                               bank_width_bytes: int = 4) -> dict:
@@ -651,7 +650,7 @@ def per_group_bank_conflicts(layout: Layout, *, element_bytes: int,
             worst_group: index of group with highest max_ways
             worst_max_ways: the highest max_ways across all groups
     """
-    layout = as_layout(layout)
+    layout = as_layout_expr(layout)
     if group_size <= 0:
         raise ValueError(f"group_size must be positive, got {group_size}")
     thread_count, value_count = _tv_dimensions(layout)
@@ -703,7 +702,7 @@ def per_group_bank_conflicts(layout: Layout, *, element_bytes: int,
     }
 
 
-def per_group_coalescing(layout: Layout, *, element_bytes: int,
+def per_group_coalescing(layout: LayoutExpr, *, element_bytes: int,
                           group_size: int = 32,
                           cache_line_bytes: int = 128) -> dict:
     """Analyze coalescing efficiency per warp/wavefront group across a full layout.
@@ -727,7 +726,7 @@ def per_group_coalescing(layout: Layout, *, element_bytes: int,
             worst_group: index of group with lowest efficiency
             worst_efficiency: the lowest efficiency across all groups
     """
-    layout = as_layout(layout)
+    layout = as_layout_expr(layout)
     if group_size <= 0:
         raise ValueError(f"group_size must be positive, got {group_size}")
     thread_count, value_count = _tv_dimensions(layout)
@@ -805,7 +804,7 @@ def _dense_permutation_values(layout: Layout) -> list[int]:
     return [layout(i) - min_offset for i in range(n)]
 
 
-def cycles(layout: Layout) -> list:
+def cycles(layout: LayoutExpr) -> list:
     """Return the cycle decomposition of a dense, injective layout.
 
     When a layout's image is a dense interval with no duplicates, rebasing
@@ -826,7 +825,7 @@ def cycles(layout: Layout) -> list:
         cycles(compose(Swizzle(1, 0, 1), Layout(4, 1)))
         # [[0], [1, 2], [3]]  -- 0 and 3 are fixed, 1<->2 swap
     """
-    layout = as_layout(layout)
+    layout = as_layout_expr(layout)
     values = _dense_permutation_values(layout)
     n = len(values)
     visited = [False] * n
@@ -847,7 +846,7 @@ def cycles(layout: Layout) -> list:
     return result
 
 
-def fixed_points(layout: Layout) -> list:
+def fixed_points(layout: LayoutExpr) -> list:
     """Return offsets that map to themselves: layout(i) == i.
 
     Does not require the layout to be bijective.
@@ -856,11 +855,11 @@ def fixed_points(layout: Layout) -> list:
         fixed_points(Layout(4, 1))          # [0, 1, 2, 3]
         fixed_points(Layout((2, 2), (2, 1)))  # [0, 3]
     """
-    layout = as_layout(layout)
+    layout = as_layout_expr(layout)
     return [i for i in range(size(layout)) if layout(i) == i]
 
 
-def order(layout: Layout) -> int:
+def order(layout: LayoutExpr) -> int:
     """Return the permutation order of a dense, injective layout.
 
     The layout's image is first rebased to a dense interval starting at 0,
@@ -874,7 +873,7 @@ def order(layout: Layout) -> int:
         # Swizzle is its own inverse (XOR twice = identity), so order = 2
         # (unless it has fixed points only, then order = 1)
     """
-    layout = as_layout(layout)
+    layout = as_layout_expr(layout)
     from math import gcd
 
     cycle_list = cycles(layout)
@@ -910,7 +909,7 @@ def contiguity(layout: Layout) -> int:
         contiguity(Layout((4, 8), (1, 4)))    # 32 (column-major = contiguous in flat order)
         contiguity(Layout((4, 8), (1, 8)))    # 4  (contiguous within mode 0)
     """
-    layout = as_layout(layout)
+    layout = as_affine_layout(layout)
     return max_common_vector(layout, Layout(size(layout)))
 
 
@@ -932,7 +931,7 @@ def mode_contiguity(layout: Layout) -> list:
         mode_contiguity(Layout((4, 8), (1, 4)))     # [4, 1] (mode 0 contiguous, mode 1 stride-4)
         mode_contiguity(Layout((4, 8), (8, 1)))     # [1, 8] (row-major: mode 1 contiguous)
     """
-    layout = as_layout(layout)
+    layout = as_affine_layout(layout)
     r = rank(layout)
     if r == 0:
         return [1]
@@ -971,7 +970,7 @@ def slice_contiguity(layout: Layout, coord) -> int:
         # Fix column, measure row contiguity
         slice_contiguity(Layout((4, 8), (8, 1)), (None, 0))  # 1
     """
-    layout = as_layout(layout)
+    layout = as_affine_layout(layout)
     sublayout = layout(*coord) if isinstance(coord, tuple) else layout(coord)
     if isinstance(sublayout, int):
         return 1  # fully fixed, scalar result
@@ -1150,14 +1149,15 @@ def explain(fn, *args):
         lines.append(f'logical_divide({L}, {T})')
         actual = logical_divide(L, T)
 
-        if is_layout(T):
-            lines.append('  = compose(L, Layout(T, complement(T, size(L))))')
+        if is_affine_layout(T):
+            lines.append('  = compose(L, Layout(T, complement(T, shape(coalesce(L)))))')
             lines.append('')
             lines.append(f'  L = {L}')
             lines.append(f'  T = {T}')
-            lines.append(f'  size(L) = {size(L)}')
-            comp = complement(T, size(L))
-            lines.append(f'  complement(T, {size(L)}) = {comp}')
+            coalesced_shape = coalesce(L).shape
+            lines.append(f'  shape(coalesce(L)) = {coalesced_shape}')
+            comp = complement(T, coalesced_shape)
+            lines.append(f'  complement(T, {coalesced_shape}) = {comp}')
             intermediate = Layout(T, comp)
             lines.append(f'  Layout(T, complement) = {intermediate}')
             result = compose(L, intermediate)
@@ -1177,7 +1177,7 @@ def explain(fn, *args):
             B = Layout(B)
         lines.append(f'logical_product({A}, {B})')
 
-        if is_layout(B):
+        if is_affine_layout(B):
             lines.append('  = Layout(A, compose(complement(A, size(A)*cosize(B)), B))')
             lines.append('')
             lines.append(f'  A = {A}')
@@ -1414,6 +1414,7 @@ def to_F2_matrix(layout: Layout) -> list[list[int]]:
         # Swizzled layout — swizzle folds into the matrix
         to_F2_matrix(compose(Swizzle(3, 0, 3), Layout((8, 8), (8, 1))))
     """
+    layout = as_affine_layout(layout)
     flat = flatten(layout)
     if is_int(flat.shape):
         shapes = [flat.shape]

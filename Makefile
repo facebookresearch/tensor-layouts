@@ -6,7 +6,7 @@ build:
 clean:
 	rm -rf build/ dist/ src/*.egg-info
 	rm -rf .pytest_cache/ .coverage htmlcov/
-	rm -rf examples_output/
+	rm -rf examples_output/ tests/figures/
 	find . -type d -name __pycache__ -exec rm -rf {} +
 	find . -type f -name '*.py[cod]' -delete
 

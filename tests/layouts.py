@@ -437,6 +437,7 @@ def test_complement_layouts():
     assert complement(Layout(4, 1), 16) == Layout(4, 4)
     assert complement(Layout(4, 1), 24) == Layout(6, 4)
     assert complement(Layout((2, 2), (1, 4)), 16) == Layout((2, 2), (2, 8))
+    assert complement(Layout(2, 1), (3, 4)) == Layout(8, 2)
     assert complement(Layout(6, 1), 24) == Layout(4, 6)
     assert complement(Layout((4, 2), (1, 16))) == Layout(4, 4)  # default cosize_bound
     # Contiguous layout - complement starts after the layout ends
@@ -541,6 +542,21 @@ def test_compose_truncates_unreachable_modes():
         assert C3(i) == A3(Layout(3, 3)(i))
 
 
+@pytest.mark.parametrize(
+    ("layout", "tiler"),
+    [
+        (Layout((4, 6, 8), (2, 3, 5)), Layout(6, 3)),
+        (Layout((4, 6, 8), (2, 3, 5)), Layout(6, 1)),
+        (Layout((4, 2, 8), (3, 12, 97)), Layout(4, 3)),
+        (Layout((4, 2, 8), (3, 15, 97)), Layout(3, 3)),
+    ],
+)
+def test_compose_divisibility_failures_match_pycute(layout, tiler):
+    """pycute-invalid 1D compositions raise ValueError instead of fabricating layouts."""
+    with pytest.raises(ValueError, match="divisible"):
+        compose(layout, tiler)
+
+
 def test_left_inverse_padded_layout():
     """left_inverse of padded (non-contiguous) layouts must cover the full
     codomain and satisfy L†(L(k)) = k for all k.
@@ -569,6 +585,45 @@ def test_left_inverse_padded_layout():
         assert Li == expected, f"left_inverse({L}) = {Li}, expected {expected}"
         for k in range(size(L)):
             assert Li(L(k)) == k
+
+
+def test_right_inverse_broadcast_unit_stride_matches_cute_cpp():
+    """right_inverse skips noncontiguous sorted modes and keeps later valid modes."""
+    L = Layout(((2, 2), (2, 4)), ((0, 1), (0, 2)))
+    R = right_inverse(L)
+    assert R == Layout((2, 4), (2, 8))
+    for i in range(size(R)):
+        assert L(R(i)) == i
+
+
+def test_right_inverse_preserves_embedded_swizzle():
+    """right_inverse keeps embedded swizzles on the canonical affine fast path."""
+    swizzle = Swizzle(2, 0, 2)
+    L = compose(swizzle, Layout((4, (4, 3)), (1, (4, 16))))
+    R = right_inverse(L)
+    proxy = compose(swizzle, Layout((4, 4, 3), (1, 4, 16)))
+
+    assert isinstance(R, Layout)
+    assert R.swizzle == swizzle
+    assert size(R) == 48
+    for i in range(size(R)):
+        assert R(i) == proxy(i)
+        assert L(R(i)) == i
+
+
+def test_left_inverse_preserves_embedded_swizzle():
+    """left_inverse keeps embedded swizzles on the canonical affine fast path."""
+    swizzle = Swizzle(2, 0, 2)
+    L = compose(swizzle, Layout((4, (4, 3)), (1, (4, 16))))
+    Li = left_inverse(L)
+    proxy = compose(swizzle, Layout((4, 4, 3), (1, 4, 16)))
+
+    assert isinstance(Li, Layout)
+    assert Li.swizzle == swizzle
+    assert size(Li) == 48
+    for i in range(size(L)):
+        assert Li(i) == proxy(i)
+        assert Li(L(i)) == i
 
 
 def test_complement_rejects_negative_strides():
@@ -1144,6 +1199,7 @@ def test_logical_divide_rejects_over_rank_tiler():
     logical_divide(Layout((4, 8, 3), (1, 4, 32)), (2, 4))
 
 
+
 def test_logical_product():
     # logical_product combines two layouts
     A = Layout(4, 1)
@@ -1153,12 +1209,17 @@ def test_logical_product():
     assert product.stride == (1, 4)
 
     # logical_product with non-trivial strides
-    A = Layout(4, 2)
-    B = Layout(3, 1)
+    A = Layout(4, 1)
+    B = Layout(3, 2)
     product = logical_product(A, B)
-    # pycute: complement(4:2, 4*3=12) = 2:1, compose(2:1, 3:1) = 2:1
-    assert product.shape == (4, 2)
-    assert product.stride == (2, 1)
+    assert product.shape == (4, 3)
+    assert product.stride == (1, 8)
+
+
+def test_logical_product_rejects_nondivisible_complement_path():
+    """CuTe C++ rejects logical_product(4:2, 3:1) at the composition step."""
+    with pytest.raises(ValueError, match="divisible"):
+        logical_product(Layout(4, 2), Layout(3, 1))
 
 
 def test_tile_basic():
@@ -1632,16 +1693,14 @@ def test_offset_swizzled_layout_eq():
 
 
 def test_compose_layout_with_swizzled_layout():
-    # compose(Layout, SwizzledLayout) should transform the swizzle through
-    # the outer layout, matching CuTe C++ composition(Layout, ComposedLayout).
-    # See layout_composed.hpp:379 and swizzle_layout.hpp:327.
+    # compose(Layout, swizzled Layout) is not safely reducible in general.
+    # It should preserve exact semantics via ComposedLayout rather than
+    # guessing a replacement single swizzle.
     swizzled = compose(Swizzle(3, 0, 3), Layout((8, 8), (8, 1)))
 
-    # Identity layout preserves the swizzle exactly
     result = compose(Layout(64, 1), swizzled)
-    assert result.swizzle == Swizzle(3, 0, 3)
+    assert isinstance(result, ComposedLayout)
     assert result.shape == (8, 8)
-    assert result.stride == (8, 1)
 
     # Verify point-wise correctness: result(i) == Layout(64,1)(swizzled(i))
     for i in range(size(result)):
@@ -1649,20 +1708,17 @@ def test_compose_layout_with_swizzled_layout():
 
 
 def test_compose_layout_with_swizzled_layout_nontrivial():
-    # Non-identity outer layout should transform the swizzle
+    # Non-identity outer layout also remains exact via ComposedLayout.
     swizzled = compose(Swizzle(2, 0, 2), Layout(16, 1))
 
     # Compose with a layout that doubles strides
     outer = Layout(16, 2)
     result = compose(outer, swizzled)
+    assert isinstance(result, ComposedLayout)
 
     # Verify point-wise: result(i) == outer(swizzled(i)) for all i in domain
     for i in range(size(result)):
         assert result(i) == outer(swizzled(i)), f"Mismatch at i={i}"
-
-    # The result should have a swizzle (transformed through outer)
-    assert result.swizzle is not None
-
 
 def test_make_layout_like_basic():
     # For a column-major layout, extracting a sub-shape preserves strides
@@ -1769,6 +1825,9 @@ def test_tile_to_shape_nested_block():
 def test_is_layout():
     assert is_layout(Layout(4, 1)) is True
     assert is_layout(Layout((2, 3), (1, 2))) is True
+    assert is_layout(ComposedLayout(Layout(4, 1), Layout(4, 1))) is True
+    assert is_affine_layout(Layout(4, 1)) is True
+    assert is_affine_layout(ComposedLayout(Layout(4, 1), Layout(4, 1))) is False
     assert is_layout(4) is False
     assert is_layout((4, 2)) is False
     assert is_layout(4) is False
@@ -2041,6 +2100,40 @@ def test_max_common_layout_partial():
     for i in range(size(result)):
         assert a(result(i)) == i
         assert b(result(i)) == i
+
+
+def test_max_common_swizzled_vs_plain_is_representation_invariant():
+    swizzle = Swizzle(2, 1, 3)
+    embedded = compose(swizzle, Layout(32, 1))
+    composed = ComposedLayout(swizzle, Layout(32, 1), preoffset=0)
+    plain = Layout(32, 1)
+
+    assert max_common_vector(embedded, plain) == 2
+    assert max_common_vector(plain, embedded) == 2
+    assert max_common_vector(composed, plain) == 2
+    assert max_common_vector(plain, composed) == 2
+
+    for lhs in (embedded, composed):
+        common = max_common_layout(lhs, plain)
+        assert size(common) == 2
+        for i in range(size(common)):
+            assert lhs(common(i)) == i
+            assert plain(common(i)) == i
+
+
+def test_max_common_identical_swizzles_match_across_representations():
+    swizzle = Swizzle(2, 0, 2)
+    embedded = compose(swizzle, Layout((4, 4), (1, 4)))
+    composed = ComposedLayout(swizzle, Layout((4, 4), (1, 4)), preoffset=0)
+
+    for lhs in (embedded, composed):
+        for rhs in (embedded, composed):
+            assert max_common_vector(lhs, rhs) == 16
+            common = max_common_layout(lhs, rhs)
+            assert size(common) == 16
+            for i in range(size(common)):
+                assert lhs(common(i)) == i
+                assert rhs(common(i)) == i
 
 
 ## flat_product

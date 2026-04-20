@@ -43,9 +43,26 @@ from tensor_layouts import *
 
 CPP_SOURCE = r"""
 #include <cute/layout.hpp>
+#include <cute/layout_composed.hpp>
+#include <cute/swizzle_layout.hpp>
+#include <cute/tensor_impl.hpp>
+#include <array>
 #include <iostream>
 
 using namespace cute;
+
+template <class Layout>
+void print_offsets(char const* name, Layout const& layout) {
+  std::cout << name << "=";
+  auto n = static_cast<int>(size(layout));
+  for (int i = 0; i < n; ++i) {
+    if (i) {
+      std::cout << ",";
+    }
+    std::cout << layout(i);
+  }
+  std::cout << "\n";
+}
 
 int main() {
   auto compose_nested_tuple_tiler = composition(
@@ -104,12 +121,100 @@ int main() {
       make_layout(make_shape(_2{}, _3{}), make_stride(_1{}, _4{})));
   std::cout << "logical_product_layout_tiler=" << logical_product_layout_tiler << "\n";
 
+  auto complement_shape_bound = complement(make_layout(_2{}, _1{}), make_shape(_3{}, _4{}));
+  std::cout << "complement_shape_bound=" << complement_shape_bound << "\n";
+
+  // TODO: uncomment when CuTe C++ sorts in coalesce (matching pycute).
+  // CuTe C++ currently gives ((2,(2,4)):((4,(8,1))); pycute gives (2,6):(1,2).
+  // auto logical_divide_coalesced_shape_bound = logical_divide(
+  //     make_layout(make_shape(_3{}, _4{}), make_stride(_4{}, _1{})),
+  //     make_layout(_2{}, _1{}));
+  // std::cout << "logical_divide_coalesced_shape_bound="
+  //           << logical_divide_coalesced_shape_bound << "\n";
+
   auto slice_full_rank2 =
       slice(_, make_layout(make_shape(_4{}, _8{}), make_stride(_1{}, _4{})));
   std::cout << "slice_full_rank2=" << slice_full_rank2 << "\n";
 
   auto slice_full_scalar = slice(_, make_layout(_4{}, _1{}));
   std::cout << "slice_full_scalar=" << slice_full_scalar << "\n";
+
+  auto double_swizzle_base =
+      make_layout(make_shape(_8{}, _8{}), make_stride(_8{}, _1{}));
+  auto double_swizzle_inner = composition(Swizzle<3,0,3>{}, double_swizzle_base);
+  auto double_swizzle = composition(Swizzle<1,0,3>{}, Int<0>{}, double_swizzle_inner);
+  print_offsets("compose_double_swizzle_offsets", double_swizzle);
+
+  auto outer_layout = make_layout(make_shape(_4{}, _4{}), make_stride(_4{}, _1{}));
+  auto swizzled_inner = composition(Swizzle<3,0,3>{}, make_layout(_16{}, _1{}));
+  auto outer_on_swizzled = composition(outer_layout, Int<0>{}, swizzled_inner);
+  print_offsets("compose_outer_layout_swizzled_offsets", outer_on_swizzled);
+
+  auto composed_for_slice = composition(
+      outer_layout, Int<0>{},
+      composition(Swizzle<3,0,3>{}, double_swizzle_base));
+  auto sliced_pair = slice_and_offset(make_coord(_2{}, _), composed_for_slice);
+  auto sliced_layout = get<0>(sliced_pair);
+  auto sliced_offset = get<1>(sliced_pair);
+  std::cout << "compose_slice_row=" << int(sliced_offset) << "|";
+  auto sliced_n = static_cast<int>(size(sliced_layout));
+  for (int i = 0; i < sliced_n; ++i) {
+    if (i) {
+      std::cout << ",";
+    }
+    std::cout << sliced_layout(i);
+  }
+  std::cout << "\n";
+
+  auto swizzled_composed =
+      composition(Swizzle<2,1,3>{}, Int<0>{}, make_layout(_32{}, _1{}));
+  auto layout_on_composed =
+      composition(make_layout(_32{}, _2{}), swizzled_composed);
+  print_offsets("compose_layout_zero_preoffset_composed_offsets", layout_on_composed);
+
+  auto swizzled_composed_nonzero =
+      composition(Swizzle<2,1,3>{}, Int<4>{}, make_layout(_32{}, _1{}));
+  auto exact_layout_on_composed =
+      composition(make_layout(_32{}, _2{}), Int<0>{}, swizzled_composed_nonzero);
+  print_offsets("compose_layout_nonzero_preoffset_composed_offsets", exact_layout_on_composed);
+
+  auto recursive_chain = composition(
+      make_layout(_16{}, _3{}), Int<0>{},
+      composition(make_layout(_16{}, _2{}), Int<0>{},
+                  composition(Swizzle<2,0,2>{}, make_layout(_16{}, _1{}))));
+  print_offsets("compose_recursive_chain_offsets", recursive_chain);
+
+  auto composed_for_divide_product = composition(
+      make_layout(_16{}, _2{}), Int<0>{},
+      composition(Swizzle<2,0,2>{}, make_layout(_16{}, _1{})));
+  auto divided_composed = logical_divide(composed_for_divide_product, _4{});
+  print_offsets("logical_divide_composed_offsets", divided_composed);
+  auto product_composed = logical_product(composed_for_divide_product, make_layout(_2{}, _1{}));
+  print_offsets("logical_product_composed_offsets", product_composed);
+
+  auto swizzled_composed_rinv = right_inverse(swizzled_composed);
+  print_offsets("right_inverse_swizzled_composed_offsets", swizzled_composed_rinv);
+
+  auto swizzled_composed_linv = left_inverse(swizzled_composed);
+  print_offsets("left_inverse_swizzled_composed_offsets", swizzled_composed_linv);
+
+  auto swizzled_common_vec =
+      max_common_vector(swizzled_composed, make_layout(_32{}, _1{}));
+  std::cout << "max_common_vector_swizzled_composed=" << swizzled_common_vec << "\n";
+
+  std::array<int, 256> tensor_data{};
+  for (int i = 0; i < 256; ++i) {
+    tensor_data[i] = i;
+  }
+  auto composed_tensor = make_tensor(tensor_data.data(), swizzled_composed_nonzero);
+  std::cout << "tensor_composed_values=";
+  for (int i = 0; i < 16; ++i) {
+    if (i) {
+      std::cout << ",";
+    }
+    std::cout << composed_tensor(i);
+  }
+  std::cout << "\n";
 }
 """
 
@@ -149,8 +254,113 @@ PYTHON_CASES = {
         Layout((2, 2), (1, 4)),
         Layout((2, 3), (1, 4)),
     ),
+    "complement_shape_bound": lambda: complement(Layout(2, 1), (3, 4)),
+    "max_common_vector_swizzled_composed": lambda: max_common_vector(
+        ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), preoffset=0),
+        Layout(32, 1),
+    ),
     "slice_full_rank2": lambda: Layout((4, 8), (1, 4))(None),
     "slice_full_scalar": lambda: Layout(4, 1)(None),
+}
+
+
+PYTHON_POINTWISE_CASES = {
+    "compose_double_swizzle_offsets": lambda: ",".join(
+        str(compose(Swizzle(1, 0, 3), compose(Swizzle(3, 0, 3), Layout((8, 8), (8, 1))))(i))
+        for i in range(size(Layout((8, 8), (8, 1))))
+    ),
+    "compose_outer_layout_swizzled_offsets": lambda: ",".join(
+        str(compose(Layout((4, 4), (4, 1)), compose(Swizzle(3, 0, 3), Layout(16, 1)))(i))
+        for i in range(16)
+    ),
+    "compose_slice_row": lambda: (
+        lambda sliced: f"{sliced[1]}|" + ",".join(str(sliced[0](i)) for i in range(size(sliced[0])))
+    )(
+        slice_and_offset(
+            (2, None),
+            compose(
+                Layout((4, 4), (4, 1)),
+                compose(Swizzle(3, 0, 3), Layout((8, 8), (8, 1))),
+            ),
+        )
+    ),
+    "compose_layout_zero_preoffset_composed_offsets": lambda: ",".join(
+        str(compose(Layout(32, 2), ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), preoffset=0))(i))
+        for i in range(32)
+    ),
+    "compose_layout_nonzero_preoffset_composed_offsets": lambda: ",".join(
+        str(compose(Layout(32, 2), ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), preoffset=4))(i))
+        for i in range(32)
+    ),
+    "compose_recursive_chain_offsets": lambda: ",".join(
+        str(
+            compose(
+                Layout(16, 3),
+                ComposedLayout(Layout(16, 2), compose(Swizzle(2, 0, 2), Layout(16, 1)), preoffset=0),
+            )(i)
+        )
+        for i in range(16)
+    ),
+    "logical_divide_composed_offsets": lambda: ",".join(
+        str(
+            logical_divide(
+                ComposedLayout(
+                    Layout(16, 2),
+                    compose(Swizzle(2, 0, 2), Layout(16, 1)),
+                    preoffset=0,
+                ),
+                4,
+            )(i)
+        )
+        for i in range(
+            size(
+                logical_divide(
+                    ComposedLayout(
+                        Layout(16, 2),
+                        compose(Swizzle(2, 0, 2), Layout(16, 1)),
+                        preoffset=0,
+                    ),
+                    4,
+                )
+            )
+        )
+    ),
+    "logical_product_composed_offsets": lambda: ",".join(
+        str(
+            logical_product(
+                ComposedLayout(
+                    Layout(16, 2),
+                    compose(Swizzle(2, 0, 2), Layout(16, 1)),
+                    preoffset=0,
+                ),
+                Layout(2, 1),
+            )(i)
+        )
+        for i in range(
+            size(
+                logical_product(
+                    ComposedLayout(
+                        Layout(16, 2),
+                        compose(Swizzle(2, 0, 2), Layout(16, 1)),
+                        preoffset=0,
+                    ),
+                    Layout(2, 1),
+                )
+            )
+        )
+    ),
+    "right_inverse_swizzled_composed_offsets": lambda: ",".join(
+        str(right_inverse(ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), preoffset=0))(i))
+        for i in range(size(right_inverse(ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), preoffset=0))))
+    ),
+    "left_inverse_swizzled_composed_offsets": lambda: ",".join(
+        str(left_inverse(ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), preoffset=0))(i))
+        for i in range(size(left_inverse(ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), preoffset=0))))
+    ),
+    "tensor_composed_values": lambda: ",".join(
+        str(Tensor(ComposedLayout(Swizzle(2, 1, 3), Layout(16, 1), preoffset=4), data=list(range(256)))[i])
+        for i in range(16)
+    ),
 }
 
 
@@ -241,3 +451,8 @@ def cute_cpp_oracle() -> dict[str, str]:
 def test_cute_cpp_oracle(case_name, cute_cpp_oracle):
     result = PYTHON_CASES[case_name]()
     assert _normalize_layout_repr(str(result)) == _normalize_layout_repr(cute_cpp_oracle[case_name])
+
+
+@pytest.mark.parametrize("case_name", sorted(PYTHON_POINTWISE_CASES))
+def test_cute_cpp_pointwise_oracle(case_name, cute_cpp_oracle):
+    assert PYTHON_POINTWISE_CASES[case_name]() == cute_cpp_oracle[case_name]

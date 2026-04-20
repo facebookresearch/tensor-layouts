@@ -92,6 +92,40 @@ def _call_draw_hierarchical_grid(ax, layout, **kwargs):
         **kwargs,
     )
 
+
+def _cell_texts_by_pos(ax):
+    """Return in-grid text labels keyed by displayed cell-center position."""
+    return {
+        (round(t.get_position()[0], 1), round(t.get_position()[1], 1)): t.get_text()
+        for t in ax.texts
+        if t.get_position()[0] > 0 and t.get_position()[1] > 0
+    }
+
+
+def _cell_int(ax, x, y):
+    text = _cell_texts_by_pos(ax).get((x, y))
+    assert text is not None, f"missing cell text at {(x, y)}"
+    return int(text)
+
+
+def _base_patch_map(ax):
+    """Return non-highlight grid-cell patches keyed by their lower-left corner."""
+    return {
+        (round(p.get_x(), 1), round(p.get_y(), 1)): p
+        for p in ax.patches
+        if round(p.get_linewidth(), 1) == 1.0
+    }
+
+
+def _highlight_patch_positions(ax):
+    """Return highlighted cell origins for draw_slice-style overlays."""
+    return {
+        (round(p.get_x(), 1), round(p.get_y(), 1))
+        for p in ax.patches
+        if round(p.get_linewidth(), 1) == 2.0
+    }
+
+
 MIXED_VIZ_ATOMS = [
     # Representative cross-section for visualization smoke tests:
     # - NVIDIA: Ampere (SM80), Hopper-era scalar/legacy-style atom (SM90),
@@ -328,6 +362,59 @@ def test_rank3_panel_values_match_layout():
 
 
 @requires_viz
+def test_draw_layout_composed_values_match_layout():
+    composed = compose(
+        Layout(16, 2),
+        compose(Swizzle(2, 0, 2), Layout((4, 4), (4, 1))),
+    )
+    fig = _build_layout_figure(composed)
+    try:
+        ax = fig.axes[0]
+        for i in range(4):
+            for j in range(4):
+                assert _cell_int(ax, j + 0.5, i + 0.5) == composed(i, j)
+    finally:
+        plt.close(fig)
+
+
+@requires_viz
+def test_draw_layout_composed_tensor_uses_tensor_addresses():
+    tensor = Tensor(
+        ComposedLayout(Swizzle(2, 0, 2), Layout((4, 4), (4, 1)), preoffset=4),
+        offset=100,
+    )
+    fig = _build_layout_figure(tensor)
+    try:
+        ax = fig.axes[0]
+        assert ax.get_title() == str(tensor)
+        for i in range(4):
+            for j in range(4):
+                assert _cell_int(ax, j + 0.5, i + 0.5) == tensor(i, j)
+    finally:
+        plt.close(fig)
+
+
+@requires_viz
+def test_rank3_composed_panel_values_match_layout():
+    composed = compose(
+        Layout(16, 2),
+        compose(Swizzle(2, 0, 2), Layout((4, 4), (4, 1))),
+    )
+    divided = flat_divide(composed, Layout(2, 1))
+    assert rank(divided) == 3
+    fig = _build_layout_figure(divided)
+    try:
+        axes_by_title = {ax.get_title(): ax for ax in fig.axes if ax.get_title()}
+        for panel in (0, 3):
+            ax = axes_by_title[f"mode[2]={panel}"]
+            for i in range(2):
+                for j in range(2):
+                    assert _cell_int(ax, j + 0.5, i + 0.5) == divided(i, j, panel)
+    finally:
+        plt.close(fig)
+
+
+@requires_viz
 def test_rank4_layout_renders():
     """Rank-4 layout renders with multiple panels (outer modes flattened)."""
     # tiled_divide produces rank-3 with nested shape in mode 0;
@@ -346,6 +433,53 @@ def test_rank4_layout_renders():
 
 
 @requires_viz
+def test_rank4_composed_panel_values_match_layout():
+    composed = compose(
+        Layout(16, 2),
+        compose(Swizzle(2, 0, 2), Layout((4, 4), (4, 1))),
+    )
+    rank4_layout = flat_product(flat_divide(composed, Layout(2, 1)), Layout(2, 1))
+    assert rank(rank4_layout) == 4
+    fig = _build_layout_figure(rank4_layout)
+    try:
+        axes_by_title = {ax.get_title(): ax for ax in fig.axes if ax.get_title()}
+        assert len(axes_by_title) == 8
+        for outer in ((0, 0), (0, 1)):
+            ax = axes_by_title[f"outer=({outer[0]}, {outer[1]})"]
+            for i in range(2):
+                for j in range(2):
+                    assert _cell_int(ax, j + 0.5, i + 0.5) == rank4_layout(i, j, *outer)
+    finally:
+        plt.close(fig)
+
+
+@requires_viz
+def test_rank3_composed_color_layout_slices_per_panel():
+    composed = compose(
+        Layout(16, 2),
+        compose(Swizzle(2, 0, 2), Layout((4, 4), (4, 1))),
+    )
+    divided = flat_divide(composed, Layout(2, 1))
+    color_layout = Layout(divided.shape, (0, 0, 1))
+    fig = _build_layout_figure(divided, colorize=True, color_layout=color_layout)
+    try:
+        axes_by_title = {ax.get_title(): ax for ax in fig.axes if ax.get_title()}
+        panel0_colors = {
+            patch.get_facecolor()
+            for patch in _base_patch_map(axes_by_title["mode[2]=0"]).values()
+        }
+        panel1_colors = {
+            patch.get_facecolor()
+            for patch in _base_patch_map(axes_by_title["mode[2]=1"]).values()
+        }
+        assert len(panel0_colors) == 1
+        assert len(panel1_colors) == 1
+        assert panel0_colors != panel1_colors
+    finally:
+        plt.close(fig)
+
+
+@requires_viz
 def test_draw_swizzle_smoke():
     with tempfile.NamedTemporaryFile(suffix=".png") as f:
         draw_swizzle(Layout((8, 8), (8, 1)), Swizzle(3, 0, 3), filename=f.name)
@@ -357,6 +491,31 @@ def test_draw_slice_smoke():
     with tempfile.NamedTemporaryFile(suffix=".png") as f:
         draw_slice(Layout((4, 8), (8, 1)), (2, None), filename=f.name)
 
+
+
+@requires_viz
+def test_draw_slice_composed_uses_internal_preoffset_in_title_and_values():
+    composed = compose(
+        Layout(16, 2),
+        compose(Swizzle(2, 0, 2), Layout((4, 4), (4, 1))),
+    )
+    sublayout, offset = slice_and_offset((1, None), composed)
+    assert offset == 0
+
+    fig = _build_slice_figure(composed, (1, None))
+    try:
+        ax = fig.axes[0]
+        assert ax.get_title() == str(sublayout)
+        assert _highlight_patch_positions(ax) == {
+            (0.0, 1.0),
+            (1.0, 1.0),
+            (2.0, 1.0),
+            (3.0, 1.0),
+        }
+        for j in range(4):
+            assert _cell_int(ax, j + 0.5, 1.5) == sublayout(j)
+    finally:
+        plt.close(fig)
 
 
 @pytest.mark.parametrize("atom", MIXED_VIZ_ATOMS, ids=lambda a: a.name)
