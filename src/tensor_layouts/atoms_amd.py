@@ -222,8 +222,32 @@ def make_mfma_atom(
 ) -> MMAAtom:
     """Create an AMD MFMA atom with the given structural parameters.
 
-    Parameters match the mfma_type<> struct fields from the CK source code
-    (xdlops_gemm.hpp).
+    Parameters match the ``mfma_type<>`` struct fields from the CK source
+    code (``xdlops_gemm.hpp``) and split into two groups:
+
+    Identifying / instruction-shape parameters
+        name, inst -- the symbolic atom name and PTX-style instruction.
+        m, n, k    -- the (M, N, K) shape of the underlying ISA tile.
+        group_size -- consecutive output rows held by one lane (4 for the
+                      common variants, 1 for FP64).
+        is_k_reduction -- True when the 64 lanes are split across the K
+                      dimension and the result is a reduction over them.
+
+    Layout-shape parameters (derived from the instruction encoding)
+        num_groups_per_blk  -- row-groups per output block.
+        num_threads_per_blk -- lanes per output block (must equal N).
+        num_input_blks      -- how many blocks the 64 lanes split into
+                               (= 64 / num_threads_per_blk).
+        num_output_blks     -- 1 for k-reduction variants, equals
+                               num_input_blks otherwise.
+        k_per_blk           -- K elements each lane carries in registers.
+        num_v_a, num_v_b    -- per-lane VGPR counts for the A and B
+                               operands (currently informational).
+
+    The structural parameters are constrained by static_asserts in CK; the
+    same constraints are checked here and raise ``ValueError`` on mismatch.
+    See the ``MFMA Register Layout`` preamble at the top of this file for
+    the formulas connecting these parameters to (T, V) layouts.
     """
     wave_size = 64
     num_regs_per_blk = group_size * num_groups_per_blk
