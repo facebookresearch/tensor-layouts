@@ -2794,6 +2794,132 @@ def _normalize_compose_tiler_element(elem):
     raise TypeError(f"Invalid tiler element: {type(elem)}")
 
 
+def _compose_into_composed_lhs(layout_a: "ComposedLayout", layout_b: Any) -> "ComposedLayout":
+    """compose(ComposedLayout(outer, inner, preoffset), B).
+
+    The outer/preoffset are external to the data domain, so composition
+    pushes through to the inner: outer ∘ (inner ∘ B).
+    """
+    return ComposedLayout(
+        layout_a.outer,
+        compose(layout_a.inner, layout_b),
+        preoffset=layout_a.preoffset,
+    )
+
+
+def _compose_swizzle_lhs(swizzle: "Swizzle", layout_b: Any) -> Any:
+    """compose(Swizzle, layout_b): apply the swizzle to layout_b's outputs.
+
+    A bare Swizzle composed with a plain affine Layout collapses to a
+    Layout-with-embedded-swizzle (the common case used to model bank-conflict
+    avoidance).  Identity swizzles drop out entirely.  Anything else stays
+    as a ComposedLayout because the swizzle cannot be folded into one
+    affine map.
+    """
+    if not is_layout(layout_b):
+        raise TypeError(
+            "When composing with Swizzle, second argument must be a layout "
+            f"expression, got {type(layout_b).__name__}"
+        )
+    if swizzle.bits == 0:
+        return layout_b
+    if isinstance(layout_b, Layout) and layout_b.swizzle is None:
+        return Layout(layout_b.shape, layout_b.stride, swizzle=swizzle)
+    return ComposedLayout(swizzle, layout_b)
+
+
+def _compose_swizzled_layout_lhs(layout_a: "Layout", layout_b: Any) -> Any:
+    """compose(Layout-with-swizzle, B).
+
+    Strip the embedded swizzle, recurse on the affine inner, then re-attach
+    the swizzle in the cheapest representation that still composes.
+    """
+    inner_composed = compose(_affine_inner(layout_a), layout_b)
+    if isinstance(inner_composed, Layout) and inner_composed.swizzle is None:
+        return Layout(
+            inner_composed.shape, inner_composed.stride, swizzle=layout_a.swizzle
+        )
+    return ComposedLayout(layout_a.swizzle, inner_composed)
+
+
+def _compose_with_swizzle_rhs(layout_a: "Layout", layout_b: "Swizzle") -> Any:
+    """compose(Layout, Swizzle): push the swizzle through layout_a's image.
+
+    Computes the swizzle masks under layout_a's mapping and composes a
+    fresh Swizzle on the active bits with layout_a.
+
+    Note: this push-through heuristic is not proven sound for every
+    Layout × bare-Swizzle combination -- it works for the cases currently
+    exercised but a general proof is missing.  See COMPOSED_LAYOUTS.md §9
+    for the bare-Swizzle-rhs cases that may need an exact ComposedLayout
+    fallback in the future.
+    """
+    if not isinstance(layout_a, Layout):
+        raise TypeError(
+            "When composing with Swizzle, first argument must be Layout, got "
+            f"{type(layout_a).__name__}"
+        )
+    active_Y = layout_a(layout_b.yyy_msk)
+    active_Z = layout_a(layout_b.zzz_msk)
+    return compose(make_swizzle(active_Y, active_Z), layout_a)
+
+
+def _compose_layout_with_layout(layout_a: "Layout", layout_b: "Layout") -> Any:
+    """compose(Layout, Layout): the affine-with-affine case (the textbook one).
+
+    A right-hand swizzle stays as a ComposedLayout because mixing the
+    swizzle into A would require A to be invertible on the swizzled bits.
+    """
+    if not isinstance(layout_a, Layout):
+        raise TypeError(
+            "When composing with Layout, first argument must be Layout, Swizzle, "
+            f"or ComposedLayout, got {type(layout_a).__name__}"
+        )
+    if layout_b.swizzle is not None:
+        return ComposedLayout(layout_a, layout_b)
+    return _compose_layouts(layout_a, layout_b)
+
+
+def _compose_with_composed_rhs(layout_a: "Layout", layout_b: "ComposedLayout") -> Any:
+    """compose(Layout, ComposedLayout(outer, inner, preoffset)).
+
+    With zero preoffset and an outer that's either a Swizzle or another
+    affine layout, the composition associates: A ∘ (outer ∘ inner) =
+    (A ∘ outer) ∘ inner.  Otherwise we keep the outer ComposedLayout
+    intact because preoffset is base-pointer state that mustn't migrate
+    into the data layout.
+    """
+    if not isinstance(layout_a, Layout):
+        raise TypeError(
+            "When composing with ComposedLayout, first argument must be Layout, "
+            f"Swizzle, or ComposedLayout, got {type(layout_a).__name__}"
+        )
+    if layout_b.preoffset == 0 and (
+        isinstance(layout_b.outer, Swizzle) or is_layout(layout_b.outer)
+    ):
+        return compose(compose(layout_a, layout_b.outer), layout_b.inner)
+    return ComposedLayout(layout_a, layout_b)
+
+
+def _compose_with_tuple_tiler(layout_a: Any, layout_b: tuple) -> Any:
+    """compose(A, (B0, B1, ...)): mode-by-mode composition.
+
+    Each tuple element is normalized into a Tile-friendly Layout (an int
+    becomes Layout(n, 1); a nested tuple stays as a tiler that recurses
+    inside _compose_with_tiler).  When every element is a flat Layout we
+    promote to Tile so it pretty-prints as one.
+    """
+    tiler = tuple(_normalize_compose_tiler_element(e) for e in layout_b)
+    if all(isinstance(e, Layout) for e in tiler):
+        tiler = Tile(*tiler)
+    if len(tiler) > rank(layout_a):
+        raise ValueError(
+            f"Tiler has {len(tiler)} elements but layout has only "
+            f"{rank(layout_a)} modes"
+        )
+    return _compose_with_tiler(layout_a, tiler)
+
+
 def compose(layout_a: Any, layout_b: Any) -> Any:
     """The fundamental operation of CuTe layout algebra: function composition.
 
@@ -2850,90 +2976,36 @@ def compose(layout_a: Any, layout_b: Any) -> Any:
 
         # Swizzle composition (returns Layout with embedded swizzle):
         compose(Swizzle(3, 0, 3), Layout((8, 8), (8, 1))) -> Layout with swizzle
+
+    The implementation is a thin dispatcher: each (lhs, rhs) case lives in
+    its own _compose_<case> helper just above so the algebra reads case by
+    case.  Order matters -- the LHS cases peel off ComposedLayout and
+    Swizzle first so subsequent branches can assume an affine LHS.
     """
-    # Push composition into the inner domain of an already-composed layout.
+    # LHS unwrapping: handle wrapped/swizzled forms before dispatching on rhs.
     if isinstance(layout_a, ComposedLayout):
-        return ComposedLayout(
-            layout_a.outer,
-            compose(layout_a.inner, layout_b),
-            preoffset=layout_a.preoffset,
-        )
-
-    # Swizzle composition
+        return _compose_into_composed_lhs(layout_a, layout_b)
     if isinstance(layout_a, Swizzle):
-        if not is_layout(layout_b):
-            raise TypeError(
-                f"When composing with Swizzle, second argument must be a layout expression, "
-                f"got {type(layout_b).__name__}"
-            )
-        if layout_a.bits == 0:
-            return layout_b
-        if isinstance(layout_b, Layout) and layout_b.swizzle is None:
-            return Layout(layout_b.shape, layout_b.stride, swizzle=layout_a)
-        return ComposedLayout(layout_a, layout_b)
-
+        return _compose_swizzle_lhs(layout_a, layout_b)
     if isinstance(layout_a, Layout) and layout_a.swizzle is not None:
-        inner_composed = compose(_affine_inner(layout_a), layout_b)
-        if isinstance(inner_composed, Layout) and inner_composed.swizzle is None:
-            return Layout(inner_composed.shape, inner_composed.stride, swizzle=layout_a.swizzle)
-        return ComposedLayout(layout_a.swizzle, inner_composed)
+        return _compose_swizzled_layout_lhs(layout_a, layout_b)
 
+    # RHS dispatch: from here, layout_a is a swizzle-free affine Layout.
     if isinstance(layout_b, Swizzle):
-        if not isinstance(layout_a, Layout):
-            raise TypeError(
-                f"When composing with Swizzle, first argument must be Layout, got {type(layout_a).__name__}"
-            )
-        # TODO: This push-through heuristic is not proven sound for all
-        # Layout × bare-Swizzle combinations.  It works for the cases
-        # currently exercised, but a general proof is missing.  Consider
-        # returning ComposedLayout as the exact fallback once bare-Swizzle
-        # as rhs is needed in a broader context (see COMPOSED_LAYOUTS.md §9).
-        active_Y = layout_a(layout_b.yyy_msk)
-        active_Z = layout_a(layout_b.zzz_msk)
-        return compose(make_swizzle(active_Y, active_Z), layout_a)
-
-    # Layout-with-Layout composition
+        return _compose_with_swizzle_rhs(layout_a, layout_b)
     if isinstance(layout_b, Layout):
-        if not isinstance(layout_a, Layout):
-            raise TypeError(
-                f"When composing with Layout, first argument must be Layout, Swizzle, "
-                f"or ComposedLayout, got {type(layout_a).__name__}"
-            )
-        if layout_b.swizzle is not None:
-            return ComposedLayout(layout_a, layout_b)
-        return _compose_layouts(layout_a, layout_b)
-
+        return _compose_layout_with_layout(layout_a, layout_b)
     if isinstance(layout_b, ComposedLayout):
-        if not isinstance(layout_a, Layout):
-            raise TypeError(
-                f"When composing with ComposedLayout, first argument must be Layout, "
-                f"Swizzle, or ComposedLayout, got {type(layout_a).__name__}"
-            )
-        if layout_b.preoffset == 0 and (
-            isinstance(layout_b.outer, Swizzle) or is_layout(layout_b.outer)
-        ):
-            return compose(compose(layout_a, layout_b.outer), layout_b.inner)
-        return ComposedLayout(layout_a, layout_b)
-
-    # Tiler composition (Tile or tuple)
+        return _compose_with_composed_rhs(layout_a, layout_b)
     if isinstance(layout_b, Tile):
         if len(layout_b) > rank(layout_a):
             raise ValueError(
-                f"Tiler has {len(layout_b)} elements but layout has only {rank(layout_a)} modes"
+                f"Tiler has {len(layout_b)} elements but layout has only "
+                f"{rank(layout_a)} modes"
             )
         return _compose_with_tiler(layout_a, layout_b)
-
-    # Tuple tiler - recurse mode-by-mode, preserving nested tuple structure
     if is_tuple(layout_b):
-        tiler = tuple(_normalize_compose_tiler_element(e) for e in layout_b)
-        if all(isinstance(e, Layout) for e in tiler):
-            tiler = Tile(*tiler)
-
-        if len(tiler) > rank(layout_a):
-            raise ValueError(
-                f"Tiler has {len(tiler)} elements but layout has only {rank(layout_a)} modes"
-            )
-        return _compose_with_tiler(layout_a, tiler)
+        return _compose_with_tuple_tiler(layout_a, layout_b)
 
     raise TypeError(f"Invalid tiler type: {type(layout_b)}")
 
