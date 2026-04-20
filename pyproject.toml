@@ -49,6 +49,10 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# Test files are named after the source module they cover (e.g. tests/layouts.py
+# mirrors src/tensor_layouts/layouts.py), so we match every .py file in tests/.
+# Anything added under tests/ must be either a test module or pytest-recognized
+# infrastructure (conftest.py); helper modules belong elsewhere.
 python_files = ["*.py"]
 
 [tool.ruff]
