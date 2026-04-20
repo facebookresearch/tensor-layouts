@@ -675,11 +675,20 @@ def segment_analysis(layout: LayoutExpr, *, element_bytes: int,
 
 
 def _tv_dimensions(layout: LayoutExpr):
-    """Extract (thread_count, value_count) from a layout.
+    """Extract (thread_count, value_count) from a Thread-Value layout.
 
-    For rank-1 (scalar shape) layouts: thread_count = size, value_count = 1.
-    For rank>1 (TV) layouts: thread_count = size(mode 0), value_count =
-    product of remaining modes.
+    GPU access patterns are described by **TV layouts**: mode 0 is the
+    thread axis (one coordinate per lane in a warp/wavefront), and the
+    remaining modes form the per-thread value axis (which elements each
+    lane touches).  Evaluated at coordinate ``(t, v)``, a TV layout
+    returns the offset that thread ``t`` reads or writes for its
+    ``v``-th value, which is exactly what we need to model coalescing,
+    bank conflicts, and image footprints.
+
+    For rank-1 (scalar shape) layouts there is no separate value axis:
+    ``thread_count = size``, ``value_count = 1``.  For higher-rank
+    layouts ``thread_count = size(mode 0)`` and ``value_count`` is the
+    product of all remaining modes.
     """
     if is_int(layout.shape):
         return size(layout), 1
