@@ -3825,6 +3825,21 @@ class Swizzle:
             return idx ^ ((idx & mask) << (-self.shift))
 
 
+def _popcount(x: int) -> int:
+    """Number of set bits in ``x`` (matches C++ ``std::popcount``)."""
+    return bin(x).count("1")
+
+
+def _countr_zero(x: int) -> int:
+    """Number of trailing zero bits in ``x`` (matches C++ ``std::countr_zero``).
+
+    Uses the standard ``x & -x`` trick: two's-complement negation isolates
+    the lowest set bit, and ``bit_length() - 1`` reads off its position.
+    Caller must guarantee ``x != 0``.
+    """
+    return (x & -x).bit_length() - 1
+
+
 def make_swizzle(Y: int, Z: int):
     """Create a Swizzle from Y and Z bit positions.
 
@@ -3840,16 +3855,16 @@ def make_swizzle(Y: int, Z: int):
     Returns:
         A Swizzle, or None if both masks are zero (identity).
     """
-    num_bits = bin(Y).count("1")
-    if num_bits != bin(Z).count("1"):
+    num_bits = _popcount(Y)
+    if num_bits != _popcount(Z):
         raise ValueError(
             f"make_swizzle: bit count mismatch: popcount({Y:#b})={num_bits} "
-            f"vs popcount({Z:#b})={bin(Z).count('1')}"
+            f"vs popcount({Z:#b})={_popcount(Z)}"
         )
     if num_bits == 0:
         return None  # Identity swizzle
-    tz_y = (Y & -Y).bit_length() - 1  # countr_zero(Y)
-    tz_z = (Z & -Z).bit_length() - 1  # countr_zero(Z)
+    tz_y = _countr_zero(Y)
+    tz_z = _countr_zero(Z)
     base = min(tz_y, tz_z)
     shift = tz_y - tz_z
     return Swizzle(num_bits, base, shift)
