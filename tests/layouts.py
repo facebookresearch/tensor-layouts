@@ -296,6 +296,20 @@ def test_layout_type_validation():
     Layout([4, 2])  # lists are fine
 
 
+def test_layout_rejects_negative_shape_extents():
+    """Shapes must have nonnegative extents; negative strides remain valid."""
+    with pytest.raises(ValueError, match="nonnegative"):
+        Layout(-1)
+    with pytest.raises(ValueError, match="nonnegative"):
+        Layout((-2, 3))
+    with pytest.raises(ValueError, match="nonnegative"):
+        Layout((2, (-3, 4)))
+
+    Layout(0)
+    Layout((0, 3), (1, 0))
+    Layout((2, 3), (-1, 2))
+
+
 def test_layout_rank_size_cosize():
     # Single-mode layout is rank 1 (one mode), not rank 0
     L_vec = Layout(31, 1)
