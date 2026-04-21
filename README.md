@@ -11,12 +11,20 @@ A pure-Python implementation of the [NVIDIA CuTe](https://github.com/NVIDIA/cutl
 CuTe layouts describe how logical coordinates map to memory offsets on GPUs.
 This library lets you construct, compose, and visualize those layouts using
 plain Python — useful for understanding tensor core access patterns, debugging
-swizzled shared memory, and prototyping tiled GPU kernels without compiling any CUDA.
-The code in src/layouts.py is intended to be readable and helpful to learn and
-understand layout algebra.
+swizzled shared memory, and prototyping tiled GPU kernels without compiling any
+CUDA. The code in `src/tensor_layouts/layouts.py` is intentionally written to
+be readable and pedagogical for people learning layout algebra.
 The visualization layer is also designed to be pedagogical: for example,
 hierarchical layout views can explicitly show nested row/column coordinates and
 the resulting offset for each displayed cell.
+
+## Project Status
+
+The core implementation is already in very good shape: the layout algebra,
+tensor semantics, analysis helpers, and visualization surface are correct,
+usable, and mature. Most of the remaining work is in documentation, examples,
+packaging, and repository polish rather than in redesigning the underlying
+model.
 
 ## Installation
 
@@ -72,7 +80,11 @@ Plus `Swizzle(B, M, S)` for XOR-based bank conflict avoidance patterns.
 
 ## MMA Atoms
 
-The library includes tensor core atom definitions for NVIDIA and AMD architectures.
+The library includes matrix-multiply atom definitions for NVIDIA, AMD, Intel Xe,
+and Intel AMX targets. The Intel mappings were derived from public Intel ISA
+documentation; the Xe DPAS layouts were derived primarily from Intel's public
+DPAS/VISA instruction documentation and cross-checked against the CUTLASS
+experimental Xe backend.
 
 ### NVIDIA Atoms
 
@@ -102,6 +114,34 @@ print(atom.c_layout)    # Thread-value layout for C accumulator
 
 Supported architectures: CDNA1 (gfx908 / MI100), CDNA2 (gfx90a / MI200),
 CDNA3 (gfx942 / MI300), CDNA3+ (gfx950).
+
+### Intel Xe DPAS Atoms
+
+```python
+from tensor_layouts.atoms_xe import *
+
+atom = XeHPC_8x8x8_F32F16F16_DPAS
+print(atom.name)        # XeHPC_8x8x8_F32F16F16_DPAS
+print(atom.shape_mnk)   # (8, 8, 8)
+print(atom.c_layout)    # Thread-value layout for C accumulator
+```
+
+Supported targets: Xe-HPC (Ponte Vecchio / Data Center Max) and
+Xe-HPG (Arc / DG2) subgroup DPAS instructions.
+
+### Intel AMX Atoms
+
+```python
+from tensor_layouts.atoms_amx import *
+
+atom = AMX_16x16x32_F32BF16BF16F32
+print(atom.name)        # AMX_16x16x32_F32BF16BF16F32
+print(atom.shape_mnk)   # (16, 16, 32)
+print(atom.c_layout)    # Thread-value layout for C accumulator
+```
+
+Supported targets: Intel AMX tile matrix-multiply instructions
+(`tdpbf16ps`, `tdpfp16ps`, `tdpbssd`, `tdpbsud`, `tdpbusd`, `tdpbuud`).
 
 ## Visualization
 
@@ -180,11 +220,17 @@ pytest tests/oracle_amd.py
 
 ## References
 
+- [CuTe Layout Representation and Algebra — Cris Cecka](https://arxiv.org/abs/2603.02298)
+- [Categorical Foundations for CuTe Layouts — Jack Carlisle, Jay Shah, Reuben Stern, Paul VanKoughnett](https://arxiv.org/abs/2601.05972)
 - [CuTe Documentation](https://github.com/NVIDIA/cutlass/blob/main/media/docs/cute/00_quickstart.md)
-- [MMA Atom Documentation](https://github.com/NVIDIA/cutlass/blob/main/media/docs/cute/0t_mma_atom.md)
-- [NVIDIA CUTLASS](https://github.com/NVIDIA/cutlass)
+- [NVIDIA PTX ISA](https://docs.nvidia.com/cuda/parallel-thread-execution/)
+- [NVIDIA Cutlass](https://github.com/NVIDIA/cutlass)
+- [Cutlass MMA Atoms](https://github.com/NVIDIA/cutlass/blob/main/media/docs/cute/0t_mma_atom.md)
 - [AMD Matrix Instruction Calculator](https://github.com/ROCm/amd_matrix_instruction_calculator)
 - [AMD Matrix Cores Lab Notes](https://gpuopen.com/learn/amd-lab-notes/amd-lab-notes-matrix-cores-readme/)
+- [Intel DPAS / VISA instruction specification](https://github.com/intel/intel-graphics-compiler/blob/master/documentation/visa/instructions/DPAS.md)
+- [Intel Architecture Instruction Set Extensions Programming Reference (AMX)](https://www.intel.com/content/dam/develop/external/us/en/documents/architecture-instruction-set-extensions-programming-reference)
+- [Intel 64 and IA-32 Architectures Software Developer's Manual, Volume 2A](https://www.intel.com/content/dam/www/public/us/en/documents/manuals/64-ia-32-architectures-software-developer-vol-2a-manual.pdf)
 
 ## License
 
