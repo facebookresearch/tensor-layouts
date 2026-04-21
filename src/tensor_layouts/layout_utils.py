@@ -35,6 +35,26 @@ def round_up(a: int, b: int) -> int:
     return ((a + b - 1) // b) * b
 
 
+def _validate_order_permutation(order, rank: int, *, func_name: str) -> tuple:
+    """Validate that order is a full permutation of range(rank)."""
+    if order is None:
+        return tuple(range(rank))
+
+    try:
+        order = tuple(order)
+    except TypeError as exc:
+        raise ValueError(
+            f"{func_name}: order must be a permutation of {tuple(range(rank))}, got {order!r}"
+        ) from exc
+
+    expected = tuple(range(rank))
+    if len(order) != rank or tuple(sorted(order)) != expected:
+        raise ValueError(
+            f"{func_name}: order must be a permutation of {expected}, got {order}"
+        )
+    return order
+
+
 def make_ordered_layout(shape, order: tuple = None) -> Layout:
     """Create a layout with modes ordered by the given permutation.
 
@@ -57,13 +77,12 @@ def make_ordered_layout(shape, order: tuple = None) -> Layout:
         make_ordered_layout((2, 3, 4), (2, 0, 1))  # mode 2 fastest, then 0, then 1
     """
     if is_int(shape):
+        _validate_order_permutation(order, 1, func_name="make_ordered_layout")
         return Layout(shape, 1)
 
     shape_tuple = as_tuple(shape)
     n = len(shape_tuple)
-
-    if order is None:
-        order = tuple(range(n))
+    order = _validate_order_permutation(order, n, func_name="make_ordered_layout")
 
     strides = [0] * n
     current_stride = 1
@@ -100,11 +119,13 @@ def tile_to_shape(layout: Layout, target_shape, order: tuple = None) -> Layout:
             -> blocked_product of (4,8):(1,4) with (4,4):(1,4)
             -> replicates the 4x8 block to cover 16x32
     """
-    if is_int(target_shape):
-        target_shape = (target_shape,)
-    target_shape = as_tuple(target_shape)
-
+    target_shape = product_each(normalize(target_shape))
     block_shape = product_each(layout.shape)
+    if len(target_shape) != len(block_shape):
+        raise ValueError(
+            "tile_to_shape: target_shape must have the same number of top-level modes as "
+            f"layout.shape; got {len(target_shape)} target modes for block shape {block_shape}"
+        )
 
     product_shape = tuple(
         (t + b - 1) // b for t, b in zip(target_shape, block_shape)
@@ -140,27 +161,20 @@ def make_layout_like(layout: Layout, tiler) -> Layout:
         flat_strides_list = [flat_layout.stride]
     else:
         flat_strides_list = list(flat_layout.stride)
+    tiler_flat_rank = len(flatten(tiler_shape))
+    if tiler_flat_rank > len(flat_strides_list):
+        raise ValueError(
+            "make_layout_like: tiler requires more flat modes than layout provides; "
+            f"tiler has {tiler_flat_rank} flat modes but layout has {len(flat_strides_list)}"
+        )
 
-    def get_strides_for_shape(shape, offset=0):
-        """Recursively get strides for a shape from the flattened layout."""
-        if isinstance(shape, int):
-            if offset < len(flat_strides_list):
-                return flat_strides_list[offset]
-            return 0
+    stride_iter = iter(flat_strides_list)
 
-        result = []
-        current_offset = offset
-        for s in shape:
-            if is_tuple(s):
-                result.append(get_strides_for_shape(s, current_offset))
-                current_offset += rank(flatten(s))
-            else:
-                if current_offset < len(flat_strides_list):
-                    result.append(flat_strides_list[current_offset])
-                else:
-                    result.append(0)
-                current_offset += 1
-        return tuple(result)
+    def get_strides_for_shape(shape):
+        """Recursively take the matching prefix strides for the requested shape."""
+        if is_int(shape):
+            return next(stride_iter)
+        return tuple(get_strides_for_shape(s) for s in shape)
 
     result_strides = get_strides_for_shape(tiler_shape)
     return Layout(tiler_shape, result_strides)

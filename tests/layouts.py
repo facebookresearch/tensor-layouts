@@ -1818,6 +1818,18 @@ def test_make_layout_like_int_tiler():
     assert result.stride == 1
 
 
+def test_make_layout_like_rejects_incompatible_tiler_shape():
+    layout = Layout((4, 8), (1, 4))
+    with pytest.raises(ValueError, match="more flat modes"):
+        make_layout_like(layout, (2, 2, 2))
+
+
+def test_make_layout_like_rejects_incompatible_nested_tiler_shape():
+    layout = Layout((2, 3), (1, 2))
+    with pytest.raises(ValueError, match="more flat modes"):
+        make_layout_like(layout, ((2, 2), 2))
+
+
 ## tile_to_shape
 
 
@@ -1881,6 +1893,13 @@ def test_tile_to_shape_nested_block():
 
     # product_each flattens: (4, 3), need (2, 3) replication
     assert size(result) == 8 * 9
+
+
+@pytest.mark.parametrize("target_shape", [12, (4, 6, 8)])
+def test_tile_to_shape_rejects_target_rank_mismatch(target_shape):
+    block = Layout((2, 3), (1, 2))
+    with pytest.raises(ValueError, match="same number of top-level modes"):
+        tile_to_shape(block, target_shape)
 
 
 ## is_layout
@@ -1998,6 +2017,17 @@ def test_make_ordered_layout_scalar():
     result = make_ordered_layout(16)
     assert result.shape == 16
     assert result.stride == 1
+
+
+@pytest.mark.parametrize("order", [(0,), (0, 0), (0, 2), (-1, 0)])
+def test_make_ordered_layout_rejects_invalid_order(order):
+    with pytest.raises(ValueError, match="permutation"):
+        make_ordered_layout((4, 8), order)
+
+
+def test_make_ordered_layout_scalar_rejects_invalid_order():
+    with pytest.raises(ValueError, match="permutation"):
+        make_ordered_layout(16, (1,))
 
 
 ## dice_modes
