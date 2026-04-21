@@ -460,6 +460,16 @@ def _validate_shape_type(x, name: str) -> None:
     raise TypeError(f"Layout {name} must be int or tuple of ints, got {type(x).__name__}")
 
 
+def _validate_nonnegative_shape(shape: Any) -> None:
+    """Validate that every shape extent is nonnegative."""
+    if is_int(shape):
+        if shape < 0:
+            raise ValueError(f"Layout shape must contain only nonnegative extents, got {shape}")
+        return
+    for elem in shape:
+        _validate_nonnegative_shape(elem)
+
+
 def _fmt_shape(x):
     """Format a shape/stride without Python's trailing-comma for 1-tuples.
 
@@ -527,6 +537,7 @@ class Layout:
             shape = args[0]
             _validate_shape_type(shape, "shape")
             self._shape = normalize(shape)
+            _validate_nonnegative_shape(self._shape)
             self._stride = compute_col_major_strides(self._shape)
 
         elif len(args) == 2:
@@ -534,6 +545,7 @@ class Layout:
             _validate_shape_type(shape, "shape")
             _validate_shape_type(stride, "stride")
             self._shape = normalize(shape)
+            _validate_nonnegative_shape(self._shape)
             self._stride = normalize(stride)
 
         else:

@@ -74,6 +74,14 @@ Layout(8, 2)              # 1D: 8 elements with stride 2
 Layout((4, 8), (0, 1))   # broadcast: all rows map to same offsets
 ```
 
+Shape extents must be nonnegative. `0` is allowed, but negative shapes such as
+`Layout(-1)` or `Layout((-2, 3))` raise `ValueError`. Strides remain
+independent of that rule and may still be negative:
+
+```python
+Layout((4, 8), (8, -1))   # valid
+```
+
 ## Coordinate Mapping
 
 Call a layout to map coordinates to offsets:
