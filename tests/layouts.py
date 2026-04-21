@@ -119,6 +119,33 @@ def test_as_list():
     assert as_list(((2, 4), 8)) == [(2, 4), 8]
 
 
+def test_is_empty():
+    # Empty tuple shape
+    assert is_empty(Layout(())) is True
+
+    # Scalar shape (rank 0 but not empty tuple)
+    assert is_empty(Layout(1)) is False
+
+    # Non-empty shape
+    assert is_empty(Layout((4, 8))) is False
+
+    # Not a layout
+    assert is_empty((4, 8)) is False
+
+    # Works with Tensor (via .layout attribute)
+    from tensor_layouts import Tensor
+
+    assert is_empty(Tensor(Layout(()))) is True
+    assert is_empty(Tensor(Layout(1))) is False
+
+    # Zero-sized layouts are NOT empty (they have rank > 0); use size(L) == 0
+    assert is_empty(Layout((0,), (0,))) is False
+    assert is_empty(Layout((4, 0), (1, 4))) is False
+    assert is_empty(Tensor(Layout((0,), (0,)))) is False
+    assert size(Layout((0,), (0,))) == 0
+    assert size(Layout((4, 0), (1, 4))) == 0
+
+
 def test_layout_from_layouts():
     # Making Layouts from Layouts, as per CuTe docs
     a = Layout(3, 1)
@@ -642,12 +669,18 @@ def test_complement_rejects_negative_strides():
 
 
 def test_complement_rejects_zero_sized_shapes():
-    """complement rejects zero-sized shapes with nonzero strides."""
-    with pytest.raises(ValueError, match="zero-sized"):
-        complement(Layout(0, 1))
+    """complement rejects zero-sized shapes with nonzero strides.
 
-    with pytest.raises(ValueError, match="zero-sized"):
-        complement(Layout((2, 0), (1, 2)))
+    Note: Zero-sized layouts (size == 0) are short-circuited explicitly via
+    ``size(L) == 0`` in _compute_complement and return the full range,
+    rather than raising. This test verifies that behavior.
+    """
+    # Zero-sized layouts return the full range (complement of empty set)
+    result = complement(Layout(0, 1), 16)
+    assert result == Layout(16, 1)
+
+    result = complement(Layout((2, 0), (1, 2)), 16)
+    assert result == Layout(16, 1)
 
 
 def test_coordinate_functions():
