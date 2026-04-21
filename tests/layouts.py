@@ -1659,6 +1659,18 @@ def test_swizzle_eq():
     assert sw1 != "not a swizzle"
 
 
+@pytest.mark.parametrize(
+    ("mask_y", "mask_z"),
+    [
+        (0b1100, 0b1001),  # discontiguous / non-canonical under CuTe make_swizzle
+        (0b0110, 0b0011),  # overlapping masks would require abs(shift) < bits
+    ],
+)
+def test_make_swizzle_rejects_noncanonical_masks(mask_y, mask_z):
+    with pytest.raises(ValueError, match="make_swizzle"):
+        make_swizzle(mask_y, mask_z)
+
+
 ## Swizzled Layout __eq__ and __hash__
 
 
@@ -2190,6 +2202,20 @@ def test_max_common_identical_swizzles_match_across_representations():
             for i in range(size(common)):
                 assert lhs(common(i)) == i
                 assert rhs(common(i)) == i
+
+
+def test_max_common_reverse_swizzle_exact_form_matches_plain_layout():
+    plain = Layout((4, 4), (4, 1))
+    reverse = compose(plain, Swizzle(2, 1, 3))
+
+    assert isinstance(reverse, ComposedLayout)
+    assert max_common_vector(reverse, plain) == size(plain)
+
+    common = max_common_layout(reverse, plain)
+    assert size(common) == size(plain)
+    for i in range(size(common)):
+        assert reverse(common(i)) == i
+        assert plain(common(i)) == i
 
 
 ## flat_product

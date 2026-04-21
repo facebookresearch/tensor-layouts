@@ -1958,8 +1958,8 @@ def nullspace(layout: Layout) -> Layout:
     return Layout(as_shape(zero_shapes), as_shape(zero_strides))
 
 
-def max_common_layout(layout_a: LayoutExpr, layout_b: LayoutExpr) -> Layout:
-    """Return a layout pointing to the maximum contiguous elements common to both.
+def max_common_layout(layout_a: LayoutExpr, layout_b: LayoutExpr) -> LayoutExpr:
+    """Return a layout expression for the maximum contiguous elements common to both.
 
     Two layouts "logically correspond" when indexing through one produces the
     same offsets as indexing through the other. max_common_layout finds the
@@ -1974,7 +1974,8 @@ def max_common_layout(layout_a: LayoutExpr, layout_b: LayoutExpr) -> Layout:
         layout_b: Second layout
 
     Returns:
-        A layout R such that a(R(i)) == i and b(R(i)) == i for all i < size(R)
+        A layout expression R such that a(R(i)) == i and b(R(i)) == i for all
+        i < size(R). Non-affine cases may return an exact ComposedLayout.
 
     Examples:
         max_common_layout(Layout(8, 1), Layout(8, 1))       -> 8:1
@@ -1988,6 +1989,18 @@ def max_common_layout(layout_a: LayoutExpr, layout_b: LayoutExpr) -> Layout:
         vec = max_common_vector(layout_a, layout_b)
         inv_b = right_inverse(layout_b)
         return coalesce(compose(inv_b, Layout(vec, 1)))
+
+    if isinstance(layout_a, ComposedLayout) or isinstance(layout_b, ComposedLayout):
+        inv_b = right_inverse(layout_b)
+        common_size = 0
+        for i in range(size(inv_b)):
+            coord = inv_b(i)
+            if layout_a(coord) != i or layout_b(coord) != i:
+                break
+            common_size += 1
+        if common_size == 0:
+            return Layout(0, 1)
+        return coalesce(compose(inv_b, Layout(common_size, 1)))
 
     layout_a = as_affine_layout(layout_a)
     layout_b = as_affine_layout(layout_b)
@@ -2024,7 +2037,7 @@ def max_common_vector(layout_a: LayoutExpr, layout_b: LayoutExpr) -> int:
         layout_b: Second layout
 
     Returns:
-        An integer N >= 1 such that for all 0 <= i < N, both layouts map
+        An integer N >= 0 such that for all 0 <= i < N, both layouts map
         element i to offset i.
 
     Examples:
@@ -2892,16 +2905,12 @@ def _compose_swizzled_layout_lhs(layout_a: "Layout", layout_b: Any) -> Any:
 
 
 def _compose_with_swizzle_rhs(layout_a: "Layout", layout_b: "Swizzle") -> Any:
-    """compose(Layout, Swizzle): push the swizzle through layout_a's image.
+    """compose(Layout, Swizzle): push through when representable, else stay exact.
 
-    Computes the swizzle masks under layout_a's mapping and composes a
-    fresh Swizzle on the active bits with layout_a.
-
-    Note: this push-through heuristic is not proven sound for every
-    Layout × bare-Swizzle combination -- it works for the cases currently
-    exercised but a general proof is missing.  See COMPOSED_LAYOUTS.md §9
-    for the bare-Swizzle-rhs cases that may need an exact ComposedLayout
-    fallback in the future.
+    Computes the swizzle masks under layout_a's mapping and keeps the old
+    push-through fast path only when those active masks still define a valid
+    CuTe swizzle. Otherwise we preserve exact semantics by swizzling the
+    identity layout over layout_a's domain and composing layout_a outside it.
     """
     if not isinstance(layout_a, Layout):
         raise TypeError(
@@ -2910,7 +2919,13 @@ def _compose_with_swizzle_rhs(layout_a: "Layout", layout_b: "Swizzle") -> Any:
         )
     active_Y = layout_a(layout_b.yyy_msk)
     active_Z = layout_a(layout_b.zzz_msk)
-    return compose(make_swizzle(active_Y, active_Z), layout_a)
+    try:
+        active_swizzle = make_swizzle(active_Y, active_Z)
+    except ValueError:
+        return ComposedLayout(layout_a, compose(layout_b, Layout(layout_a.shape)))
+    if active_swizzle is None:
+        return layout_a
+    return compose(active_swizzle, layout_a)
 
 
 def _compose_layout_with_layout(layout_a: "Layout", layout_b: "Layout") -> Any:
@@ -3985,4 +4000,14 @@ def make_swizzle(Y: int, Z: int):
     tz_z = _countr_zero(Z)
     base = min(tz_y, tz_z)
     shift = tz_y - tz_z
-    return Swizzle(num_bits, base, shift)
+    if abs(shift) < num_bits:
+        raise ValueError(
+            f"make_swizzle: masks overlap for popcount {num_bits}: Y={Y:#b}, Z={Z:#b}"
+        )
+    swizzle = Swizzle(num_bits, base, shift)
+    if (Y | Z) != (swizzle.yyy_msk | swizzle.zzz_msk):
+        raise ValueError(
+            "make_swizzle: masks are not a canonical CuTe swizzle: "
+            f"Y={Y:#b}, Z={Z:#b}, candidate={swizzle!r}"
+        )
+    return swizzle

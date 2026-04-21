@@ -1312,6 +1312,31 @@ def test_oracle_swizzle_composed():
             )
 
 
+def test_oracle_layout_composed_with_swizzle_rhs_exact():
+    """Cross-validate compose(Layout, Swizzle) against pycute's exact ComposedLayout form."""
+    cases = [
+        ((4, 4), (4, 1), (2, 1, 3)),
+        (16, 3, (2, 0, 2)),
+    ]
+
+    for shape, stride, (bits, base, shift) in cases:
+        ours_layout = our_layout(shape, stride)
+        ours_swizzle = Swizzle(bits, base, shift)
+        ours_result = compose(ours_layout, ours_swizzle)
+
+        ref_layout = pycute_layout(shape, stride)
+        ref_swizzle = pycute.Swizzle(bits, base, shift)
+        ref_result = pycute.ComposedLayout(ref_layout, 0, ref_swizzle)
+
+        for i in range(size(ours_result)):
+            ours_val = ours_result(i)
+            ref_val = ref_result(i)
+            assert ours_val == ref_val, (
+                f"compose(Layout({shape},{stride}), Swizzle({bits},{base},{shift}))({i}): "
+                f"ours={ours_val} vs pycute={ref_val}"
+            )
+
+
 ###############################################################################
 ## Exhaustive property tests for filter, blocked_product, flat_divide
 ###############################################################################
