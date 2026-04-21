@@ -55,7 +55,7 @@ def example_fast_path() -> None:
     print("swizzled :", swizzled)
     print("type     :", type(swizzled).__name__)
     print("is_layout:", is_layout(swizzled))
-    print("affine   :", is_affine_layout(swizzled))
+    print("affine   :", is_affine(swizzled))
 
     assert isinstance(swizzled, Layout)
     assert swizzled.swizzle == Swizzle(2, 0, 2)

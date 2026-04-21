@@ -79,7 +79,7 @@ __all__ = [
     "is_scalar",
     "is_iterable",
     "is_layout",
-    "is_affine_layout",
+    "is_affine",
     "is_pure_shape",
     "has_none",
     # Shape conversions
@@ -248,9 +248,21 @@ def is_layout(x) -> bool:
     return isinstance(x, (Layout, ComposedLayout))
 
 
-def is_affine_layout(x) -> bool:
-    """Check if x is an affine Layout with shape/stride access."""
-    return isinstance(x, Layout)
+def is_affine(obj) -> bool:
+    """Return True if obj is (or contains) an affine ``Layout`` node.
+
+    This is a *structural* check: a ``ComposedLayout`` that happens to be
+    mathematically affine (e.g. a swizzle-free composition that could
+    coalesce to a flat ``Layout``) still returns False, because we have no
+    machinery to attempt that normalization. Callers that have an arbitrary
+    ``LayoutExpr`` and need direct ``.shape``/``.stride`` access should pair
+    this with ``as_affine_layout()`` (which raises on ``ComposedLayout``).
+
+    Works with both ``Layout``/``ComposedLayout`` and any object exposing a
+    ``.layout`` attribute (e.g. ``Tensor``).
+    """
+    layout = obj.layout if hasattr(obj, "layout") and not is_layout(obj) else obj
+    return isinstance(layout, Layout)
 
 
 def is_pure_shape(t) -> bool:

@@ -1287,7 +1287,7 @@ def _explain_logical_divide(fn, args):
     lines = [f'logical_divide({L}, {T})']
     actual = logical_divide(L, T)
 
-    if is_affine_layout(T):
+    if is_affine(T):
         lines.append('  = compose(L, Layout(T, complement(T, shape(coalesce(L)))))')
         lines.append('')
         lines.append(f'  L = {L}')
@@ -1317,7 +1317,7 @@ def _explain_logical_product(fn, args):
         B = Layout(B)
     lines = [f'logical_product({A}, {B})']
 
-    if is_affine_layout(B):
+    if is_affine(B):
         lines.append('  = Layout(A, compose(complement(A, size(A)*cosize(B)), B))')
         lines.append('')
         lines.append(f'  A = {A}')

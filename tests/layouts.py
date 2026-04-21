@@ -1831,8 +1831,12 @@ def test_is_layout():
     assert is_layout(Layout(4, 1)) is True
     assert is_layout(Layout((2, 3), (1, 2))) is True
     assert is_layout(ComposedLayout(Layout(4, 1), Layout(4, 1))) is True
-    assert is_affine_layout(Layout(4, 1)) is True
-    assert is_affine_layout(ComposedLayout(Layout(4, 1), Layout(4, 1))) is False
+    assert is_affine(Layout(4, 1)) is True
+    assert is_affine(ComposedLayout(Layout(4, 1), Layout(4, 1))) is False
+    # Dispatches through .layout (Tensor)
+    from tensor_layouts import Tensor
+    assert is_affine(Tensor(Layout(4, 1))) is True
+    assert is_affine(Tensor(ComposedLayout(Layout(4, 1), Layout(4, 1)))) is False
     assert is_layout(4) is False
     assert is_layout((4, 2)) is False
     assert is_layout(4) is False

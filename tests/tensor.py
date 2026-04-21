@@ -37,8 +37,18 @@ The key invariant: tensor[fixed_coords, :](remaining_coords) == tensor(all_coord
 import pytest
 
 from tensor_layouts import (
-    Layout, Swizzle, compose, complement, logical_divide, logical_product,
-    rank, size, cosize, mode, flatten, coalesce
+    Layout,
+    Swizzle,
+    compose,
+    complement,
+    logical_divide,
+    logical_product,
+    rank,
+    size,
+    cosize,
+    mode,
+    flatten,
+    coalesce,
 )
 from tensor_layouts import Tensor
 
@@ -46,6 +56,7 @@ from tensor_layouts import Tensor
 # ============================================================================
 # Tensor construction and properties (adapted from CuTe make_tensor patterns)
 # ============================================================================
+
 
 def test_rank2_column_major():
     """Column-major 4x8 matrix - most common pattern."""
@@ -59,6 +70,7 @@ def test_rank2_column_major():
     assert rank(tensor.layout) == 2
     assert size(tensor.layout) == 32
 
+
 def test_rank2_row_major():
     """Row-major 4x8 matrix."""
     layout = Layout((4, 8), (8, 1))
@@ -71,6 +83,7 @@ def test_rank2_row_major():
     assert tensor(0, 1) == 1
     assert tensor(1, 0) == 8
 
+
 def test_rank1_contiguous():
     """Simple 1D contiguous layout."""
     layout = Layout(32, 1)
@@ -82,6 +95,7 @@ def test_rank1_contiguous():
     for i in range(32):
         assert tensor(i) == i
 
+
 def test_rank1_strided():
     """1D layout with stride > 1 (e.g., every other element)."""
     layout = Layout(16, 2)
@@ -89,6 +103,7 @@ def test_rank1_strided():
 
     for i in range(16):
         assert tensor(i) == 2 * i
+
 
 def test_rank3_tensor():
     """3D tensor like batch x height x width."""
@@ -104,6 +119,7 @@ def test_rank3_tensor():
     assert tensor(0, 0, 1) == 1
     assert tensor(1, 2, 3) == 32 + 16 + 3
 
+
 def test_with_offset():
     """Tensor with non-zero base offset (pointer arithmetic)."""
     layout = Layout((4, 8), (1, 4))
@@ -114,7 +130,8 @@ def test_with_offset():
     assert tensor(0, 0) == 100
     assert tensor(1, 0) == 101
     assert tensor(0, 1) == 104
-    assert tensor(3, 7) == 100 + 3 + 7*4
+    assert tensor(3, 7) == 100 + 3 + 7 * 4
+
 
 def test_hierarchical_shape():
     """Nested/hierarchical shape - key CuTe feature."""
@@ -134,6 +151,7 @@ def test_hierarchical_shape():
 # Tensor Equality
 # ============================================================================
 
+
 def test_equal_tensors():
     layout = Layout((4, 8), (1, 4))
     t1 = Tensor(layout)
@@ -142,6 +160,7 @@ def test_equal_tensors():
     assert t1 == t2
     assert hash(t1) == hash(t2)
 
+
 def test_different_offset():
     layout = Layout((4, 8), (1, 4))
     t1 = Tensor(layout)
@@ -149,11 +168,13 @@ def test_different_offset():
 
     assert t1 != t2
 
+
 def test_different_layout():
     t1 = Tensor(Layout((4, 8), (1, 4)))
     t2 = Tensor(Layout((4, 8), (8, 1)))
 
     assert t1 != t2
+
 
 def test_repr_no_offset():
     tensor = Tensor(Layout((4, 8), (1, 4)))
@@ -161,15 +182,39 @@ def test_repr_no_offset():
     assert "Tensor" in r
     assert "offset" not in r
 
+
 def test_repr_with_offset():
     tensor = Tensor(Layout((4, 8), (1, 4)), offset=42)
     r = repr(tensor)
     assert "offset=42" in r
 
 
+def test_is_affine():
+    from tensor_layouts import ComposedLayout, Swizzle, is_affine
+
+    # Affine layout
+    t1 = Tensor(Layout((4, 8), (1, 4)))
+    assert is_affine(t1) is True
+
+    # ComposedLayout is not affine
+    composed = ComposedLayout(Swizzle(2, 0, 2), Layout(16, 1), preoffset=4)
+    t2 = Tensor(composed)
+    assert is_affine(t2) is False
+
+
+def test_stride_on_composed_raises():
+    from tensor_layouts import ComposedLayout, Swizzle
+
+    composed = ComposedLayout(Swizzle(2, 0, 2), Layout(16, 1), preoffset=4)
+    t = Tensor(composed)
+    with pytest.raises(TypeError, match="ComposedLayout|affine"):
+        _ = t.stride
+
+
 # ============================================================================
 # Tensor calling: coordinate -> offset
 # ============================================================================
+
 
 def test_column_major_indexing():
     """Column-major: offset = i + j * num_rows."""
@@ -181,6 +226,7 @@ def test_column_major_indexing():
             expected = i + j * 4
             assert tensor(i, j) == expected
 
+
 def test_row_major_indexing():
     """Row-major: offset = i * num_cols + j."""
     layout = Layout((4, 8), (8, 1))
@@ -191,6 +237,7 @@ def test_row_major_indexing():
             expected = i * 8 + j
             assert tensor(i, j) == expected
 
+
 def test_with_offset_indexing():
     """Offset shifts all results."""
     layout = Layout((4, 8), (1, 4))
@@ -200,6 +247,7 @@ def test_with_offset_indexing():
     for i in range(4):
         for j in range(8):
             assert offset_tensor(i, j) == 1000 + base_tensor(i, j)
+
 
 def test_hierarchical_indexing():
     """Hierarchical coordinates like ((i0, i1), j)."""
@@ -217,6 +265,7 @@ def test_hierarchical_indexing():
 # Non-swizzled tensor slicing -- the basics: tensor(i, _) or tensor(_, j)
 # ============================================================================
 
+
 def test_fix_mode0_keep_mode1():
     """tensor[i, :] - fix row, keep column."""
     layout = Layout((4, 8), (1, 4))
@@ -232,6 +281,7 @@ def test_fix_mode0_keep_mode1():
         # Verify: row(j) == tensor(i, j)
         for j in range(8):
             assert row(j) == tensor(i, j)
+
 
 def test_fix_mode1_keep_mode0():
     """tensor[:, j] - keep row, fix column."""
@@ -249,6 +299,7 @@ def test_fix_mode1_keep_mode0():
         for i in range(4):
             assert col(i) == tensor(i, j)
 
+
 def test_fix_all_modes():
     """tensor[i, j] - all fixed returns int."""
     layout = Layout((4, 8), (1, 4))
@@ -259,6 +310,7 @@ def test_fix_all_modes():
             result = tensor[i, j]
             assert isinstance(result, int)
             assert result == tensor(i, j)
+
 
 def test_single_index_flat_eval():
     """tensor[i] — flat 1D evaluation on any-rank tensor.
@@ -283,6 +335,7 @@ def test_single_index_flat_eval():
 # Tensor Slicing Row Major
 # ============================================================================
 
+
 def test_row_major_fix_row():
     """Row-major: fixing row gives contiguous column slice."""
     layout = Layout((4, 8), (8, 1))
@@ -294,6 +347,7 @@ def test_row_major_fix_row():
 
     for j in range(8):
         assert row(j) == tensor(2, j)
+
 
 def test_row_major_fix_column():
     """Row-major: fixing column gives strided row slice."""
@@ -312,6 +366,7 @@ def test_row_major_fix_column():
 # Tensor Slicing Rank3
 # ============================================================================
 
+
 def test_fix_mode0():
     """Fix batch dimension."""
     layout = Layout((2, 4, 8), (32, 8, 1))
@@ -326,6 +381,7 @@ def test_fix_mode0():
         for j in range(8):
             assert slice0(i, j) == tensor(1, i, j)
 
+
 def test_fix_mode1():
     """Fix height dimension."""
     layout = Layout((2, 4, 8), (32, 8, 1))
@@ -339,6 +395,7 @@ def test_fix_mode1():
         for w in range(8):
             assert slice1(b, w) == tensor(b, 2, w)
 
+
 def test_fix_mode2():
     """Fix width dimension."""
     layout = Layout((2, 4, 8), (32, 8, 1))
@@ -351,6 +408,7 @@ def test_fix_mode2():
     for b in range(2):
         for h in range(4):
             assert slice2(b, h) == tensor(b, h, 5)
+
 
 def test_fix_two_modes():
     """Fix two of three modes."""
@@ -369,6 +427,7 @@ def test_fix_two_modes():
 # Tensor Slicing Accumulation
 # ============================================================================
 
+
 def test_sequential_slices():
     """Multiple sequential slices accumulate offset."""
     layout = Layout((4, 8, 2), (1, 4, 32))
@@ -380,11 +439,12 @@ def test_sequential_slices():
 
     # Second slice
     s2 = s1[3, :]
-    assert s2.offset == 2 + 3*4  # = 14
+    assert s2.offset == 2 + 3 * 4  # = 14
 
     # Third slice
     s3 = s2[1]
-    assert s3 == 2 + 3*4 + 1*32  # = 46
+    assert s3 == 2 + 3 * 4 + 1 * 32  # = 46
+
 
 def test_slice_with_initial_offset():
     """Slicing tensor with non-zero offset accumulates correctly."""
@@ -396,6 +456,7 @@ def test_slice_with_initial_offset():
 
     for j in range(8):
         assert row(j) == 100 + layout(2, j)
+
 
 def test_double_slice_equivalence():
     """tensor[i, :][j] == tensor[i, j]."""
@@ -412,6 +473,7 @@ def test_double_slice_equivalence():
 # Tensor Slicing Hierarchical
 # ============================================================================
 
+
 def test_hierarchical_mode0():
     """Slice mode 0 with hierarchical coordinate."""
     layout = Layout(((2, 4), 8), ((1, 2), 8))
@@ -423,6 +485,7 @@ def test_hierarchical_mode0():
 
     for j in range(8):
         assert slice0(j) == tensor((1, 2), j)
+
 
 def test_hierarchical_mode1():
     """Slice mode 1 when mode 0 is hierarchical."""
@@ -448,6 +511,7 @@ def test_hierarchical_mode1():
 # Swizzled Tensor Basic
 # ============================================================================
 
+
 def test_swizzled_construction():
     """Create tensor with swizzled layout."""
     sw_layout = compose(Swizzle(3, 0, 3), Layout((8, 8), (8, 1)))
@@ -455,6 +519,7 @@ def test_swizzled_construction():
 
     assert tensor.layout.swizzle is not None
     assert rank(tensor.layout) == 2
+
 
 def test_swizzled_call_differs_from_linear():
     """Swizzled tensor gives different offsets than linear."""
@@ -473,6 +538,7 @@ def test_swizzled_call_differs_from_linear():
 
     assert differences > 0, "Swizzle should change some offsets"
 
+
 def test_swizzle_xor_pattern():
     """Verify XOR pattern of Swizzle(3, 0, 3)."""
     sw = Swizzle(3, 0, 3)
@@ -486,6 +552,7 @@ def test_swizzle_xor_pattern():
 # ============================================================================
 # Swizzled Tensor Slicing
 # ============================================================================
+
 
 def test_swizzled_slice_row():
     """Slice row from swizzled tensor."""
@@ -504,6 +571,7 @@ def test_swizzled_slice_row():
         for j in range(8):
             assert row(j) == tensor(i, j), f"Mismatch at [{i}, :]({j})"
 
+
 def test_swizzled_slice_column():
     """Slice column from swizzled tensor."""
     sw_layout = compose(Swizzle(3, 0, 3), Layout((8, 8), (8, 1)))
@@ -517,6 +585,7 @@ def test_swizzled_slice_column():
 
         for i in range(8):
             assert col(i) == tensor(i, j), f"Mismatch at [:, {j}]({i})"
+
 
 def test_swizzled_full_grid_exhaustive():
     """Exhaustive test: all slices match direct access."""
@@ -535,6 +604,7 @@ def test_swizzled_full_grid_exhaustive():
         for i in range(8):
             assert col(i) == tensor(i, j)
 
+
 def test_swizzled_hierarchical_partial_slice():
     """Partial hierarchical slices keep swizzle semantics."""
     sw_layout = compose(Swizzle(2, 0, 2), Layout(((2, 2), 4), ((1, 2), 4)))
@@ -551,6 +621,7 @@ def test_swizzled_hierarchical_partial_slice():
         for j in range(4):
             assert sub(i0, j) == tensor((i0, 1), j)
 
+
 def test_swizzle_2_1_3():
     """Different swizzle parameters: Swizzle(2, 1, 3)."""
     sw_layout = compose(Swizzle(2, 1, 3), Layout((4, 8), (8, 1)))
@@ -566,6 +637,7 @@ def test_swizzle_2_1_3():
         for i in range(4):
             assert col(i) == tensor(i, j)
 
+
 def test_swizzle_1_2_3():
     """Swizzle(1, 2, 3) - single bit XOR."""
     sw_layout = compose(Swizzle(1, 2, 3), Layout((2, 8), (8, 1)))
@@ -575,6 +647,7 @@ def test_swizzle_1_2_3():
         row = tensor[i, :]
         for j in range(8):
             assert row(j) == tensor(i, j)
+
 
 def test_swizzled_with_offset():
     """Swizzled tensor with non-zero base offset."""
@@ -587,6 +660,7 @@ def test_swizzled_with_offset():
 
         for j in range(8):
             assert row(j) == tensor(i, j)
+
 
 def test_swizzled_sequential_slices():
     """Sequential slicing of swizzled tensor."""
@@ -609,6 +683,7 @@ def test_swizzled_sequential_slices():
 # ============================================================================
 # Swizzled Tensor Column Major
 # ============================================================================
+
 
 def test_swizzled_column_major():
     """Swizzle applied to column-major layout."""
@@ -636,6 +711,7 @@ def test_swizzled_column_major():
 # Tensor From Compose
 # ============================================================================
 
+
 def test_composed_layout():
     """Tensor with compose(A, B) layout."""
     A = Layout((4, 8), (1, 4))
@@ -648,6 +724,7 @@ def test_composed_layout():
     for i in range(size(composed)):
         expected = A(B(i))
         assert tensor(i) == expected
+
 
 def test_composed_layout_slicing():
     """Slice tensor with composed layout."""
@@ -672,6 +749,7 @@ def test_composed_layout_slicing():
 # Tensor From Complement
 # ============================================================================
 
+
 def test_complement_layout():
     """Tensor with complement layout."""
     base = Layout((4,), (2,))  # visits {0, 2, 4, 6}
@@ -682,6 +760,7 @@ def test_complement_layout():
     # Complement visits the "gaps"
     for i in range(size(comp)):
         assert tensor(i) == comp(i)
+
 
 def test_complement_tensor_slicing():
     """Slicing a tensor from complemented layout."""
@@ -699,6 +778,7 @@ def test_complement_tensor_slicing():
 # Tensor From Logical Divide
 # ============================================================================
 
+
 def test_logical_divide_simple():
     """Tensor from logical_divide - basic tiling."""
     layout = Layout(16, 1)
@@ -714,6 +794,7 @@ def test_logical_divide_simple():
     for i in range(size(divided)):
         assert tensor(i) == layout(i)
 
+
 def test_logical_divide_2d():
     """Tensor from 2D logical_divide."""
     layout = Layout((8, 8), (1, 8))
@@ -726,6 +807,7 @@ def test_logical_divide_2d():
     for i in range(size(divided)):
         offset = tensor(i)
         assert 0 <= offset < cosize(layout)
+
 
 def test_logical_divide_slicing():
     """Slice tensor from logical_divide."""
@@ -747,6 +829,7 @@ def test_logical_divide_slicing():
 # Tensor From Logical Product
 # ============================================================================
 
+
 def test_logical_product_simple():
     """Tensor from logical_product - basic replication."""
     A = Layout(4, 1)  # pattern to replicate
@@ -758,6 +841,7 @@ def test_logical_product_simple():
     # Product creates replicated pattern
     for i in range(size(product)):
         assert 0 <= tensor(i) < cosize(product)
+
 
 def test_logical_product_slicing():
     """Slice tensor from logical_product."""
@@ -780,6 +864,7 @@ def test_logical_product_slicing():
 # Tensor From Coalesce
 # ============================================================================
 
+
 def test_coalesced_layout():
     """Tensor from coalesced layout."""
     layout = Layout((2, 2, 2), (1, 2, 4))
@@ -790,6 +875,7 @@ def test_coalesced_layout():
     # Coalesced layout should give same offsets
     for i in range(size(coal)):
         assert tensor(i) == layout(i)
+
 
 def test_coalesced_slicing():
     """Slice tensor with coalesced layout."""
@@ -807,6 +893,7 @@ def test_coalesced_slicing():
 # ============================================================================
 # Tensor From Flatten
 # ============================================================================
+
 
 def test_flattened_layout():
     """Tensor from flattened hierarchical layout."""
@@ -829,6 +916,7 @@ def test_flattened_layout():
 # ============================================================================
 # Swizzled Algebra Composition
 # ============================================================================
+
 
 def test_swizzled_after_divide():
     """Apply swizzle to divided layout."""
@@ -857,6 +945,7 @@ def test_swizzled_after_divide():
 # Tensor Edge Cases
 # ============================================================================
 
+
 def test_rank1_slicing():
     """Slicing rank-1 tensor returns int."""
     layout = Layout(16, 1)
@@ -866,6 +955,7 @@ def test_rank1_slicing():
         result = tensor[i]
         assert isinstance(result, int)
         assert result == i
+
 
 def test_rank1_swizzled():
     """Rank-1 swizzled tensor."""
@@ -877,6 +967,7 @@ def test_rank1_swizzled():
         assert isinstance(result, int)
         # Swizzle applied
         assert result == tensor(i)
+
 
 def test_zero_offset_preserved():
     """Zero offset tensors maintain zero offset after identity slices."""
@@ -894,6 +985,7 @@ def test_zero_offset_preserved():
 # Tensor Errors
 # ============================================================================
 
+
 def test_wrong_rank_indices():
     """Too many indices raises IndexError."""
     tensor = Tensor(Layout((4, 8), (1, 4)))
@@ -901,12 +993,14 @@ def test_wrong_rank_indices():
     with pytest.raises(IndexError):
         tensor[1, 2, 3]
 
+
 def test_invalid_key_type():
     """Invalid key type raises TypeError."""
     tensor = Tensor(Layout((4, 8), (1, 4)))
 
     with pytest.raises(TypeError):
         tensor["invalid", :]
+
 
 def test_invalid_single_key():
     """Invalid single key raises TypeError."""
@@ -926,6 +1020,7 @@ def test_invalid_single_key():
 # Cu Te Compatibility
 # ============================================================================
 
+
 def test_cute_tensor_slice_pattern():
     """
     Match CuTe pattern: tensor(make_coord(i, _), make_coord(j, _))
@@ -939,6 +1034,7 @@ def test_cute_tensor_slice_pattern():
         row = tensor[i, :]
         for j in range(8):
             assert row(j) == i + j * 4
+
 
 def test_cute_shared_memory_swizzle():
     """
@@ -956,6 +1052,7 @@ def test_cute_shared_memory_swizzle():
         bank_accesses = [row(col) % 32 for col in range(8)]
         # With swizzle, should have 8 unique banks
         assert len(set(bank_accesses)) == 8, f"Thread {thread} has bank conflicts"
+
 
 def test_cute_tiled_tensor():
     """
@@ -981,6 +1078,7 @@ def test_cute_tiled_tensor():
             for i in range(4):
                 assert tile1(i) == 4 + i
 
+
 def test_cute_mma_fragment_pattern():
     """
     Pattern used in MMA (Matrix Multiply Accumulate) fragments.
@@ -1000,6 +1098,7 @@ def test_cute_mma_fragment_pattern():
 
     # Verify they access different starting positions
     assert thread0_slice.offset != thread1_slice.offset or thread0_slice(0) != thread1_slice(0)
+
 
 def test_hierarchical_slice_preserves_structure():
     """Slicing with nested Nones preserves hierarchical mode boundaries.
@@ -1026,6 +1125,7 @@ def test_hierarchical_slice_preserves_structure():
             for j2 in range(2):
                 assert A((1, i1), ((j0, 0), j2)) == Ts.offset + Ts.layout(i1, (j0, j2))
 
+
 def test_tensor_slice_with_none():
     """Tensor.__getitem__ accepts None as equivalent to slice(None)."""
     layout = Layout((4, 8), (1, 4))
@@ -1036,6 +1136,7 @@ def test_tensor_slice_with_none():
     Ts_colon = T[2, :]
     assert Ts_none.offset == Ts_colon.offset
     assert Ts_none.layout == Ts_colon.layout
+
 
 def test_tensor_full_slice_matches_explicit_full_slice():
     """A bare full slice returns the whole tensor view."""
@@ -1051,6 +1152,7 @@ def test_tensor_full_slice_matches_explicit_full_slice():
     assert full.layout == layout
     assert full.offset == 0
     assert full.data is buf
+
 
 def test_swizzled_tensor_full_slice_matches_explicit_full_slice():
     """A bare full slice preserves swizzled whole-tensor semantics."""
@@ -1079,12 +1181,14 @@ def test_swizzled_tensor_full_slice_matches_explicit_full_slice():
 # Flat Evaluation
 # ============================================================================
 
+
 def test_flat_eval_rank2_row_major():
     """Row-major rank-2 tensor: tensor[i] == layout(i) for all i."""
     layout = Layout((4, 8), (8, 1))
     t = Tensor(layout)
     for i in range(size(layout)):
         assert t[i] == layout(i)
+
 
 def test_flat_eval_rank2_col_major():
     """Column-major rank-2 tensor: tensor[i] == layout(i) for all i."""
@@ -1093,12 +1197,14 @@ def test_flat_eval_rank2_col_major():
     for i in range(size(layout)):
         assert t[i] == layout(i)
 
+
 def test_flat_eval_rank3():
     """Rank-3 tensor: flat 1D evaluation through all elements."""
     layout = Layout((2, 4, 8), (32, 8, 1))
     t = Tensor(layout)
     for i in range(size(layout)):
         assert t[i] == layout(i)
+
 
 def test_flat_eval_with_offset():
     """Flat 1D evaluation respects base offset."""
@@ -1107,6 +1213,7 @@ def test_flat_eval_with_offset():
     for i in range(size(layout)):
         assert t[i] == 100 + layout(i)
 
+
 def test_flat_eval_with_data():
     """Flat 1D evaluation with storage returns data[offset]."""
     layout = Layout((4, 8), (8, 1))
@@ -1114,6 +1221,7 @@ def test_flat_eval_with_data():
     t = Tensor(layout, data=buf)
     for i in range(size(layout)):
         assert t[i] == buf[layout(i)]
+
 
 def test_flat_eval_consistent_with_setitem():
     """tensor[i] reads what tensor[i] = val wrote."""
@@ -1124,6 +1232,7 @@ def test_flat_eval_consistent_with_setitem():
         t[i] = i * 10
     for i in range(size(layout)):
         assert t[i] == i * 10
+
 
 def test_slice_mode0_still_works():
     """Mode-0 slicing uses tensor[i, :], not tensor[i]."""
@@ -1140,6 +1249,7 @@ def test_slice_mode0_still_works():
 # Copy Algorithm
 # ============================================================================
 
+
 def test_copy_same_layout():
     """Copy between tensors with the same layout."""
     layout = Layout((4, 8), (8, 1))
@@ -1153,6 +1263,7 @@ def test_copy_same_layout():
 
     for i in range(32):
         assert dst_buf[i] == src_buf[i]
+
 
 def test_copy_different_layouts():
     """Copy between row-major and column-major tensors.
@@ -1177,6 +1288,7 @@ def test_copy_different_layouts():
     for i in range(4):
         for j in range(8):
             assert dst[i, j] == src[i, j]
+
 
 def test_copy_rank3():
     """Copy works on rank-3 tensors."""
@@ -1205,6 +1317,7 @@ def test_copy_rank3():
 # Tensor Storage
 # ============================================================================
 
+
 def test_construction_with_data():
     """Tensor can be constructed with storage."""
     layout = Layout((4, 8), (8, 1))
@@ -1214,6 +1327,7 @@ def test_construction_with_data():
     assert t.layout == layout
     assert t.offset == 0
 
+
 def test_construction_with_data_and_offset():
     """Tensor can have both offset and data."""
     buf = list(range(64))
@@ -1221,11 +1335,13 @@ def test_construction_with_data_and_offset():
     assert t.offset == 5
     assert t.data is buf
 
+
 def test_data_too_small_raises():
     """Storage smaller than cosize raises ValueError."""
     layout = Layout((4, 8), (8, 1))  # cosize = 32
     with pytest.raises(ValueError, match="addressed range"):
         Tensor(layout, data=list(range(10)))
+
 
 def test_data_larger_than_cosize():
     """Storage can be larger than cosize."""
@@ -1234,10 +1350,12 @@ def test_data_larger_than_cosize():
     t = Tensor(layout, data=buf)
     assert t.data is buf
 
+
 def test_data_none_by_default():
     """Without data, tensor.data is None."""
     t = Tensor(Layout((4, 8), (8, 1)))
     assert t.data is None
+
 
 def test_data_property_setter():
     """The data property is writable."""
@@ -1249,12 +1367,14 @@ def test_data_property_setter():
     t.data = buf
     assert t.data is buf
 
+
 def test_data_setter_validates_size():
     """Setting data too small raises ValueError."""
     layout = Layout((4, 8), (8, 1))  # cosize = 32
     t = Tensor(layout)
     with pytest.raises(ValueError, match="addressed range"):
         t.data = list(range(10))
+
 
 def test_data_with_positive_offset_needs_full_address_range():
     """Construction validates the full addressed range, not just cosize(layout)."""
@@ -1263,20 +1383,24 @@ def test_data_with_positive_offset_needs_full_address_range():
 
     assert [t[i] for i in range(4)] == [10, 11, 12, 13]
 
+
 def test_data_with_positive_offset_and_short_storage_raises():
     """A nonzero base offset must still fit in the backing storage."""
     with pytest.raises(ValueError, match="addressed range"):
         Tensor(Layout(4, 1), offset=10, data=[0] * 4)
+
 
 def test_negative_stride_requires_nonnegative_address_range():
     """Negative strides without a compensating offset are rejected."""
     with pytest.raises(ValueError, match="addressed range"):
         Tensor(Layout(4, -1), data=list(range(10)))
 
+
 def test_negative_stride_with_offset_reads_correct_data():
     """Negative strides work when the base offset keeps accesses in-bounds."""
     t = Tensor(Layout(4, -1), offset=3, data=list(range(8)))
     assert [t[i] for i in range(4)] == [3, 2, 1, 0]
+
 
 def test_negative_stride_slice_preserves_valid_address_range():
     """Slicing a valid negative-stride tensor stays within the shared storage."""
@@ -1285,6 +1409,7 @@ def test_negative_stride_slice_preserves_valid_address_range():
 
     assert row1.data is t.data
     assert [row1[j] for j in range(4)] == [7, 6, 5, 4]
+
 
 def test_data_setter_validates_offset_and_signed_stride():
     """Assigning data uses the same addressed-range validation as construction."""
@@ -1297,12 +1422,14 @@ def test_data_setter_validates_offset_and_signed_stride():
     t.data = buf
     assert [t[i] for i in range(4)] == [3, 2, 1, 0]
 
+
 def test_data_setter_accepts_none():
     """Setting data to None removes storage."""
     buf = list(range(32))
     t = Tensor(Layout((4, 8), (8, 1)), data=buf)
     t.data = None
     assert t.data is None
+
 
 def test_getitem_returns_data_element():
     """With data, tensor[i, j] returns data[offset]."""
@@ -1315,11 +1442,13 @@ def test_getitem_returns_data_element():
     assert t[1, 0] == "I"  # buf[8]
     assert t[3, 7] == "5"  # buf[31]
 
+
 def test_getitem_without_data_returns_offset():
     """Without data, tensor[i, j] still returns the offset integer."""
     layout = Layout((4, 8), (8, 1))
     t = Tensor(layout)
     assert t[2, 3] == 19
+
 
 def test_call_unaffected_by_data():
     """tensor(i, j) always returns the offset, even with data."""
@@ -1328,12 +1457,14 @@ def test_call_unaffected_by_data():
     t = Tensor(layout, data=buf)
     assert t(2, 3) == 19  # offset, not 'T'
 
+
 def test_getitem_single_mode_returns_data():
     """Rank-1 tensor: tensor[i] returns data element."""
     buf = list("ABCDEFGH")
     t = Tensor(Layout(8, 1), data=buf)
     assert t[0] == "A"
     assert t[7] == "H"
+
 
 def test_getitem_flat_eval_returns_data():
     """Flat 1D evaluation with data returns data element, not sub-Tensor."""
@@ -1344,6 +1475,7 @@ def test_getitem_flat_eval_returns_data():
     assert isinstance(result, int)
     assert result == buf[t.layout(2)]
 
+
 def test_setitem_writes_to_data():
     """tensor[i, j] = val writes data[offset]."""
     buf = list(range(32))
@@ -1353,12 +1485,14 @@ def test_setitem_writes_to_data():
     assert buf[19] == 999
     assert t[2, 3] == 999
 
+
 def test_setitem_rank1():
     """Scalar write on rank-1 tensor."""
     buf = list(range(16))
     t = Tensor(Layout(8, 2), data=buf)
     t[3] = 42
     assert buf[6] == 42  # offset = 3*2 = 6
+
 
 @pytest.mark.parametrize(
     "key",
@@ -1379,6 +1513,7 @@ def test_setitem_rejects_free_coordinates(key):
 
     assert buf == list(range(32))
 
+
 def test_setitem_hierarchical_fixed_coordinate_writes_to_data():
     """A fully-fixed hierarchical coordinate is still a valid assignment key."""
     layout = Layout(((2, 4), 8), ((1, 2), 8))
@@ -1390,11 +1525,13 @@ def test_setitem_hierarchical_fixed_coordinate_writes_to_data():
     assert buf[t((1, 3), 5)] == 999
     assert t[(1, 3), 5] == 999
 
+
 def test_setitem_without_data_raises():
     """Writing to a tensor with no storage raises TypeError."""
     t = Tensor(Layout((4, 8), (8, 1)))
     with pytest.raises(TypeError, match="no storage"):
         t[2, 3] = 42
+
 
 def test_slice_shares_data():
     """Sub-Tensors from slicing share the parent's data."""
@@ -1402,6 +1539,7 @@ def test_slice_shares_data():
     t = Tensor(Layout((4, 8), (8, 1)), data=buf)
     row2 = t[2, :]
     assert row2.data is buf
+
 
 def test_slice_data_read():
     """Reading through a sliced sub-Tensor accesses correct data."""
@@ -1412,6 +1550,7 @@ def test_slice_data_read():
     assert row2[3] == 19
     assert row2[3] == t[2, 3]
 
+
 def test_slice_data_write():
     """Writing through a sliced sub-Tensor modifies shared data."""
     buf = list(range(32))
@@ -1421,6 +1560,7 @@ def test_slice_data_write():
     assert buf[19] == 999
     assert t[2, 3] == 999
 
+
 def test_chained_slice_data():
     """tensor[i, :][j] returns the same data element as tensor[i, j]."""
     buf = list(range(32))
@@ -1428,6 +1568,7 @@ def test_chained_slice_data():
     for i in range(4):
         for j in range(8):
             assert t[i, :][j] == t[i, j]
+
 
 def test_hierarchical_slice_propagates_data():
     """Data is propagated through hierarchical partial slicing."""
@@ -1437,6 +1578,7 @@ def test_hierarchical_slice_propagates_data():
 
     sub = t[((0, None), None)]
     assert sub.data is buf
+
 
 def test_data_swap_does_not_affect_existing_slices():
     """Reassigning parent.data does not update existing sub-Tensors."""
@@ -1461,6 +1603,7 @@ def test_data_swap_does_not_affect_existing_slices():
 # Tensor Equality With Data
 # ============================================================================
 
+
 def test_same_contents_equal():
     """Tensors with same layout, offset, and data contents are equal."""
     layout = Layout(8, 1)
@@ -1468,12 +1611,14 @@ def test_same_contents_equal():
     b = Tensor(layout, data=[1, 2, 3, 4, 5, 6, 7, 8])
     assert a == b
 
+
 def test_different_contents_not_equal():
     """Tensors with different data contents are not equal."""
     layout = Layout(8, 1)
     a = Tensor(layout, data=[1, 2, 3, 4, 5, 6, 7, 8])
     b = Tensor(layout, data=[8, 7, 6, 5, 4, 3, 2, 1])
     assert a != b
+
 
 def test_one_has_data_other_does_not():
     """Tensor with data != Tensor without data."""
@@ -1483,12 +1628,14 @@ def test_one_has_data_other_does_not():
     assert a != b
     assert b != a
 
+
 def test_both_none_equal():
     """Two algebraic Tensors with same layout/offset are equal (existing behavior)."""
     layout = Layout((4, 8), (8, 1))
     a = Tensor(layout)
     b = Tensor(layout)
     assert a == b
+
 
 def test_same_data_identity_shortcut():
     """Tensors sharing the same data object are equal."""
@@ -1498,12 +1645,14 @@ def test_same_data_identity_shortcut():
     b = Tensor(layout, data=buf)
     assert a == b
 
+
 def test_different_data_lengths_not_equal():
     """Tensors with different data lengths are not equal."""
     layout = Layout(4, 1)
     a = Tensor(layout, data=[1, 2, 3, 4])
     b = Tensor(layout, data=[1, 2, 3, 4, 5, 6, 7, 8])
     assert a != b
+
 
 def test_hash_consistent_with_equality():
     """Equal Tensors must have equal hashes."""
@@ -1512,6 +1661,7 @@ def test_hash_consistent_with_equality():
     b = Tensor(layout, data=[1, 2, 3, 4, 5, 6, 7, 8])
     assert a == b
     assert hash(a) == hash(b)
+
 
 def test_different_data_can_collide_hash():
     """Tensors with different data may have same hash (collision OK)."""
@@ -1527,12 +1677,14 @@ def test_different_data_can_collide_hash():
 # View
 # ============================================================================
 
+
 def test_view_shares_data():
     """View shares the same backing storage."""
     buf = list("ABCDEFGH")
     t = Tensor(Layout((2, 4), (4, 1)), data=buf)
     flat = t.view(Layout(8, 1))
     assert flat.data is t.data
+
 
 def test_view_reads_same_data():
     """View reads from the shared storage."""
@@ -1542,6 +1694,7 @@ def test_view_reads_same_data():
     assert flat[0] == "A"
     assert flat[7] == "H"
 
+
 def test_view_write_visible():
     """Writes through a view are visible in the original."""
     buf = list("ABCDEFGH")
@@ -1550,12 +1703,14 @@ def test_view_write_visible():
     flat[0] = "Z"
     assert t[0, 0] == "Z"
 
+
 def test_view_different_layout():
     """View can reshape to a different rank."""
     buf = list(range(12))
     t = Tensor(Layout(12, 1), data=buf)
     reshaped = t.view(Layout((3, 4), (4, 1)))
     assert reshaped[1, 2] == buf[1 * 4 + 2]
+
 
 def test_view_preserves_offset():
     """A view keeps the parent Tensor's base offset."""
@@ -1568,6 +1723,7 @@ def test_view_preserves_offset():
     assert flat[0] == 16
     assert flat[15] == 31
 
+
 def test_view_negative_stride_uses_preserved_offset():
     """Preserving offset enables valid reverse views."""
     buf = list(range(8))
@@ -1578,11 +1734,13 @@ def test_view_negative_stride_uses_preserved_offset():
     assert rev.offset == 3
     assert [rev[i] for i in range(4)] == [3, 2, 1, 0]
 
+
 def test_view_no_storage_raises():
     """View on algebraic Tensor raises TypeError."""
     t = Tensor(Layout(8, 1))
     with pytest.raises(TypeError):
         t.view(Layout(8, 1))
+
 
 def test_view_cosize_too_large_raises():
     """View with cosize exceeding storage raises ValueError."""
@@ -1590,6 +1748,7 @@ def test_view_cosize_too_large_raises():
     t = Tensor(Layout(8, 1), data=buf)
     with pytest.raises(ValueError):
         t.view(Layout(16, 1))
+
 
 def test_view_smaller_cosize():
     """View with smaller cosize is allowed."""
