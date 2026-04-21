@@ -52,6 +52,7 @@ __all__ = [
     "coalescing_efficiency",
     "segment_analysis",
     "per_group_coalescing",
+    "thread_stride_profile",
     "cycles",
     "fixed_points",
     "order",
@@ -621,6 +622,92 @@ def _tv_dimensions(layout: LayoutExpr):
     if is_int(layout.shape):
         return size(layout), 1
     return size(mode(layout, 0)), size(layout) // size(mode(layout, 0))
+
+
+def thread_stride_profile(layout: LayoutExpr) -> dict:
+    """Profile how offsets change as thread id increases.
+
+    This helper treats a layout as thread-major TV mapping:
+    mode 0 is thread, modes 1+ are value dimensions. For each value lane,
+    it measures per-thread deltas:
+
+        delta[t] = offset(thread=t+1, value=v) - offset(thread=t, value=v)
+
+    It works for both affine layouts and composed layout expressions since
+    it uses pointwise evaluation only.
+
+    Args:
+        layout: A thread-to-offset layout (rank-1) or TV layout (rank>=2).
+
+    Returns:
+        dict with:
+            thread_count: number of threads analyzed
+            value_count: flattened count of value lanes (mode 1+ product)
+            per_value_deltas: list[value_lane][thread_count-1] of deltas
+            per_value_unique_strides: sorted unique deltas for each value lane
+            per_value_constant_stride: constant stride per lane, else None
+            per_value_is_constant: True if the lane has one unique stride
+            global_unique_strides: sorted unique deltas across all lanes
+            is_uniform: True if all observed deltas are identical
+            has_broadcast_lane: True if any value lane is stride-0 broadcast
+
+    Notes:
+        If ``thread_count < 2``, there are no deltas to measure. In that
+        case all per-lane delta lists are empty and ``global_unique_strides``
+        is empty.
+    """
+    layout = as_layout_expr(layout)
+    thread_count, value_count = _tv_dimensions(layout)
+
+    def _offset(thread: int, value_flat: int) -> int:
+        # Rank-1: layout is thread -> offset.
+        if is_int(layout.shape):
+            return layout(thread)
+
+        # Rank>=2: mode 0 is thread; modes 1+ form value lane coordinates.
+        value_shape = layout.shape[1:]
+        value_coord = idx2crd(value_flat, value_shape)
+        if is_tuple(value_coord):
+            return layout((thread, *value_coord))
+        return layout((thread, value_coord))
+
+    per_value_deltas = []
+    per_value_unique = []
+    per_value_constant = []
+    per_value_is_constant = []
+    all_deltas = []
+    has_broadcast_lane = False
+
+    for v in range(value_count):
+        deltas = []
+        for t in range(thread_count - 1):
+            deltas.append(_offset(t + 1, v) - _offset(t, v))
+
+        uniq = sorted(set(deltas))
+        is_constant = len(uniq) <= 1
+        constant = uniq[0] if len(uniq) == 1 else None
+        lane_is_broadcast = thread_count > 1 and constant == 0
+
+        per_value_deltas.append(deltas)
+        per_value_unique.append(uniq)
+        per_value_constant.append(constant)
+        per_value_is_constant.append(is_constant)
+        all_deltas.extend(deltas)
+        has_broadcast_lane = has_broadcast_lane or lane_is_broadcast
+
+    global_unique = sorted(set(all_deltas))
+
+    return {
+        'thread_count': thread_count,
+        'value_count': value_count,
+        'per_value_deltas': per_value_deltas,
+        'per_value_unique_strides': per_value_unique,
+        'per_value_constant_stride': per_value_constant,
+        'per_value_is_constant': per_value_is_constant,
+        'global_unique_strides': global_unique,
+        'is_uniform': len(global_unique) <= 1,
+        'has_broadcast_lane': has_broadcast_lane,
+    }
 
 
 def per_group_bank_conflicts(layout: LayoutExpr, *, element_bytes: int,
