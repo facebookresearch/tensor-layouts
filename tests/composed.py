@@ -123,6 +123,54 @@ def test_compose_affine_with_swizzled_layout_is_exact():
         assert result(i) == outer(inner(i))
 
 
+def test_compose_layout_with_swizzle_rhs_falls_back_to_exact_composed_layout():
+    outer = Layout((4, 4), (4, 1))
+    swizzle = Swizzle(2, 1, 3)
+    result = compose(outer, swizzle)
+    expected = ComposedLayout(outer, compose(swizzle, Layout(outer.shape)))
+
+    assert isinstance(result, ComposedLayout)
+    _assert_pointwise_equal(result, expected)
+    assert [result(i) for i in range(size(result))] == [
+        0,
+        4,
+        8,
+        12,
+        1,
+        5,
+        9,
+        13,
+        2,
+        6,
+        10,
+        14,
+        3,
+        7,
+        11,
+        15,
+    ]
+
+
+def test_compose_layout_with_swizzle_rhs_keeps_representable_fast_path():
+    outer = Layout(16, 2)
+    swizzle = Swizzle(2, 0, 2)
+    result = compose(outer, swizzle)
+
+    assert isinstance(result, Layout)
+    assert result.swizzle is not None
+    _assert_pointwise_equal(result, lambda i: outer(swizzle(i)))
+
+
+def test_compose_layout_with_swizzle_rhs_nonpower_stride_stays_exact():
+    outer = Layout(16, 3)
+    swizzle = Swizzle(2, 0, 2)
+    result = compose(outer, swizzle)
+    expected = ComposedLayout(outer, compose(swizzle, Layout(outer.shape)))
+
+    assert isinstance(result, ComposedLayout)
+    _assert_pointwise_equal(result, expected)
+
+
 def test_compose_layout_on_zero_preoffset_composed_layout_can_collapse():
     outer = Layout(32, 2)
     inner = ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), preoffset=0)

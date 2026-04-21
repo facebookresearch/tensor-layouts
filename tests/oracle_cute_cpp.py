@@ -150,6 +150,11 @@ int main() {
   auto outer_on_swizzled = composition(outer_layout, Int<0>{}, swizzled_inner);
   print_offsets("compose_outer_layout_swizzled_offsets", outer_on_swizzled);
 
+  auto reverse_swizzle_exact = composition(
+      outer_layout, Int<0>{},
+      composition(Swizzle<2,1,3>{}, make_layout(make_shape(_4{}, _4{}))));
+  print_offsets("compose_layout_swizzle_exact_offsets", reverse_swizzle_exact);
+
   auto composed_for_slice = composition(
       outer_layout, Int<0>{},
       composition(Swizzle<3,0,3>{}, double_swizzle_base));
@@ -271,6 +276,10 @@ PYTHON_POINTWISE_CASES = {
     ),
     "compose_outer_layout_swizzled_offsets": lambda: ",".join(
         str(compose(Layout((4, 4), (4, 1)), compose(Swizzle(3, 0, 3), Layout(16, 1)))(i))
+        for i in range(16)
+    ),
+    "compose_layout_swizzle_exact_offsets": lambda: ",".join(
+        str(compose(Layout((4, 4), (4, 1)), Swizzle(2, 1, 3))(i))
         for i in range(16)
     ),
     "compose_slice_row": lambda: (
