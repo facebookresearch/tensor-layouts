@@ -81,6 +81,7 @@ __all__ = [
     "is_layout",
     "is_affine",
     "is_pure_shape",
+    "is_empty",
     "has_none",
     # Shape conversions
     "as_tuple",
@@ -286,6 +287,26 @@ def is_pure_shape(t) -> bool:
     if is_tuple(t):
         return all(is_pure_shape(elem) for elem in t)
     return False
+
+
+def is_empty(obj) -> bool:
+    """Return True if obj is (or contains) the unit/empty layout.
+
+    The unit layout has the empty-tuple shape ``()``, rank 0, and size 1
+    (the empty product). It is the multiplicative identity for layout
+    composition and concatenation. This is **distinct** from a zero-sized
+    layout such as ``Layout((0,), (0,))``, which has rank 1 and size 0;
+    use ``size(L) == 0`` to test for that.
+
+    Matches the conventions in pycute (``product(()) == 1``) and CuTe C++
+    (``Product`` returns ``Int<1>{}`` for empty tuples).
+
+    Works with both Layout objects and Tensors (via the ``.layout`` attribute).
+    """
+    layout = obj.layout if hasattr(obj, "layout") and not is_layout(obj) else obj
+    if not is_layout(layout):
+        return False
+    return is_tuple(layout.shape) and len(layout.shape) == 0
 
 
 def has_none(a) -> bool:
@@ -1670,8 +1691,8 @@ def complement(layout: Layout, cosize_bound: Any = None) -> Layout:
     elif is_layout(cosize_bound):
         cosize_bound = cosize_bound.shape
 
-    # Handle empty layout (empty tuple shape)
-    if is_tuple(layout.shape) and len(layout.shape) == 0:
+    # Short-circuit unit layout AND zero-sized layouts (no elements to span)
+    if is_empty(layout) or size(layout) == 0:
         return Layout(cosize_bound, 1) if cosize_bound > 1 else Layout()
 
     # Flatten, filter size-1 and stride-0 dims, sort by stride
@@ -2741,9 +2762,9 @@ def _composition_1d(layout_a: "Layout", b_shape: int, b_stride: int) -> "Layout"
 
 def _compose_layouts(layout_a: Layout, layout_b: Layout) -> Layout:
     """Compose two Layout objects."""
-    if is_tuple(layout_a.shape) and len(layout_a.shape) == 0:
+    if is_empty(layout_a) or size(layout_a) == 0:
         return Layout()
-    if is_tuple(layout_b.shape) and len(layout_b.shape) == 0:
+    if is_empty(layout_b) or size(layout_b) == 0:
         return Layout()
 
     def compose_element(b_shape, b_stride):
