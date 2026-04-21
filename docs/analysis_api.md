@@ -46,7 +46,7 @@ bijective layouts, and trace the algebra step by step.
 from tensor_layouts.analysis import (
     image, is_injective, is_surjective, is_bijective,
     offset_table, bank_conflicts, coalescing_efficiency,
-    cycles, fixed_points, order, explain,
+    cycles, fixed_points, order, thread_stride_profile, explain,
 )
 ```
 
@@ -224,6 +224,23 @@ tv = Layout((32, 4), (4, 1))
 result = coalescing_efficiency(tv, element_bytes=2)
 result['transactions']  # 2  (256 bytes spans 2 cache lines)
 result['efficiency']    # 1.0  (256 unique bytes / 256 transferred)
+```
+
+## thread_stride_profile(layout)
+
+Profile how memory offsets change as thread id increases.  This is a quick
+way to detect thread-wise broadcasts (stride 0), constant per-lane strides,
+and irregular/non-affine thread movement patterns.
+
+For TV layouts, mode 0 is treated as thread and modes 1+ are flattened into
+value lanes.
+
+```python
+thread_stride_profile(Layout(8, 1))
+# {'global_unique_strides': [1], 'is_uniform': True, ...}
+
+thread_stride_profile(Layout((8, 2), (0, 8)))
+# {'global_unique_strides': [0], 'has_broadcast_lane': True, ...}
 ```
 
 ## Permutation Analysis

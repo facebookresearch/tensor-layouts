@@ -1538,3 +1538,61 @@ def test_functionally_equal_row_col_major():
     col = Layout((3, 4), (1, 3))
     row = Layout((3, 4), (4, 1))
     assert not functionally_equal(col, row)
+
+
+## thread_stride_profile
+
+
+def test_thread_stride_profile_linear_layout():
+    """Stride-1 layout has a uniform +1 thread stride."""
+    p = thread_stride_profile(Layout(8, 1))
+    assert p['thread_count'] == 8
+    assert p['value_count'] == 1
+    assert p['per_value_deltas'] == [[1, 1, 1, 1, 1, 1, 1]]
+    assert p['global_unique_strides'] == [1]
+    assert p['is_uniform'] is True
+    assert p['has_broadcast_lane'] is False
+
+
+def test_thread_stride_profile_broadcast_lane():
+    """Stride-0 thread mode is detected as a broadcast lane."""
+    p = thread_stride_profile(Layout((8, 2), (0, 8)))
+    assert p['thread_count'] == 8
+    assert p['value_count'] == 2
+    assert p['per_value_constant_stride'] == [0, 0]
+    assert p['global_unique_strides'] == [0]
+    assert p['is_uniform'] is True
+    assert p['has_broadcast_lane'] is True
+
+
+def test_thread_stride_profile_nonuniform_lane():
+    """Composed layout can produce non-constant adjacent-thread deltas."""
+    p = thread_stride_profile(compose(Swizzle(2, 0, 2), Layout(8, 1)))
+    assert p['thread_count'] == 8
+    assert p['value_count'] == 1
+    assert p['per_value_is_constant'] == [False]
+    assert p['per_value_constant_stride'] == [None]
+    assert p['global_unique_strides'] == [-1, 1, 2, 3]
+    assert p['is_uniform'] is False
+
+
+def test_thread_stride_profile_multimode_value_shape():
+    """Value modes beyond rank-2 are flattened lane-wise correctly."""
+    tv = Layout((4, (2, 2)), (1, (8, 16)))
+    p = thread_stride_profile(tv)
+    assert p['thread_count'] == 4
+    assert p['value_count'] == 4
+    assert p['per_value_constant_stride'] == [1, 1, 1, 1]
+    assert p['global_unique_strides'] == [1]
+    assert p['is_uniform'] is True
+
+
+def test_thread_stride_profile_single_thread_edge_case():
+    """Single-thread layouts have no adjacent-thread deltas."""
+    p = thread_stride_profile(Layout((1, 4), (0, 1)))
+    assert p['thread_count'] == 1
+    assert p['value_count'] == 4
+    assert p['per_value_deltas'] == [[], [], [], []]
+    assert p['global_unique_strides'] == []
+    assert p['is_uniform'] is True
+    assert p['has_broadcast_lane'] is False
