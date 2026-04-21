@@ -37,14 +37,20 @@ adds two things:
 
 1. **A base offset** — an integer that shifts every computed offset,
    modelling a pointer into a larger memory space.
-2. **Optional storage** — any indexable object (list, numpy array,
-   torch tensor, etc.) so that element access returns actual data
+2. **Optional storage** — a flat 1D backing buffer (list, 1D numpy array,
+   1D torch tensor, etc.) so that element access returns actual data
    values rather than raw offset integers.
 
 When storage is absent the Tensor is purely algebraic and behaves
 exactly like a `(offset, Layout)` pair.  When storage is present,
 indexing reads and writes go through the layout mapping to reach
 the correct position in the flat storage buffer.
+
+Multi-dimensional arrays/tensors are intentionally **not** accepted as
+storage. They carry their own stride/layout metadata, which would introduce
+another implicit transformation outside the `Tensor(layout, data=...)`
+contract. Flattening, reshaping, or otherwise normalizing such objects must
+be done explicitly by the caller.
 
 ## Construction
 
@@ -55,10 +61,11 @@ the correct position in the flat storage buffer.
 | `Tensor(layout, data=buf)` | Data-backed, offset 0 |
 | `Tensor(layout, offset, data=buf)` | Data-backed with explicit base offset |
 
-The storage must cover every index addressed by the `(offset, layout)`
-pair.  For the common zero-offset, nonnegative-stride case this reduces
-to `len(data) >= cosize(layout)`.  It is stored by reference (no copy).
-Storage that is too small raises `ValueError`.
+The storage must be a flat 1D backing buffer and must cover every index
+addressed by the `(offset, layout)` pair. For the common zero-offset,
+nonnegative-stride case this reduces to `len(data) >= cosize(layout)`.
+It is stored by reference (no copy). Storage that is too small raises
+`ValueError`. Multi-dimensional array/tensor objects raise `TypeError`.
 
 ```python
 from tensor_layouts import Layout, Tensor
@@ -73,6 +80,22 @@ t(2, 5)   # 21
 buf = list(range(32))
 t = Tensor(layout, data=buf)
 t[2, 5]   # buf[21] → 21
+```
+
+```python
+import numpy as np
+import torch
+
+layout = Layout((4, 8), (8, 1))
+
+np_buf = np.arange(32)          # 1D ndarray: accepted
+torch_buf = torch.arange(32)    # 1D tensor: accepted
+
+Tensor(layout, data=np_buf)
+Tensor(layout, data=torch_buf)
+
+Tensor(layout, data=np.arange(32).reshape(4, 8))      # error: storage is 2D
+Tensor(layout, data=torch.arange(32).reshape(4, 8))   # error: storage is 2D
 ```
 
 ## Coordinate Mapping — `__call__`
@@ -296,6 +319,7 @@ t[0, 0]                         # 100
 
 The new storage must satisfy the same addressed-range requirement.
 Assigning `None` removes storage and returns the Tensor to algebraic mode.
+Array/tensor-like storage that advertises `ndim` or `shape` must be rank 1.
 
 ### View aliasing
 
@@ -398,7 +422,7 @@ hashes, and collisions when only data differs are harmless.
 | `offset` | `int` | Base offset in linear (pre-swizzle) space |
 | `shape` | tuple | Shorthand for `layout.shape` |
 | `stride` | tuple | Shorthand for `layout.stride` |
-| `data` | indexable or `None` | Backing storage (read-write) |
+| `data` | flat 1D indexable or `None` | Backing storage (read-write) |
 
 ## Methods
 

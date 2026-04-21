@@ -23,8 +23,8 @@
 """Tensor class: combines a Layout with a base offset and optional storage.
 
 In CuTe, a Tensor is (Engine/Pointer, Layout). Here we represent the pointer
-as an integer offset and optionally attach storage (any indexable object such
-as a list, numpy array, or torch tensor).
+as an integer offset and optionally attach storage as a flat 1D backing buffer
+such as a list, 1D numpy array, or 1D torch tensor.
 
 When storage is present:
   - ``tensor[i, j]`` returns the data element at the computed offset
@@ -94,8 +94,33 @@ def _address_bounds(layout: LayoutExpr, offset: int) -> tuple[int, int]:
     return min_offset, max_offset
 
 
+def _storage_rank(data) -> int | None:
+    """Return the advertised rank of an array/tensor-like storage object."""
+    ndim = getattr(data, "ndim", None)
+    if ndim is not None:
+        try:
+            return int(ndim)
+        except (TypeError, ValueError):
+            pass
+
+    shape = getattr(data, "shape", None)
+    if shape is not None:
+        try:
+            return len(shape)
+        except TypeError:
+            pass
+
+    return None
+
+
 def _validate_storage(layout: LayoutExpr, offset: int, data) -> None:
     """Validate that storage covers every index addressed by (offset, layout)."""
+    storage_rank = _storage_rank(data)
+    if storage_rank is not None and storage_rank != 1:
+        raise TypeError(
+            "Tensor data must be flat 1D storage; "
+            f"got {type(data).__name__} with rank {storage_rank}"
+        )
     min_offset, max_offset = _address_bounds(layout, offset)
     if min_offset < 0 or max_offset >= len(data):
         raise ValueError(
@@ -128,11 +153,13 @@ class Tensor:
     Args:
         layout: The Layout describing the coordinate-to-offset mapping
         offset: The base offset in linear (pre-swizzle) space (default 0)
-        data:   Optional storage (any indexable object — list, numpy array,
-                torch tensor, etc.). It must cover every index addressed by
-                ``offset + layout(coords)`` (or the swizzled equivalent).
-                For zero-offset, nonnegative-stride layouts this reduces to
-                ``len(data) >= cosize(layout)``. Stored by reference (no copy).
+        data:   Optional flat 1D backing storage such as a list, 1D numpy
+                array, or 1D torch tensor. Array/tensor-like objects that
+                advertise rank via ``ndim`` or ``shape`` must be rank 1.
+                It must cover every index addressed by ``offset + layout(coords)``
+                (or the swizzled equivalent). For zero-offset, nonnegative-stride
+                layouts this reduces to ``len(data) >= cosize(layout)``.
+                Stored by reference (no copy).
 
     Examples:
         Algebraic (no storage)::
@@ -188,6 +215,8 @@ class Tensor:
 
         Assignable: ``tensor.data = new_array`` replaces the storage reference.
         The new storage must cover every index addressed by this Tensor.
+        Array/tensor-like objects that advertise ``ndim`` or ``shape`` must
+        be flat rank-1 storage.
 
         Note: sub-Tensors produced by slicing hold their own reference to the
         storage object.  Reassigning ``parent.data`` does *not* update existing
