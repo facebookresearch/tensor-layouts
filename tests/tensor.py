@@ -1328,6 +1328,50 @@ def test_construction_with_data():
     assert t.offset == 0
 
 
+def test_construction_with_numpy_1d_data():
+    """A 1D numpy array is valid backing storage."""
+    np = pytest.importorskip("numpy")
+
+    layout = Layout((4, 8), (8, 1))
+    buf = np.arange(32)
+    t = Tensor(layout, data=buf)
+
+    assert t.data is buf
+    assert int(t[2, 3]) == 19
+
+
+def test_construction_with_numpy_multidim_data_raises():
+    """A multidimensional numpy array is rejected as implicit extra layout."""
+    np = pytest.importorskip("numpy")
+
+    layout = Layout((4, 8), (8, 1))
+    buf = np.arange(32).reshape(4, 8)
+    with pytest.raises(TypeError, match="flat 1D storage"):
+        Tensor(layout, data=buf)
+
+
+def test_construction_with_torch_1d_data():
+    """A 1D torch tensor is valid backing storage."""
+    torch = pytest.importorskip("torch")
+
+    layout = Layout((4, 8), (8, 1))
+    buf = torch.arange(32)
+    t = Tensor(layout, data=buf)
+
+    assert t.data is buf
+    assert int(t[2, 3]) == 19
+
+
+def test_construction_with_torch_multidim_data_raises():
+    """A multidimensional torch tensor is rejected as implicit extra layout."""
+    torch = pytest.importorskip("torch")
+
+    layout = Layout((4, 8), (8, 1))
+    buf = torch.arange(32).reshape(4, 8)
+    with pytest.raises(TypeError, match="flat 1D storage"):
+        Tensor(layout, data=buf)
+
+
 def test_construction_with_data_and_offset():
     """Tensor can have both offset and data."""
     buf = list(range(64))
@@ -1374,6 +1418,16 @@ def test_data_setter_validates_size():
     t = Tensor(layout)
     with pytest.raises(ValueError, match="addressed range"):
         t.data = list(range(10))
+
+
+def test_data_setter_rejects_multidim_numpy_storage():
+    """Assigning multidimensional array storage must be explicit at the callsite."""
+    np = pytest.importorskip("numpy")
+
+    layout = Layout((4, 8), (8, 1))
+    t = Tensor(layout)
+    with pytest.raises(TypeError, match="flat 1D storage"):
+        t.data = np.arange(32).reshape(4, 8)
 
 
 def test_data_with_positive_offset_needs_full_address_range():
