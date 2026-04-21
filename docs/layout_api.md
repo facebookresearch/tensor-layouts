@@ -146,7 +146,7 @@ affine-only code paths:
 | Helper | Meaning |
 |--------|---------|
 | `is_layout(x)` | True for both `Layout` and `ComposedLayout` |
-| `is_affine_layout(x)` | True only for `Layout` |
+| `is_affine(x)` | True only for `Layout` (structural; also accepts anything with `.layout`) |
 | `as_layout_expr(x)` | Accept generic layout consumers |
 | `as_affine_layout(x)` | Reject `ComposedLayout` with a clear error |
 

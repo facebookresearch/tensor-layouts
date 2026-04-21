@@ -74,7 +74,7 @@ def _linear_offset_bounds(shape, stride) -> tuple[int, int]:
 
 def _address_bounds(layout: LayoutExpr, offset: int) -> tuple[int, int]:
     """Return the min/max storage indices addressed by a Tensor."""
-    if is_affine_layout(layout) and layout.swizzle is None:
+    if is_affine(layout) and layout.swizzle is None:
         min_linear, max_linear = _linear_offset_bounds(layout.shape, layout.stride)
         return offset + min_linear, offset + max_linear
 
@@ -172,6 +172,14 @@ class Tensor:
 
     @property
     def stride(self):
+        """The stride of the underlying affine layout.
+
+        Raises:
+            TypeError: If the layout is a ComposedLayout (non-affine).
+                       Check ``is_affine(tensor)`` first, or use the
+                       ``layout`` property to access the full layout
+                       expression.
+        """
         return as_affine_layout(self._layout).stride
 
     @property
@@ -296,14 +304,11 @@ class Tensor:
             raise TypeError("Cannot assign to a Tensor with no storage")
         if self._contains_free_coordinates(key):
             raise TypeError(
-                "Tensor assignment requires fully-fixed coordinates "
-                "(no ':' or None in the key)"
+                "Tensor assignment requires fully-fixed coordinates (no ':' or None in the key)"
             )
         if isinstance(key, tuple):
             if len(key) != rank(self._layout):
-                raise IndexError(
-                    f"Expected {rank(self._layout)} indices, got {len(key)}"
-                )
+                raise IndexError(f"Expected {rank(self._layout)} indices, got {len(key)}")
             offset = _tensor_address(self._offset, self._layout, key)
         elif isinstance(key, int):
             offset = _tensor_address(self._offset, self._layout, key)
@@ -324,9 +329,7 @@ class Tensor:
           - tuple containing None(s): partial hierarchical slice
         """
         if len(keys) != rank(self._layout):
-            raise IndexError(
-                f"Expected {rank(self._layout)} indices, got {len(keys)}"
-            )
+            raise IndexError(f"Expected {rank(self._layout)} indices, got {len(keys)}")
 
         normalized = []
         has_free = False
