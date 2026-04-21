@@ -179,6 +179,17 @@ def make_layout_like(layout: Layout, tiler) -> Layout:
     result_strides = get_strides_for_shape(tiler_shape)
     return Layout(tiler_shape, result_strides)
 
+
+def _exact_tile_factor(requested: int, natural: int, *, axis: str, tile_mnk) -> int:
+    """Return the exact replication factor for one tile axis or raise."""
+    if requested < natural or requested % natural != 0:
+        raise ValueError(
+            "tile_mma_grid: tile_mnk must be an exact multiple of the natural MMA tile; "
+            f"got {axis}={requested} for natural {axis}={natural} in tile_mnk={tile_mnk}"
+        )
+    return requested // natural
+
+
 def tile_mma_grid(atom, atom_layout, matrix='C', tile_mnk=None):
     """Compute the tiled MMA grid by replicating an atom across quadpairs.
 
@@ -196,7 +207,9 @@ def tile_mma_grid(atom, atom_layout, matrix='C', tile_mnk=None):
         atom_layout: Layout mapping (am, an) → atom_index.
         matrix: Which matrix to tile: 'A', 'B', or 'C'
         tile_mnk: Optional (M, N, K) final tile dimensions. If larger than
-                  the natural tile, replicates via value tiling.
+                  the natural tile, replicates via exact value tiling. Each
+                  requested dimension must be an exact multiple of the natural
+                  tiled-MMA dimension for that axis.
 
     Returns:
         grid: dict (row, col) → (physical_thread_id, value_id, logical_thread_id)
@@ -278,36 +291,41 @@ def tile_mma_grid(atom, atom_layout, matrix='C', tile_mnk=None):
     nat_M = M_atom * n_atoms_m
     nat_N = N_atom * n_atoms_n
 
-    # Value tiling: if tile_mnk is larger than natural, replicate with new values
+    # Natural full-tile dimensions implied by the atom arrangement.
+    nat_tile_shape = (nat_M, nat_N, K_atom)
+    tile_shape = nat_tile_shape
+    rep_M = rep_N = rep_K = 1
+
+    # Value tiling: when tile_mnk is provided, it must be an exact multiple
+    # of the natural tiled-MMA shape. Each panel then expands only along the
+    # dimensions relevant to that operand.
     if tile_mnk is not None:
         tile_M, tile_N, tile_K = tile_mnk
-
-        if matrix == 'C':
-            rep_m = tile_M // nat_M
-            rep_n = tile_N // nat_N
-        elif matrix == 'A':
-            rep_m = tile_M // nat_M
-            rep_n = 1
-        else:  # B
-            rep_m = tile_N // nat_N
-            rep_n = 1
-
-        if rep_m * rep_n > 1:
-            base_grid = dict(grid)
-            base_rows = row_atoms * atom_rows
-            base_cols = col_atoms * atom_cols
-            grid = {}
-            val_offset = 0
-            for vm in range(rep_m):
-                for vn in range(rep_n):
-                    for (r, c), (pt, v, lt) in base_grid.items():
-                        new_r = r + vm * base_rows
-                        new_c = c + vn * base_cols
-                        new_v = v + val_offset * num_v
-                        grid[(new_r, new_c)] = (pt, new_v, lt)
-                    val_offset += 1
-
-    tile_shape = (M_atom * n_atoms_m, N_atom * n_atoms_n, K_atom)
-    if tile_mnk is not None:
         tile_shape = tile_mnk
+        rep_M = _exact_tile_factor(tile_M, nat_M, axis="M", tile_mnk=tile_mnk)
+        rep_N = _exact_tile_factor(tile_N, nat_N, axis="N", tile_mnk=tile_mnk)
+        rep_K = _exact_tile_factor(tile_K, K_atom, axis="K", tile_mnk=tile_mnk)
+
+    if matrix == 'C':
+        rep_rows, rep_cols = rep_M, rep_N
+    elif matrix == 'A':
+        rep_rows, rep_cols = rep_M, rep_K
+    else:  # B
+        rep_rows, rep_cols = rep_N, rep_K
+
+    if rep_rows * rep_cols > 1:
+        base_grid = dict(grid)
+        base_rows = row_atoms * atom_rows
+        base_cols = col_atoms * atom_cols
+        grid = {}
+        val_offset = 0
+        for vr in range(rep_rows):
+            for vc in range(rep_cols):
+                for (r, c), (pt, v, lt) in base_grid.items():
+                    new_r = r + vr * base_rows
+                    new_c = c + vc * base_cols
+                    new_v = v + val_offset * num_v
+                    grid[(new_r, new_c)] = (pt, new_v, lt)
+                val_offset += 1
+
     return grid, tile_shape
