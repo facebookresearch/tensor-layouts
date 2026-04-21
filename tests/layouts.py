@@ -24,7 +24,13 @@ import pytest
 
 from tensor_layouts import *
 from tensor_layouts.analysis import functionally_equal
-from tensor_layouts.layout_utils import make_layout_like, make_ordered_layout, tile_to_shape
+from tensor_layouts.layout_utils import (
+    make_layout_like,
+    make_ordered_layout,
+    tile_mma_grid,
+    tile_to_shape,
+)
+from tensor_layouts.atoms_nv import SM80_16x8x16_F16F16F16F16_TN
 
 
 # These tests roughly follow:
@@ -2028,6 +2034,40 @@ def test_make_ordered_layout_rejects_invalid_order(order):
 def test_make_ordered_layout_scalar_rejects_invalid_order():
     with pytest.raises(ValueError, match="permutation"):
         make_ordered_layout(16, (1,))
+
+
+def test_tile_mma_grid_exact_multiple_expands_c_panel():
+    atom = SM80_16x8x16_F16F16F16F16_TN
+    grid, tile_shape = tile_mma_grid(atom, Layout(1, 1), matrix="C", tile_mnk=(32, 16, 16))
+
+    assert tile_shape == (32, 16, 16)
+    assert max(r for r, _ in grid) + 1 == 32
+    assert max(c for _, c in grid) + 1 == 16
+
+
+def test_tile_mma_grid_exact_multiple_expands_a_panel_along_k():
+    atom = SM80_16x8x16_F16F16F16F16_TN
+    grid, tile_shape = tile_mma_grid(atom, Layout(1, 1), matrix="A", tile_mnk=(16, 8, 32))
+
+    assert tile_shape == (16, 8, 32)
+    assert max(r for r, _ in grid) + 1 == 16
+    assert max(c for _, c in grid) + 1 == 32
+
+
+@pytest.mark.parametrize(
+    ("matrix", "tile_mnk"),
+    [
+        ("C", (17, 8, 16)),
+        ("C", (16, 9, 16)),
+        ("C", (16, 8, 17)),
+        ("A", (16, 8, 24)),
+        ("B", (24, 8, 16)),
+    ],
+)
+def test_tile_mma_grid_rejects_incompatible_tile_mnk(matrix, tile_mnk):
+    atom = SM80_16x8x16_F16F16F16F16_TN
+    with pytest.raises(ValueError, match="exact multiple"):
+        tile_mma_grid(atom, Layout(1, 1), matrix=matrix, tile_mnk=tile_mnk)
 
 
 ## dice_modes
