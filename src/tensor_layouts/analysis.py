@@ -47,6 +47,7 @@ __all__ = [
     "offset_table",
     "aliasing_profile",
     "footprint",
+    "gap_profile",
     "bank_conflicts",
     "per_group_bank_conflicts",
     "coalescing_efficiency",
@@ -327,6 +328,67 @@ def footprint(layout: LayoutExpr) -> dict:
         'total_elements': n_total,
         'reuse_factor': n_total / n_unique if n_unique > 0 else 0.0,
         'holes': span - n_unique,
+    }
+
+
+def gap_profile(layout: LayoutExpr) -> dict:
+    """Summarize interior gap structure in the visited offset set.
+
+    :func:`footprint` reports coarse sparsity via total hole count. This
+    function provides finer-grained locality information by identifying
+    contiguous runs and the exact gap sizes between neighboring offsets.
+
+    Returns:
+        dict with:
+            runs: list of inclusive ``(start, end)`` contiguous runs
+            gap_sizes: list of interior gaps between neighboring visited
+                offsets in sorted order
+            max_gap: maximum value in ``gap_sizes`` (0 when no gaps)
+            avg_gap: arithmetic mean of ``gap_sizes`` (0.0 when no gaps)
+            run_count: number of contiguous runs
+            isolated_offsets: number of runs of length 1
+
+    Examples:
+        gap_profile(Layout(8, 1))
+        # {'runs': [(0, 7)], 'gap_sizes': [], 'max_gap': 0, ...}
+
+        gap_profile(Layout(4, 2))
+        # {'runs': [(0, 0), (2, 2), (4, 4), (6, 6)],
+        #  'gap_sizes': [1, 1, 1], 'max_gap': 1, ...}
+    """
+    offsets = image(layout)
+    if not offsets:
+        return {
+            'runs': [],
+            'gap_sizes': [],
+            'max_gap': 0,
+            'avg_gap': 0.0,
+            'run_count': 0,
+            'isolated_offsets': 0,
+        }
+
+    runs = []
+    gap_sizes = []
+    run_start = offsets[0]
+    prev = offsets[0]
+    for off in offsets[1:]:
+        gap = off - prev - 1
+        if gap == 0:
+            prev = off
+            continue
+        runs.append((run_start, prev))
+        gap_sizes.append(gap)
+        run_start = off
+        prev = off
+    runs.append((run_start, prev))
+
+    return {
+        'runs': runs,
+        'gap_sizes': gap_sizes,
+        'max_gap': max(gap_sizes, default=0),
+        'avg_gap': (sum(gap_sizes) / len(gap_sizes)) if gap_sizes else 0.0,
+        'run_count': len(runs),
+        'isolated_offsets': sum(1 for s, e in runs if s == e),
     }
 
 

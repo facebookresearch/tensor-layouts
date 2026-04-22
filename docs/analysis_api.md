@@ -45,7 +45,7 @@ bijective layouts, and trace the algebra step by step.
 ```python
 from tensor_layouts.analysis import (
     image, is_injective, is_surjective, is_bijective,
-    offset_table, bank_conflicts, coalescing_efficiency,
+    offset_table, footprint, gap_profile, bank_conflicts, coalescing_efficiency,
     cycles, fixed_points, order, thread_stride_profile, explain,
 )
 ```
@@ -62,6 +62,7 @@ Most of the analysis module now accepts any `LayoutExpr`
 That includes:
 
 - `image`, `offset_table`, `footprint`
+- `gap_profile`
 - `bank_conflicts`, `per_group_bank_conflicts`
 - `coalescing_efficiency`, `segment_analysis`, `per_group_coalescing`
 - `cycles`, `fixed_points`, `order`
@@ -134,6 +135,22 @@ offset_table(Layout(4, 1))
 offset_table(Layout((4, 2), (0, 1)))
 # {0: [(0,0), (1,0), (2,0), (3,0)],
 #  1: [(0,1), (1,1), (2,1), (3,1)]}
+```
+
+## footprint(layout) and gap_profile(layout)
+
+`footprint` gives high-level span and hole counts; `gap_profile` explains
+*where* holes occur by splitting visited offsets into contiguous runs and
+reporting interior gap sizes.
+
+```python
+L = Layout(4, 2)  # offsets: 0,2,4,6
+footprint(L)
+# {'min_offset': 0, 'max_offset': 6, 'span': 7, 'holes': 3, ...}
+
+gap_profile(L)
+# {'runs': [(0,0), (2,2), (4,4), (6,6)],
+#  'gap_sizes': [1,1,1], 'max_gap': 1, 'run_count': 4, ...}
 ```
 
 ## bank_conflicts(layout, *, element_bytes, num_banks=32, bank_width_bytes=4, group_size=32)
