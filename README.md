@@ -6,7 +6,7 @@
 [![PyPI](https://img.shields.io/pypi/v/tensor-layouts)](https://pypi.org/project/tensor-layouts/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/facebookresearch/tensor-layouts/blob/main/LICENSE)
 
-A pure-Python implementation of the [NVIDIA CuTe](https://github.com/NVIDIA/cutlass/blob/main/media/docs/cute/00_quickstart.md) layout algebra. **No GPU required.**
+A pure-Python implementation of the [NVIDIA CuTe](https://github.com/NVIDIA/cutlass/blob/main/media/docs/cpp/cute/00_quickstart.md) layout algebra. **No GPU required.**
 
 CuTe layouts describe how logical coordinates map to memory offsets on GPUs.
 This library lets you construct, compose, and visualize those layouts using
