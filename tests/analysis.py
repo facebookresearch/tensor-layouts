@@ -148,6 +148,93 @@ def test_footprint_broadcast():
     assert result['holes'] == 0
 
 
+## gap_profile
+
+
+def test_gap_profile_contiguous():
+    """Contiguous layout has one run and no interior gaps."""
+    result = gap_profile(Layout(8, 1))
+    assert result['runs'] == [(0, 7)]
+    assert result['gap_sizes'] == []
+    assert result['max_gap'] == 0
+    assert result['avg_gap'] == 0.0
+    assert result['run_count'] == 1
+    assert result['isolated_offsets'] == 0
+
+
+def test_gap_profile_strided():
+    """Stride-2 layout has single-element runs separated by gap=1."""
+    result = gap_profile(Layout(4, 2))
+    assert result['runs'] == [(0, 0), (2, 2), (4, 4), (6, 6)]
+    assert result['gap_sizes'] == [1, 1, 1]
+    assert result['max_gap'] == 1
+    assert result['avg_gap'] == pytest.approx(1.0)
+    assert result['run_count'] == 4
+    assert result['isolated_offsets'] == 4
+
+
+def test_gap_profile_negative_stride():
+    """Negative strides still produce sorted runs in offset space."""
+    result = gap_profile(Layout(4, -2))
+    assert result['runs'] == [(-6, -6), (-4, -4), (-2, -2), (0, 0)]
+    assert result['gap_sizes'] == [1, 1, 1]
+    assert result['max_gap'] == 1
+    assert result['avg_gap'] == pytest.approx(1.0)
+    assert result['run_count'] == 4
+    assert result['isolated_offsets'] == 4
+
+
+def test_gap_profile_broadcast_aliasing_has_no_gaps():
+    """Aliasing does not imply holes: broadcast is dense in offset space."""
+    result = gap_profile(Layout((4, 2), (0, 1)))
+    assert result['runs'] == [(0, 1)]
+    assert result['gap_sizes'] == []
+    assert result['max_gap'] == 0
+    assert result['avg_gap'] == 0.0
+    assert result['run_count'] == 1
+    assert result['isolated_offsets'] == 0
+
+
+def test_gap_profile_zero_size_layout():
+    """Empty domains produce an empty run/gap profile."""
+    result = gap_profile(Layout(0, 1))
+    assert result == {
+        'runs': [],
+        'gap_sizes': [],
+        'max_gap': 0,
+        'avg_gap': 0.0,
+        'run_count': 0,
+        'isolated_offsets': 0,
+    }
+
+
+def test_gap_profile_invariants_match_footprint():
+    """gap_profile and footprint must agree on span/holes decomposition."""
+    for shape in range(0, 8):
+        for stride in range(-4, 5):
+            lyt = Layout(shape, stride)
+            gp = gap_profile(lyt)
+            fp = footprint(lyt)
+
+            # Reconstruct unique-offset count from run lengths.
+            run_lengths = [end - start + 1 for start, end in gp['runs']]
+            assert sum(run_lengths) == fp['unique_offsets']
+
+            # Holes are exactly the interior gaps between runs.
+            assert sum(gp['gap_sizes']) == fp['holes']
+            assert gp['max_gap'] == max(gp['gap_sizes'], default=0)
+            assert gp['run_count'] == len(gp['runs'])
+            assert gp['isolated_offsets'] == sum(1 for n in run_lengths if n == 1)
+
+            # Empty/single-run edge cases.
+            if gp['gap_sizes']:
+                assert gp['avg_gap'] == pytest.approx(
+                    sum(gp['gap_sizes']) / len(gp['gap_sizes'])
+                )
+            else:
+                assert gp['avg_gap'] == 0.0
+
+
 ## bank_conflicts
 
 
