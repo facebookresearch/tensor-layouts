@@ -75,8 +75,8 @@ def _generate_intile_oftile(path: Path) -> None:
         """Draw M×K grid with colored tiles and per-cell text."""
         for r in range(M):
             for c in range(K):
-                om, im = r // tm, r % tm
-                ok, ik = c // tk, c % tk
+                om = r // tm
+                ok = c // tk
                 y = M - 1 - r
                 rect = patches.Rectangle(
                     (c, y), 1, 1,

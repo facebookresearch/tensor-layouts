@@ -2,7 +2,8 @@
   <img src="https://raw.githubusercontent.com/facebookresearch/tensor-layouts/main/docs/images/logo.svg" alt="tensor-layouts" width="520">
 </p>
 
-[![CI](https://github.com/facebookresearch/tensor-layouts/actions/workflows/ci.yml/badge.svg)](https://github.com/facebookresearch/tensor-layouts/actions/workflows/ci.yml)
+[![Lint](https://github.com/facebookresearch/tensor-layouts/actions/workflows/lint.yml/badge.svg)](https://github.com/facebookresearch/tensor-layouts/actions/workflows/lint.yml)
+[![Tests](https://github.com/facebookresearch/tensor-layouts/actions/workflows/tests.yml/badge.svg)](https://github.com/facebookresearch/tensor-layouts/actions/workflows/tests.yml)
 [![PyPI](https://img.shields.io/pypi/v/tensor-layouts)](https://pypi.org/project/tensor-layouts/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/facebookresearch/tensor-layouts/blob/main/LICENSE)
 
@@ -222,10 +223,10 @@ pytest tests/oracle_amd.py
 
 - [CuTe Layout Representation and Algebra — Cris Cecka](https://arxiv.org/abs/2603.02298)
 - [Categorical Foundations for CuTe Layouts — Jack Carlisle, Jay Shah, Reuben Stern, Paul VanKoughnett](https://arxiv.org/abs/2601.05972)
-- [CuTe Documentation](https://github.com/NVIDIA/cutlass/blob/main/media/docs/cute/00_quickstart.md)
+- [CuTe Documentation](https://github.com/NVIDIA/cutlass/blob/main/media/docs/cpp/cute/00_quickstart.md)
 - [NVIDIA PTX ISA](https://docs.nvidia.com/cuda/parallel-thread-execution/)
 - [NVIDIA Cutlass](https://github.com/NVIDIA/cutlass)
-- [Cutlass MMA Atoms](https://github.com/NVIDIA/cutlass/blob/main/media/docs/cute/0t_mma_atom.md)
+- [Cutlass MMA Atoms](https://github.com/NVIDIA/cutlass/blob/main/media/docs/cpp/cute/0t_mma_atom.md)
 - [AMD Matrix Instruction Calculator](https://github.com/ROCm/amd_matrix_instruction_calculator)
 - [AMD Matrix Cores Lab Notes](https://gpuopen.com/learn/amd-lab-notes/amd-lab-notes-matrix-cores-readme/)
 - [Intel DPAS / VISA instruction specification](https://github.com/intel/intel-graphics-compiler/blob/master/documentation/visa/instructions/DPAS.md)
