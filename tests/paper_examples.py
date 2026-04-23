@@ -583,7 +583,10 @@ def test_table1_integer_linear_form():
 
 def test_table1_coordinate_linear_form():
     """Table 1: coordinate strides form the 2×3 matrix [e1, e0, 6e1]."""
-    coord_layout = lambda row, col0, col1: (col0, row + 6 * col1)
+
+    def coord_layout(row, col0, col1):
+        return (col0, row + 6 * col1)
+
     assert coord_layout(1, 0, 0) == (0, 1)
     assert coord_layout(0, 1, 0) == (1, 0)
     assert coord_layout(0, 0, 1) == (0, 6)
