@@ -57,6 +57,8 @@ __all__ = [
     "cycles",
     "fixed_points",
     "order",
+    "permutation_parity",
+    "is_even_permutation",
     "contiguity",
     "mode_contiguity",
     "slice_contiguity",
@@ -1044,6 +1046,43 @@ def order(layout: LayoutExpr) -> int:
         result = result * length // gcd(result, length)
 
     return result
+
+
+def permutation_parity(layout: LayoutExpr) -> int:
+    """Return permutation parity of a dense, injective layout (+1 even, -1 odd).
+
+    The layout is interpreted as a permutation on ``[0, size(layout))`` after
+    rebasing its dense image interval (same normalization used by
+    :func:`cycles` and :func:`order`).
+
+    Returns:
+        +1 for an even permutation, -1 for an odd permutation.
+        Empty layouts are treated as the identity permutation and return +1.
+
+    Raises:
+        ValueError: if layout is not injective or its image has gaps.
+
+    Examples:
+        permutation_parity(Layout(4, 1))  # +1 (identity)
+
+        # Adjacent swap is odd
+        permutation_parity(Layout((2, 2), (2, 1)))  # -1
+    """
+    cycle_list = cycles(layout)
+    # A k-cycle is equivalent to (k - 1) transpositions.
+    transposition_count = sum(len(cycle) - 1 for cycle in cycle_list)
+    return 1 if transposition_count % 2 == 0 else -1
+
+
+def is_even_permutation(layout: LayoutExpr) -> bool:
+    """Return True if the induced dense permutation is even.
+
+    Equivalent to ``permutation_parity(layout) == +1``.
+
+    Raises ValueError under the same conditions as
+    :func:`permutation_parity`.
+    """
+    return permutation_parity(layout) == 1
 
 
 # =============================================================================
