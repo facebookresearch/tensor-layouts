@@ -46,7 +46,8 @@ bijective layouts, and trace the algebra step by step.
 from tensor_layouts.analysis import (
     image, is_injective, is_surjective, is_bijective,
     offset_table, footprint, gap_profile, bank_conflicts, coalescing_efficiency,
-    cycles, fixed_points, order, thread_stride_profile, explain,
+    cycles, fixed_points, order, permutation_parity, is_even_permutation,
+    thread_stride_profile, explain,
 )
 ```
 
@@ -65,7 +66,7 @@ That includes:
 - `gap_profile`
 - `bank_conflicts`, `per_group_bank_conflicts`
 - `coalescing_efficiency`, `segment_analysis`, `per_group_coalescing`
-- `cycles`, `fixed_points`, `order`
+- `cycles`, `fixed_points`, `order`, `permutation_parity`, `is_even_permutation`
 
 Some helpers remain intentionally **affine-only** because they need a real
 stride tree or linear/F2 structure:
@@ -262,17 +263,19 @@ thread_stride_profile(Layout((8, 2), (0, 8)))
 
 ## Permutation Analysis
 
-When a layout is bijective (every offset is hit exactly once), it defines
-a permutation.  Understanding its cycle structure reveals how data moves
-through memory --- transpositions, rotations, and fixed points all have
-distinct performance implications.
+When a layout is injective and its image is a dense interval, it defines
+an induced permutation after rebasing that interval to start at 0.
+Understanding cycle structure and parity reveals how data moves through
+memory --- transpositions, rotations, and fixed points all have distinct
+performance implications.
 
 ### cycles(layout)
 
 Decompose the permutation into disjoint cycles.  Fixed points (elements
 that map to themselves) appear as length-1 cycles.
 
-Raises `ValueError` if the layout is not bijective.
+Raises `ValueError` if the layout is not injective or its image is not a
+dense interval.
 
 ```python
 # Row-major 3x2: the transpose permutation on a 3x2 matrix.
@@ -300,12 +303,38 @@ fixed_points(Layout(4, 1))            # [0, 1, 2, 3]  (identity)
 The permutation order: smallest `k > 0` such that applying the layout
 `k` times returns to the identity.  Equals the LCM of all cycle lengths.
 
-Raises `ValueError` if the layout is not bijective.
+Raises `ValueError` if the layout is not injective or its image is not a
+dense interval.
 
 ```python
 order(Layout(4, 1))              # 1  (identity)
 order(Layout((2, 2), (2, 1)))    # 2  (single transposition)
 order(Layout((3, 2), (2, 1)))    # 4  (has a 4-cycle)
+order(Layout(4, -1))             # 2  (dense reversed interval after rebasing)
+```
+
+### permutation_parity(layout)
+
+Return `+1` for even and `-1` for odd induced permutations.
+
+Parity is computed from the cycle decomposition: each cycle of length `k`
+contributes `k-1` transpositions. Empty layouts are treated as identity and
+return `+1`.
+
+Raises `ValueError` under the same conditions as `cycles`/`order`.
+
+```python
+permutation_parity(Layout(8, 1))            # +1 (identity)
+permutation_parity(Layout((2, 2), (2, 1)))  # -1 (single swap)
+permutation_parity(Layout(4, -1))           # +1 ((0 3)(1 2))
+```
+
+### is_even_permutation(layout)
+
+Convenience predicate equivalent to:
+
+```python
+permutation_parity(layout) == 1
 ```
 
 ## contiguity(layout)
