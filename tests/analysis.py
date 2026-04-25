@@ -596,6 +596,76 @@ def test_order_negative_stride_rebases_dense_image():
     assert order(Layout(4, -1)) == 2
 
 
+## permutation parity
+
+
+def test_permutation_parity_identity_even():
+    """Identity mapping is an even permutation."""
+    assert permutation_parity(Layout(8, 1)) == 1
+    assert is_even_permutation(Layout(8, 1)) is True
+
+
+def test_permutation_parity_empty_layout_is_identity():
+    """Empty layout has identity parity by convention."""
+    assert permutation_parity(Layout(0, 1)) == 1
+    assert is_even_permutation(Layout(0, 1)) is True
+
+
+def test_permutation_parity_single_swap_odd():
+    """A single transposition has odd parity."""
+    # Row-major 2x2 induces [0, 2, 1, 3], i.e. swap(1, 2).
+    lyt = Layout((2, 2), (2, 1))
+    assert permutation_parity(lyt) == -1
+    assert is_even_permutation(lyt) is False
+
+
+def test_permutation_parity_two_disjoint_swaps_even():
+    """Two disjoint transpositions compose to an even permutation."""
+    # XOR with bit 1 on 8 elements yields (2 3)(6 7).
+    lyt = compose(Swizzle(1, 0, 1), Layout(8, 1))
+    assert permutation_parity(lyt) == 1
+    assert is_even_permutation(lyt) is True
+
+
+def test_permutation_parity_negative_dense_reverse_even():
+    """Dense reverse on 4 elements is two swaps, hence even."""
+    assert permutation_parity(Layout(4, -1)) == 1
+    assert is_even_permutation(Layout(4, -1)) is True
+
+
+def test_permutation_parity_matches_inversion_count():
+    """Parity must match independent inversion-count computation."""
+    candidates = [
+        Layout(8, 1),  # identity
+        Layout((2, 2), (2, 1)),  # one swap (odd)
+        Layout(4, -1),  # reverse 4 (even)
+        compose(Swizzle(1, 0, 1), Layout(8, 1)),  # two disjoint swaps (even)
+        compose(Swizzle(2, 0, 1), Layout(8, 1)),  # non-trivial dense permutation
+    ]
+
+    for lyt in candidates:
+        values = [lyt(i) for i in range(size(lyt))]
+        base = min(values) if values else 0
+        perm = [v - base for v in values]
+        inversions = 0
+        for i in range(len(perm)):
+            for j in range(i + 1, len(perm)):
+                if perm[i] > perm[j]:
+                    inversions += 1
+        expected = 1 if inversions % 2 == 0 else -1
+        assert permutation_parity(lyt) == expected
+        assert is_even_permutation(lyt) is (expected == 1)
+
+
+def test_permutation_parity_requires_dense_injective_layout():
+    """Parity analysis rejects layouts with aliasing or gaps."""
+    with pytest.raises(ValueError, match="not injective"):
+        permutation_parity(Layout((4, 2), (0, 1)))
+
+    with pytest.raises(ValueError, match="not a dense interval"):
+        permutation_parity(Layout(4, 2))
+
+
 ## contiguity
 
 
