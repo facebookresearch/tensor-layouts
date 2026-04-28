@@ -24,13 +24,13 @@ import pytest
 
 from tensor_layouts import *
 from tensor_layouts.analysis import functionally_equal
+from tensor_layouts.atoms_nv import SM80_16x8x16_F16F16F16F16_TN
 from tensor_layouts.layout_utils import (
     make_layout_like,
     make_ordered_layout,
     tile_mma_grid,
     tile_to_shape,
 )
-from tensor_layouts.atoms_nv import SM80_16x8x16_F16F16F16F16_TN
 
 
 # These tests roughly follow:
@@ -984,7 +984,9 @@ def test_compose_two_2d():
     # B(0,0)=0, B(1,0)=1, B(0,1)=2, B(1,1)=3
     # A(0)=0, A(1)=1, A(2)=2, A(3)=3
     # So compose gives same result as B indexing into first 4 elements of A
-    assert compose(Layout((4, 4), (1, 4)), Layout((2, 2), (1, 2))) == Layout((2, 2), (1, 2))
+    assert compose(Layout((4, 4), (1, 4)), Layout((2, 2), (1, 2))) == Layout(
+        (2, 2), (1, 2)
+    )
 
 
 def test_compose_functional_equivalence():
@@ -1111,7 +1113,9 @@ def test_logical_divide_nested_tuple_tiler_recurses_mode_by_mode():
 
     assert result == expected
     assert result == Layout((((2, 1), (3, 1)), (4, 2)), (((1, 0), (2, 0)), (6, 24)))
-    assert sorted(result(i) for i in range(size(result))) == sorted(a(i) for i in range(size(a)))
+    assert sorted(result(i) for i in range(size(result))) == sorted(
+        a(i) for i in range(size(a))
+    )
     assert functionally_equal(result, expected)
 
 
@@ -1919,6 +1923,7 @@ def test_is_layout():
     assert is_affine(ComposedLayout(Layout(4, 1), Layout(4, 1))) is False
     # Dispatches through .layout (Tensor)
     from tensor_layouts import Tensor
+
     assert is_affine(Tensor(Layout(4, 1))) is True
     assert is_affine(Tensor(ComposedLayout(Layout(4, 1), Layout(4, 1)))) is False
     assert is_layout(4) is False
@@ -2038,7 +2043,9 @@ def test_make_ordered_layout_scalar_rejects_invalid_order():
 
 def test_tile_mma_grid_exact_multiple_expands_c_panel():
     atom = SM80_16x8x16_F16F16F16F16_TN
-    grid, tile_shape = tile_mma_grid(atom, Layout(1, 1), matrix="C", tile_mnk=(32, 16, 16))
+    grid, tile_shape = tile_mma_grid(
+        atom, Layout(1, 1), matrix="C", tile_mnk=(32, 16, 16)
+    )
 
     assert tile_shape == (32, 16, 16)
     assert max(r for r, _ in grid) + 1 == 32
@@ -2047,7 +2054,9 @@ def test_tile_mma_grid_exact_multiple_expands_c_panel():
 
 def test_tile_mma_grid_exact_multiple_expands_a_panel_along_k():
     atom = SM80_16x8x16_F16F16F16F16_TN
-    grid, tile_shape = tile_mma_grid(atom, Layout(1, 1), matrix="A", tile_mnk=(16, 8, 32))
+    grid, tile_shape = tile_mma_grid(
+        atom, Layout(1, 1), matrix="A", tile_mnk=(16, 8, 32)
+    )
 
     assert tile_shape == (16, 8, 32)
     assert max(r for r, _ in grid) + 1 == 16
@@ -2432,11 +2441,11 @@ def test_upcast_known_copy_atoms():
     derived from the CUTLASS C++ copy_traits_sm75.hpp source.
     """
     from tensor_layouts.atoms_nv import (
-        SM75_U32x1_LDSM_N,
-        SM75_U32x4_LDSM_N,
         SM75_U16x2_LDSM_T,
         SM75_U16x4_LDSM_T,
         SM75_U16x8_LDSM_T,
+        SM75_U32x1_LDSM_N,
+        SM75_U32x4_LDSM_N,
     )
 
     cases = [

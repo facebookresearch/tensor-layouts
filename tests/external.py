@@ -52,34 +52,34 @@ def _test_complement_properties(layout, cotarget=None):
     completed = Layout(layout, result)
 
     # Property 1: Lower-bound on codomain size of layout ++ complement
-    assert (
-        cosize(completed) >= cotarget_size
-    ), f"cosize(completed)={cosize(completed)} < size(cotarget)={cotarget_size}"
+    assert cosize(completed) >= cotarget_size, (
+        f"cosize(completed)={cosize(completed)} < size(cotarget)={cotarget_size}"
+    )
 
     # Property 2: Upper-bound on codomain size of complement
     # Always use cosize(layout), regardless of rank
     layout_cosize = cosize(layout)
-    assert cosize(result) <= round_up(
-        cotarget_size, layout_cosize
-    ), f"cosize(result)={cosize(result)} > round_up({cotarget_size}, {layout_cosize})={round_up(cotarget_size, layout_cosize)}"
+    assert cosize(result) <= round_up(cotarget_size, layout_cosize), (
+        f"cosize(result)={cosize(result)} > round_up({cotarget_size}, {layout_cosize})={round_up(cotarget_size, layout_cosize)}"
+    )
 
     # Property 3: Result is ordered (CuTe starts at i=1)
     for i in range(1, size(result)):
-        assert result(i - 1) < result(
-            i
-        ), f"result is not ordered: result({i-1})={result(i-1)} >= result({i})={result(i)}"
+        assert result(i - 1) < result(i), (
+            f"result is not ordered: result({i - 1})={result(i - 1)} >= result({i})={result(i)}"
+        )
 
     # Property 4: Result is disjoint from layout (CuTe starts at i=1)
     for i in range(1, size(result)):
         for j in range(size(layout)):
-            assert result(i) != layout(
-                j
-            ), f"result and layout overlap: result({i})={result(i)} == layout({j})={layout(j)}"
+            assert result(i) != layout(j), (
+                f"result and layout overlap: result({i})={result(i)} == layout({j})={layout(j)}"
+            )
 
     # Other observations from CuTe
-    assert size(result) <= cosize(
-        result
-    ), f"size(result)={size(result)} > cosize(result)={cosize(result)}"
+    assert size(result) <= cosize(result), (
+        f"size(result)={size(result)} > cosize(result)={cosize(result)}"
+    )
 
 
 def test_complement_layout_1_0():
@@ -226,17 +226,20 @@ def _test_coalesce_properties(layout):
     coalesce_layout = coalesce(layout)
 
     # Property 1: Result depth is at most 1 (flattened)
-    assert depth(coalesce_layout) <= 1, \
+    assert depth(coalesce_layout) <= 1, (
         f"depth(coalesce_layout)={depth(coalesce_layout)} > 1"
+    )
 
     # Property 2: Size is preserved
-    assert size(coalesce_layout) == size(layout), \
+    assert size(coalesce_layout) == size(layout), (
         f"size(coalesce_layout)={size(coalesce_layout)} != size(layout)={size(layout)}"
+    )
 
     # Property 3: All indices map to the same offsets
     for i in range(size(layout)):
-        assert coalesce_layout(i) == layout(i), \
+        assert coalesce_layout(i) == layout(i), (
             f"coalesce_layout({i})={coalesce_layout(i)} != layout({i})={layout(i)}"
+        )
 
 
 def test_coalesce_simple():
@@ -329,16 +332,18 @@ def _test_composition_properties(layout_a, layout_b):
     layout_r = compose(layout_a, layout_b)
 
     # Property 1: Layout B is compatible with layout R
-    assert compatible(layout_b.shape, layout_r.shape), \
+    assert compatible(layout_b.shape, layout_r.shape), (
         f"layoutB.shape={layout_b.shape} not compatible with layoutR.shape={layout_r.shape}"
+    )
 
     # Property 2: R(c) = A(B(c)) for coordinates within A's domain
     a_size = size(layout_a)
     for c in range(size(layout_b)):
         bc = layout_b(c)
         if bc < a_size:
-            assert layout_r(c) == layout_a(bc), \
+            assert layout_r(c) == layout_a(bc), (
                 f"layoutR({c})={layout_r(c)} != layoutA(layoutB({c}))={layout_a(bc)}"
+            )
 
 
 def test_composition_simple():
@@ -436,21 +441,16 @@ def test_composition_multidimensional():
 def test_composition_nested():
     # Layout((8, 8)) o Layout(((2, 2, 2), (2, 2, 2)), ((1, 16, 4), (8, 2, 32)))
     _test_composition_properties(
-        Layout((8, 8)),
-        Layout(((2, 2, 2), (2, 2, 2)), ((1, 16, 4), (8, 2, 32)))
+        Layout((8, 8)), Layout(((2, 2, 2), (2, 2, 2)), ((1, 16, 4), (8, 2, 32)))
     )
 
     # Layout((8, 8), (8, 1)) o Layout(((2, 2, 2), (2, 2, 2)), ((1, 16, 4), (8, 2, 32)))
     _test_composition_properties(
-        Layout((8, 8), (8, 1)),
-        Layout(((2, 2, 2), (2, 2, 2)), ((1, 16, 4), (8, 2, 32)))
+        Layout((8, 8), (8, 1)), Layout(((2, 2, 2), (2, 2, 2)), ((1, 16, 4), (8, 2, 32)))
     )
 
     # Layout(((4, 2),), ((1, 16),)) o Layout((4, 2), (2, 1))
-    _test_composition_properties(
-        Layout(((4, 2),), ((1, 16),)),
-        Layout((4, 2), (2, 1))
-    )
+    _test_composition_properties(Layout(((4, 2),), ((1, 16),)), Layout((4, 2), (2, 1)))
 
     # Layout((2, 2), (2, 1)) o Layout((2, 2), (2, 1))
     _test_composition_properties(Layout((2, 2), (2, 1)), Layout((2, 2), (2, 1)))
@@ -460,14 +460,12 @@ def test_composition_nested():
 
     # Layout((4, 8, 2), (2, 8, 1)) o Layout((2, 2, 2), (1, 8, 2))
     _test_composition_properties(
-        Layout((4, 8, 2), (2, 8, 1)),
-        Layout((2, 2, 2), (1, 8, 2))
+        Layout((4, 8, 2), (2, 8, 1)), Layout((2, 2, 2), (1, 8, 2))
     )
 
     # Layout((4, 8, 2), (2, 8, 1)) o Layout((4, 2, 2), (2, 8, 1))
     _test_composition_properties(
-        Layout((4, 8, 2), (2, 8, 1)),
-        Layout((4, 2, 2), (2, 8, 1))
+        Layout((4, 8, 2), (2, 8, 1)), Layout((4, 2, 2), (2, 8, 1))
     )
 
 
@@ -484,16 +482,10 @@ def test_composition_dynamic():
     _test_composition_properties(Layout(16, 2), Layout(4, 2))
 
     # Layout((128, 24, 5), (1, 128, 3072)) o Layout(64, 2)
-    _test_composition_properties(
-        Layout((128, 24, 5), (1, 128, 3072)),
-        Layout(64, 2)
-    )
+    _test_composition_properties(Layout((128, 24, 5), (1, 128, 3072)), Layout(64, 2))
 
     # Layout((128, 24, 5), (1, 128, 3072)) o Layout(480, 32)
-    _test_composition_properties(
-        Layout((128, 24, 5), (1, 128, 3072)),
-        Layout(480, 32)
-    )
+    _test_composition_properties(Layout((128, 24, 5), (1, 128, 3072)), Layout(480, 32))
 
 
 def test_composition_cosize_larger():
@@ -582,12 +574,15 @@ def _test_logical_divide_properties(layout, tile):
     # For Layout tilers, verify the result rank is 2 (tile, rest)
     if isinstance(tile, Layout):
         # CuTe formula produces rank-2 result: (Tile, Rest)
-        assert rank(result) == 2, f"Expected rank 2 for Layout tiler, got {rank(result)}"
+        assert rank(result) == 2, (
+            f"Expected rank 2 for Layout tiler, got {rank(result)}"
+        )
 
         # The tile part (mode 0) should have size equal to size(tiler)
         tile_part = mode(result, 0)
-        assert size(tile_part) == size(tile_layout), \
+        assert size(tile_part) == size(tile_layout), (
             f"Tile part size {size(tile_part)} != tiler size {size(tile_layout)}"
+        )
 
 
 def test_logical_divide_simple():
@@ -707,6 +702,7 @@ def _test_swizzle_2d(sw_layout):
     This tests that slicing a tensor with swizzled layout preserves correct indexing.
     """
     from tensor_layouts import Tensor
+
     tensor = Tensor(sw_layout)
 
     # Get dimensions
@@ -752,7 +748,7 @@ def test_swizzle_3_0_3():
     """
     sw_layout = compose(
         Swizzle(3, 0, 3),
-        Layout((8, 8), (8, 1))  # 8x8 row-major
+        Layout((8, 8), (8, 1)),  # 8x8 row-major
     )
 
     _test_swizzle_2d(sw_layout)
@@ -767,7 +763,7 @@ def test_swizzle_3_0_neg3():
     """
     sw_layout = compose(
         Swizzle(3, 0, -3),
-        Layout((8, 8), (8, 1))  # 8x8 row-major
+        Layout((8, 8), (8, 1)),  # 8x8 row-major
     )
 
     _test_swizzle_2d(sw_layout)
@@ -788,11 +784,7 @@ def test_swizzle_2_1_3():
     - shift=3: masks are 3 positions apart (bits [1,3) and [4,6))
     """
     sw_layout = compose(
-        Swizzle(2, 1, 3),
-        Layout(
-            ((2, 2, 2), (2, 2, 2)),
-            ((32, 2, 8), (4, 1, 16))
-        )
+        Swizzle(2, 1, 3), Layout(((2, 2, 2), (2, 2, 2)), ((32, 2, 8), (4, 1, 16)))
     )
 
     _test_swizzle_2d(sw_layout)
@@ -870,10 +862,7 @@ def test_swizzle_with_base():
 
 def test_composed_layout_repr():
     """Test swizzled Layout string representation."""
-    sw_layout = compose(
-        Swizzle(3, 0, 3),
-        Layout((8, 8), (8, 1))
-    )
+    sw_layout = compose(Swizzle(3, 0, 3), Layout((8, 8), (8, 1)))
 
     repr_str = repr(sw_layout)
     assert "Swizzle(3, 0, 3)" in repr_str
@@ -903,10 +892,7 @@ def test_inner_product():
     """Test inner_product (pycute test_int_tuple.py::test_inner_product)."""
     assert inner_product(2, 3) == 6
     assert inner_product((1, 2), (3, 2)) == 7
-    assert inner_product(
-        ((2, 3), 4),
-        ((2, 1), 2)
-    ) == 15
+    assert inner_product(((2, 3), 4), ((2, 1), 2)) == 15
 
 
 def test_prefix_product():
@@ -915,9 +901,11 @@ def test_prefix_product():
     assert prefix_product((3, 2)) == (1, 3)
     assert prefix_product((3, 2, 4)) == (1, 3, 6)
     assert prefix_product(((2, 3), 4)) == ((1, 2), 6)
-    assert prefix_product(
-        ((2, 3), (2, 1, 2), (5, 2, 1))
-    ) == ((1, 2), (6, 12, 12), (24, 120, 240))
+    assert prefix_product(((2, 3), (2, 1, 2), (5, 2, 1))) == (
+        (1, 2),
+        (6, 12, 12),
+        (24, 120, 240),
+    )
 
 
 def test_shape_div_pycute():
@@ -976,6 +964,7 @@ def test_coalesce_pycute():
 
     Uses the pycute helper: verify size and functional equivalence.
     """
+
     def _check(layout):
         layoutR = coalesce(layout)
         assert size(layoutR) == size(layout)
@@ -1007,6 +996,7 @@ def test_composition_pycute():
 
     Uses the pycute helper: R(i) == A(B(i)) for all i.
     """
+
     def _check(A, B):
         R = compose(A, B)
         for i in range(size(R)):
@@ -1044,7 +1034,9 @@ def test_composition_pycute():
     _check(Layout((4, 3), (3, 1)), Layout(6, 2))
     _check(Layout((4, 3), (3, 1)), Layout((6, 2), (2, 1)))
     _check(Layout((8, 8)), Layout(((2, 2, 2), (2, 2, 2)), ((1, 16, 4), (8, 2, 32))))
-    _check(Layout((8, 8), (8, 1)), Layout(((2, 2, 2), (2, 2, 2)), ((1, 16, 4), (8, 2, 32))))
+    _check(
+        Layout((8, 8), (8, 1)), Layout(((2, 2, 2), (2, 2, 2)), ((1, 16, 4), (8, 2, 32)))
+    )
     # Layout applied from right with stride (from pycute, not in C++ tests)
     _check(Layout(((2, 2, 2), (2, 2, 2)), ((1, 16, 4), (8, 2, 32))), Layout(8, 4))
     _check(Layout((4, 2), (1, 16)), Layout((4, 2), (2, 1)))
@@ -1067,8 +1059,7 @@ def _test_right_inverse(layout):
     inv_layout = right_inverse(layout)
     for i in range(size(inv_layout)):
         assert layout(inv_layout(i)) == i, (
-            f"right_inverse({layout}): L(R({i})) = "
-            f"{layout(inv_layout(i))} != {i}"
+            f"right_inverse({layout}): L(R({i})) = {layout(inv_layout(i))} != {i}"
         )
 
 
@@ -1110,8 +1101,7 @@ def _test_left_inverse(layout):
     inv_layout = left_inverse(layout)
     for i in range(size(layout)):
         assert inv_layout(layout(i)) == i, (
-            f"left_inverse({layout}): R(L({i})) = "
-            f"{inv_layout(layout(i))} != {i}"
+            f"left_inverse({layout}): R(L({i})) = {inv_layout(layout(i))} != {i}"
         )
 
 
@@ -1171,8 +1161,7 @@ def _test_logical_product_properties(layout_a, layout_b):
     # Property 2: First mode of R equals A
     R0 = mode(R, 0)
     assert R0.shape == layout_a.shape and R0.stride == layout_a.stride, (
-        f"logical_product({layout_a}, {layout_b}): "
-        f"mode(R,0)={R0} != A={layout_a}"
+        f"logical_product({layout_a}, {layout_b}): mode(R,0)={R0} != A={layout_a}"
     )
 
     # Property 3: B is compatible with second mode of R
@@ -1213,13 +1202,9 @@ def test_logical_product_multidim_tile():
     # Layout((2,4)) x Layout(3)
     _test_logical_product_properties(Layout((2, 4)), Layout(3))
     # Layout((8,(2,2))) x Layout(4,2)
-    _test_logical_product_properties(
-        Layout((8, (2, 2)), (1, (8, 16))), Layout(4, 2)
-    )
+    _test_logical_product_properties(Layout((8, (2, 2)), (1, (8, 16))), Layout(4, 2))
     # Layout((2,2)) x Layout((3,3),(3,1))
-    _test_logical_product_properties(
-        Layout((2, 2), (1, 2)), Layout((3, 3), (3, 1))
-    )
+    _test_logical_product_properties(Layout((2, 2), (1, 2)), Layout((3, 3), (3, 1)))
 
 
 def test_logical_product_large_stride():
@@ -1231,13 +1216,9 @@ def test_logical_product_large_stride():
 def test_logical_product_nested():
     """Logical product with nested/hierarchical layouts (C++ lines 175-213)."""
     # Layout(((4,2)),((1,16))) x Layout((4,4))
-    _test_logical_product_properties(
-        Layout((4, 2), (1, 16)), Layout((4, 4))
-    )
+    _test_logical_product_properties(Layout((4, 2), (1, 16)), Layout((4, 4)))
     # Layout(((4,2)),((1,16))) x Layout((4,2),(2,1))
-    _test_logical_product_properties(
-        Layout((4, 2), (1, 16)), Layout((4, 2), (2, 1))
-    )
+    _test_logical_product_properties(Layout((4, 2), (1, 16)), Layout((4, 2), (2, 1)))
     # Layout(((2,2),(2,2)),((1,4),(8,32))) x Layout((2,2),(1,2))
     _test_logical_product_properties(
         Layout(((2, 2), (2, 2)), ((1, 4), (8, 32))),
@@ -1249,9 +1230,7 @@ def test_logical_product_nested():
         Layout((2, 2), (2, 1)),
     )
     # Layout(((4,6)),((1,6))) x Layout(3,1)
-    _test_logical_product_properties(
-        Layout((4, 6), (1, 6)), Layout(3, 1)
-    )
+    _test_logical_product_properties(Layout((4, 6), (1, 6)), Layout(3, 1))
 
 
 ## Left Inverse edge cases (C++ inverse_left.cpp)
@@ -1281,9 +1260,7 @@ def _test_left_inverse_cpp(layout):
 
     # Fast path: stride-0 modes make injectivity impossible
     if _has_broadcast(layout):
-        assert size(inv_layout) >= 1, (
-            f"left_inverse({layout}): empty result"
-        )
+        assert size(inv_layout) >= 1, f"left_inverse({layout}): empty result"
         return
 
     # No broadcast modes — check injectivity and contiguity via enumeration
@@ -1293,13 +1270,10 @@ def _test_left_inverse_cpp(layout):
             ili = inv_layout(li)
             lili = layout(ili)
             assert lili == li, (
-                f"left_inverse({layout}): "
-                f"L(inv(L({i})))={lili} != L({i})={li}"
+                f"left_inverse({layout}): L(inv(L({i})))={lili} != L({i})={li}"
             )
     else:
-        assert size(inv_layout) >= 1, (
-            f"left_inverse({layout}): empty result"
-        )
+        assert size(inv_layout) >= 1, f"left_inverse({layout}): empty result"
 
 
 def test_left_inverse_cpp_broadcast():
@@ -1339,10 +1313,12 @@ def test_left_inverse_cpp_deep_nested():
     Shape:  (((( 32, 4), 1), ( 32,  2)),        4), 1, (2,  2),  2)
     Stride: ((((262144, 4), 0), (  0,  1)), 8388608), 0, (2, 16), 32)
     """
-    _test_left_inverse_cpp(Layout(
-        ((((32, 4), 1), (32, 2)), 4, 1, (2, 2), 2),
-        ((((262144, 4), 0), (0, 1)), 8388608, 0, (2, 16), 32),
-    ))
+    _test_left_inverse_cpp(
+        Layout(
+            ((((32, 4), 1), (32, 2)), 4, 1, (2, 2), 2),
+            ((((262144, 4), 0), (0, 1)), 8388608, 0, (2, 16), 32),
+        )
+    )
 
 
 ## Right Inverse edge cases (C++ inverse_right.cpp)
@@ -1357,10 +1333,7 @@ def _test_right_inverse_cpp(layout):
     inv_layout = right_inverse(layout)
     for i in range(size(inv_layout)):
         li = layout(inv_layout(i))
-        assert li == i, (
-            f"right_inverse({layout}): "
-            f"L(R({i}))={li} != {i}"
-        )
+        assert li == i, f"right_inverse({layout}): L(R({i}))={li} != {i}"
 
 
 def test_right_inverse_cpp_4d():
@@ -1389,10 +1362,12 @@ def test_right_inverse_cpp_broadcast_middle():
 
 def test_right_inverse_cpp_deep_nested():
     """Right-inverse of deeply nested layout (C++ inverse_right.cpp line 210)."""
-    _test_right_inverse_cpp(Layout(
-        ((((32, 4), 1), (32, 2)), 4, 1, (2, 2), 2),
-        ((((262144, 4), 0), (0, 1)), 8388608, 0, (2, 16), 32),
-    ))
+    _test_right_inverse_cpp(
+        Layout(
+            ((((32, 4), 1), (32, 2)), 4, 1, (2, 2), 2),
+            ((((262144, 4), 0), (0, 1)), 8388608, 0, (2, 16), 32),
+        )
+    )
 
 
 ## Composition edge case (C++ composition.cpp line 241-246)
@@ -1403,9 +1378,7 @@ def test_composition_transposed_strides():
 
     Layout((4,3)) o Layout((4,3),(3,1)) -- col-major transposed.
     """
-    _test_composition_properties(
-        Layout((4, 3)), Layout((4, 3), (3, 1))
-    )
+    _test_composition_properties(Layout((4, 3)), Layout((4, 3), (3, 1)))
 
 
 ## Complement edge case (pycute Python test_complement.py)
@@ -1566,7 +1539,9 @@ def test_slice_and_offset():
 
     # Verify: sublayout(i) + offset == original(fixed_coord, i)
     for i in range(size(sub)):
-        assert sub(i) + offset == layout(2, i), f"i={i}: {sub(i) + offset} != {layout(2, i)}"
+        assert sub(i) + offset == layout(2, i), (
+            f"i={i}: {sub(i) + offset} != {layout(2, i)}"
+        )
 
 
 ## zipped_product

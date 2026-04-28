@@ -7,13 +7,14 @@ Xe-HPG DPAS atom definitions using algebraic invariants — no hardware required
 """
 
 import pytest
-
-from tensor_layouts import size, rank, cosize
+from tensor_layouts import cosize, rank, size
 from tensor_layouts.atoms_xe import *
 
 
 def _num_threads(layout):
-    return size(layout.shape[0]) if isinstance(layout.shape, tuple) else size(layout.shape)
+    return (
+        size(layout.shape[0]) if isinstance(layout.shape, tuple) else size(layout.shape)
+    )
 
 
 def _num_values(layout):
@@ -38,10 +39,12 @@ class TestDPASStructural:
         for t in range(num_t):
             for v in range(num_v):
                 offset = c(t, v)
-                assert 0 <= offset < m * n, \
-                    f"{atom.name}: offset {offset} out of range [0, {m*n})"
-                assert offset not in seen, \
+                assert 0 <= offset < m * n, (
+                    f"{atom.name}: offset {offset} out of range [0, {m * n})"
+                )
+                assert offset not in seen, (
                     f"{atom.name}: duplicate offset {offset} at t={t}, v={v}"
+                )
                 seen.add(offset)
 
         assert len(seen) == m * n
@@ -66,8 +69,9 @@ class TestDPASStructural:
         """A layout broadcasts across subgroup (stride 0 on thread dim)."""
         a = atom.a_layout
         t_stride = a.stride[0] if isinstance(a.stride, tuple) else a.stride
-        assert t_stride == 0, \
+        assert t_stride == 0, (
             f"{atom.name}: A thread stride is {t_stride}, expected 0 (broadcast)"
+        )
 
     def test_c_layout_cosize_equals_mn(self, atom):
         m, n, k = atom.shape_mnk
@@ -102,10 +106,10 @@ class TestDPASStructural:
                 offset = c(t, v)
                 col = offset // m  # col-major: col = offset // M
                 cols.add(col)
-            assert len(cols) == 1, \
+            assert len(cols) == 1, (
                 f"{atom.name}: thread {t} touches columns {cols}, expected 1"
-            assert cols.pop() == t, \
-                f"{atom.name}: thread {t} owns wrong column"
+            )
+            assert cols.pop() == t, f"{atom.name}: thread {t} owns wrong column"
 
     def test_b_layout_column_ownership(self, atom):
         """Each thread owns exactly one N-position of B."""

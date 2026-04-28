@@ -7,15 +7,14 @@ WMMA atom definitions using algebraic invariants — no hardware required.
 """
 
 import pytest
-
-from tensor_layouts import size, rank, cosize
-from tensor_layouts.atoms_amd import (
-    MMA_ATOMS_RDNA3, MMA_ATOMS_RDNA4,
-)
+from tensor_layouts import cosize, rank, size
+from tensor_layouts.atoms_amd import MMA_ATOMS_RDNA3, MMA_ATOMS_RDNA4
 
 
 def _num_threads(layout):
-    return size(layout.shape[0]) if isinstance(layout.shape, tuple) else size(layout.shape)
+    return (
+        size(layout.shape[0]) if isinstance(layout.shape, tuple) else size(layout.shape)
+    )
 
 
 def _num_values(layout):
@@ -40,20 +39,24 @@ class TestWMMAStructural:
         for t in range(num_t):
             for v in range(num_v):
                 offset = c(t, v)
-                assert 0 <= offset < m * n, \
-                    f"{atom.name}: offset {offset} out of range [0, {m*n})"
-                assert offset not in seen, \
+                assert 0 <= offset < m * n, (
+                    f"{atom.name}: offset {offset} out of range [0, {m * n})"
+                )
+                assert offset not in seen, (
                     f"{atom.name}: duplicate offset {offset} at t={t}, v={v}"
+                )
                 seen.add(offset)
 
-        assert len(seen) == m * n, \
-            f"{atom.name}: covers {len(seen)} elements, expected {m*n}"
+        assert len(seen) == m * n, (
+            f"{atom.name}: covers {len(seen)} elements, expected {m * n}"
+        )
 
     def test_c_layout_thread_count(self, atom):
         """Thread dimension has exactly 32 elements (wave32)."""
         c = atom.c_layout
-        assert _num_threads(c) == 32, \
+        assert _num_threads(c) == 32, (
             f"{atom.name}: {_num_threads(c)} threads, expected 32"
+        )
 
     def test_a_layout_thread_count(self, atom):
         a = atom.a_layout

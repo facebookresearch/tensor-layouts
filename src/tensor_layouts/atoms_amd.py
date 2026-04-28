@@ -131,6 +131,7 @@ from .layouts import Layout
 # Helper: construct CuTe layouts from MFMA structural parameters
 # =============================================================================
 
+
 def _mfma_c_layout(
     m: int,
     n: int,
@@ -254,21 +255,23 @@ def make_mfma_atom(
 
     # Sanity checks matching the CK static_asserts
     if num_threads_per_blk != n:
-        raise ValueError(
-            f"num_threads_per_blk ({num_threads_per_blk}) != n ({n})")
+        raise ValueError(f"num_threads_per_blk ({num_threads_per_blk}) != n ({n})")
     if num_regs_per_blk * num_input_blks != m:
         raise ValueError(
             f"num_regs_per_blk * num_input_blks "
-            f"({num_regs_per_blk * num_input_blks}) != m ({m})")
+            f"({num_regs_per_blk * num_input_blks}) != m ({m})"
+        )
     if num_regs_per_blk * wave_size != m * n:
         raise ValueError(
             f"num_regs_per_blk * wave_size "
-            f"({num_regs_per_blk * wave_size}) != m*n ({m * n})")
+            f"({num_regs_per_blk * wave_size}) != m*n ({m * n})"
+        )
     if wave_size != num_input_blks * num_threads_per_blk:
         raise ValueError(
             f"wave_size ({wave_size}) != "
             f"num_input_blks * num_threads_per_blk "
-            f"({num_input_blks * num_threads_per_blk})")
+            f"({num_input_blks * num_threads_per_blk})"
+        )
 
     # For k-reduction variants: K = k_per_blk * num_input_blks
     # For non-k-reduction: K = k_per_blk
@@ -277,16 +280,28 @@ def make_mfma_atom(
         raise ValueError(f"total_k ({total_k}) != k ({k})")
 
     c_layout = _mfma_c_layout(
-        m, n, group_size, num_groups_per_blk,
-        num_threads_per_blk, num_input_blks,
+        m,
+        n,
+        group_size,
+        num_groups_per_blk,
+        num_threads_per_blk,
+        num_input_blks,
     )
 
     a_layout = _mfma_input_layout(
-        m, k, num_threads_per_blk, num_input_blks, k_per_blk,
+        m,
+        k,
+        num_threads_per_blk,
+        num_input_blks,
+        k_per_blk,
     )
 
     b_layout = _mfma_input_layout(
-        n, k, num_threads_per_blk, num_input_blks, k_per_blk,
+        n,
+        k,
+        num_threads_per_blk,
+        num_input_blks,
+        k_per_blk,
     )
 
     return MMAAtom(
@@ -313,11 +328,18 @@ def make_mfma_atom(
 CDNA_32x32x8_F32F16F16_MFMA = make_mfma_atom(
     name="CDNA_32x32x8_F32F16F16_MFMA",
     inst="v_mfma_f32_32x32x8f16",
-    m=32, n=32, k=8,
-    group_size=4, num_groups_per_blk=4,
-    num_threads_per_blk=32, num_input_blks=2,
-    num_output_blks=1, k_per_blk=4,
-    is_k_reduction=True, num_v_a=2, num_v_b=2,
+    m=32,
+    n=32,
+    k=8,
+    group_size=4,
+    num_groups_per_blk=4,
+    num_threads_per_blk=32,
+    num_input_blks=2,
+    num_output_blks=1,
+    k_per_blk=4,
+    is_k_reduction=True,
+    num_v_a=2,
+    num_v_b=2,
 )
 
 # v_mfma_f32_16x16x16f16: D[16x16] = C[16x16] + A[16x16]*B[16x16]
@@ -327,11 +349,18 @@ CDNA_32x32x8_F32F16F16_MFMA = make_mfma_atom(
 CDNA_16x16x16_F32F16F16_MFMA = make_mfma_atom(
     name="CDNA_16x16x16_F32F16F16_MFMA",
     inst="v_mfma_f32_16x16x16f16",
-    m=16, n=16, k=16,
-    group_size=4, num_groups_per_blk=1,
-    num_threads_per_blk=16, num_input_blks=4,
-    num_output_blks=1, k_per_blk=4,
-    is_k_reduction=True, num_v_a=2, num_v_b=2,
+    m=16,
+    n=16,
+    k=16,
+    group_size=4,
+    num_groups_per_blk=1,
+    num_threads_per_blk=16,
+    num_input_blks=4,
+    num_output_blks=1,
+    k_per_blk=4,
+    is_k_reduction=True,
+    num_v_a=2,
+    num_v_b=2,
 )
 
 # v_mfma_f32_4x4x4f16: D[4x4] = C[4x4] + A[4x4]*B[4x4]
@@ -346,11 +375,18 @@ CDNA_16x16x16_F32F16F16_MFMA = make_mfma_atom(
 CDNA_4x4x4_F32F16F16_MFMA = make_mfma_atom(
     name="CDNA_4x4x4_F32F16F16_MFMA",
     inst="v_mfma_f32_4x4x4f16",
-    m=4, n=64, k=4,
-    group_size=4, num_groups_per_blk=1,
-    num_threads_per_blk=64, num_input_blks=1,
-    num_output_blks=1, k_per_blk=4,
-    is_k_reduction=False, num_v_a=2, num_v_b=2,
+    m=4,
+    n=64,
+    k=4,
+    group_size=4,
+    num_groups_per_blk=1,
+    num_threads_per_blk=64,
+    num_input_blks=1,
+    num_output_blks=1,
+    k_per_blk=4,
+    is_k_reduction=False,
+    num_v_a=2,
+    num_v_b=2,
 )
 
 # --- Non-k-reduction variants (larger K, multiple output blocks) ---
@@ -362,11 +398,18 @@ CDNA_4x4x4_F32F16F16_MFMA = make_mfma_atom(
 CDNA_32x32x4_F32F16F16_MFMA = make_mfma_atom(
     name="CDNA_32x32x4_F32F16F16_MFMA",
     inst="v_mfma_f32_32x32x4f16",
-    m=32, n=32, k=4,
-    group_size=4, num_groups_per_blk=4,
-    num_threads_per_blk=32, num_input_blks=2,
-    num_output_blks=2, k_per_blk=4,
-    is_k_reduction=False, num_v_a=2, num_v_b=2,
+    m=32,
+    n=32,
+    k=4,
+    group_size=4,
+    num_groups_per_blk=4,
+    num_threads_per_blk=32,
+    num_input_blks=2,
+    num_output_blks=2,
+    k_per_blk=4,
+    is_k_reduction=False,
+    num_v_a=2,
+    num_v_b=2,
 )
 
 # v_mfma_f32_16x16x4f16: 4 output blocks (non-k-reduction)
@@ -375,11 +418,18 @@ CDNA_32x32x4_F32F16F16_MFMA = make_mfma_atom(
 CDNA_16x16x4_F32F16F16_MFMA = make_mfma_atom(
     name="CDNA_16x16x4_F32F16F16_MFMA",
     inst="v_mfma_f32_16x16x4f16",
-    m=16, n=16, k=4,
-    group_size=4, num_groups_per_blk=1,
-    num_threads_per_blk=16, num_input_blks=4,
-    num_output_blks=4, k_per_blk=4,
-    is_k_reduction=False, num_v_a=2, num_v_b=2,
+    m=16,
+    n=16,
+    k=4,
+    group_size=4,
+    num_groups_per_blk=1,
+    num_threads_per_blk=16,
+    num_input_blks=4,
+    num_output_blks=4,
+    k_per_blk=4,
+    is_k_reduction=False,
+    num_v_a=2,
+    num_v_b=2,
 )
 
 
@@ -392,22 +442,36 @@ CDNA_16x16x4_F32F16F16_MFMA = make_mfma_atom(
 CDNA_32x32x8_F32BF16BF16_1K_MFMA = make_mfma_atom(
     name="CDNA_32x32x8_F32BF16BF16_1K_MFMA",
     inst="v_mfma_f32_32x32x8bf16_1k",
-    m=32, n=32, k=8,
-    group_size=4, num_groups_per_blk=4,
-    num_threads_per_blk=32, num_input_blks=2,
-    num_output_blks=1, k_per_blk=4,
-    is_k_reduction=True, num_v_a=2, num_v_b=2,
+    m=32,
+    n=32,
+    k=8,
+    group_size=4,
+    num_groups_per_blk=4,
+    num_threads_per_blk=32,
+    num_input_blks=2,
+    num_output_blks=1,
+    k_per_blk=4,
+    is_k_reduction=True,
+    num_v_a=2,
+    num_v_b=2,
 )
 
 # v_mfma_f32_16x16x16bf16_1k: identical layout to 16x16x16f16
 CDNA_16x16x16_F32BF16BF16_1K_MFMA = make_mfma_atom(
     name="CDNA_16x16x16_F32BF16BF16_1K_MFMA",
     inst="v_mfma_f32_16x16x16bf16_1k",
-    m=16, n=16, k=16,
-    group_size=4, num_groups_per_blk=1,
-    num_threads_per_blk=16, num_input_blks=4,
-    num_output_blks=1, k_per_blk=4,
-    is_k_reduction=True, num_v_a=2, num_v_b=2,
+    m=16,
+    n=16,
+    k=16,
+    group_size=4,
+    num_groups_per_blk=1,
+    num_threads_per_blk=16,
+    num_input_blks=4,
+    num_output_blks=1,
+    k_per_blk=4,
+    is_k_reduction=True,
+    num_v_a=2,
+    num_v_b=2,
 )
 
 
@@ -419,22 +483,36 @@ CDNA_16x16x16_F32BF16BF16_1K_MFMA = make_mfma_atom(
 CDNA_32x32x4_F32BF16BF16_MFMA = make_mfma_atom(
     name="CDNA_32x32x4_F32BF16BF16_MFMA",
     inst="v_mfma_f32_32x32x4bf16",
-    m=32, n=32, k=4,
-    group_size=4, num_groups_per_blk=4,
-    num_threads_per_blk=32, num_input_blks=2,
-    num_output_blks=1, k_per_blk=2,
-    is_k_reduction=True, num_v_a=2, num_v_b=2,
+    m=32,
+    n=32,
+    k=4,
+    group_size=4,
+    num_groups_per_blk=4,
+    num_threads_per_blk=32,
+    num_input_blks=2,
+    num_output_blks=1,
+    k_per_blk=2,
+    is_k_reduction=True,
+    num_v_a=2,
+    num_v_b=2,
 )
 
 # v_mfma_f32_16x16x8bf16
 CDNA_16x16x8_F32BF16BF16_MFMA = make_mfma_atom(
     name="CDNA_16x16x8_F32BF16BF16_MFMA",
     inst="v_mfma_f32_16x16x8bf16",
-    m=16, n=16, k=8,
-    group_size=4, num_groups_per_blk=1,
-    num_threads_per_blk=16, num_input_blks=4,
-    num_output_blks=1, k_per_blk=2,
-    is_k_reduction=True, num_v_a=2, num_v_b=2,
+    m=16,
+    n=16,
+    k=8,
+    group_size=4,
+    num_groups_per_blk=1,
+    num_threads_per_blk=16,
+    num_input_blks=4,
+    num_output_blks=1,
+    k_per_blk=2,
+    is_k_reduction=True,
+    num_v_a=2,
+    num_v_b=2,
 )
 
 
@@ -446,22 +524,36 @@ CDNA_16x16x8_F32BF16BF16_MFMA = make_mfma_atom(
 CDNA_32x32x8_I32I8I8_MFMA = make_mfma_atom(
     name="CDNA_32x32x8_I32I8I8_MFMA",
     inst="v_mfma_i32_32x32x8i8",
-    m=32, n=32, k=8,
-    group_size=4, num_groups_per_blk=4,
-    num_threads_per_blk=32, num_input_blks=2,
-    num_output_blks=1, k_per_blk=4,
-    is_k_reduction=True, num_v_a=1, num_v_b=1,
+    m=32,
+    n=32,
+    k=8,
+    group_size=4,
+    num_groups_per_blk=4,
+    num_threads_per_blk=32,
+    num_input_blks=2,
+    num_output_blks=1,
+    k_per_blk=4,
+    is_k_reduction=True,
+    num_v_a=1,
+    num_v_b=1,
 )
 
 # v_mfma_i32_16x16x16i8
 CDNA_16x16x16_I32I8I8_MFMA = make_mfma_atom(
     name="CDNA_16x16x16_I32I8I8_MFMA",
     inst="v_mfma_i32_16x16x16i8",
-    m=16, n=16, k=16,
-    group_size=4, num_groups_per_blk=1,
-    num_threads_per_blk=16, num_input_blks=4,
-    num_output_blks=1, k_per_blk=4,
-    is_k_reduction=True, num_v_a=1, num_v_b=1,
+    m=16,
+    n=16,
+    k=16,
+    group_size=4,
+    num_groups_per_blk=1,
+    num_threads_per_blk=16,
+    num_input_blks=4,
+    num_output_blks=1,
+    k_per_blk=4,
+    is_k_reduction=True,
+    num_v_a=1,
+    num_v_b=1,
 )
 
 
@@ -473,22 +565,36 @@ CDNA_16x16x16_I32I8I8_MFMA = make_mfma_atom(
 CDNA_32x32x2_F32F32F32_MFMA = make_mfma_atom(
     name="CDNA_32x32x2_F32F32F32_MFMA",
     inst="v_mfma_f32_32x32x2f32",
-    m=32, n=32, k=2,
-    group_size=4, num_groups_per_blk=4,
-    num_threads_per_blk=32, num_input_blks=2,
-    num_output_blks=1, k_per_blk=1,
-    is_k_reduction=True, num_v_a=1, num_v_b=1,
+    m=32,
+    n=32,
+    k=2,
+    group_size=4,
+    num_groups_per_blk=4,
+    num_threads_per_blk=32,
+    num_input_blks=2,
+    num_output_blks=1,
+    k_per_blk=1,
+    is_k_reduction=True,
+    num_v_a=1,
+    num_v_b=1,
 )
 
 # v_mfma_f32_16x16x4f32
 CDNA_16x16x4_F32F32F32_MFMA = make_mfma_atom(
     name="CDNA_16x16x4_F32F32F32_MFMA",
     inst="v_mfma_f32_16x16x4f32",
-    m=16, n=16, k=4,
-    group_size=4, num_groups_per_blk=1,
-    num_threads_per_blk=16, num_input_blks=4,
-    num_output_blks=1, k_per_blk=1,
-    is_k_reduction=True, num_v_a=1, num_v_b=1,
+    m=16,
+    n=16,
+    k=4,
+    group_size=4,
+    num_groups_per_blk=1,
+    num_threads_per_blk=16,
+    num_input_blks=4,
+    num_output_blks=1,
+    k_per_blk=1,
+    is_k_reduction=True,
+    num_v_a=1,
+    num_v_b=1,
 )
 
 
@@ -500,11 +606,18 @@ CDNA_16x16x4_F32F32F32_MFMA = make_mfma_atom(
 CDNA_16x16x4_F64F64F64_MFMA = make_mfma_atom(
     name="CDNA_16x16x4_F64F64F64_MFMA",
     inst="v_mfma_f64_16x16x4f64",
-    m=16, n=16, k=4,
-    group_size=1, num_groups_per_blk=4,
-    num_threads_per_blk=16, num_input_blks=4,
-    num_output_blks=1, k_per_blk=1,
-    is_k_reduction=True, num_v_a=2, num_v_b=2,
+    m=16,
+    n=16,
+    k=4,
+    group_size=1,
+    num_groups_per_blk=4,
+    num_threads_per_blk=16,
+    num_input_blks=4,
+    num_output_blks=1,
+    k_per_blk=1,
+    is_k_reduction=True,
+    num_v_a=2,
+    num_v_b=2,
 )
 
 
@@ -538,11 +651,18 @@ CDNA3_16x16x16_F32BF16BF16_MFMA = CDNA_16x16x16_F32BF16BF16_1K_MFMA
 CDNA3_32x32x16_I32I8I8_MFMA = make_mfma_atom(
     name="CDNA3_32x32x16_I32I8I8_MFMA",
     inst="v_mfma_i32_32x32x16i8",
-    m=32, n=32, k=16,
-    group_size=4, num_groups_per_blk=4,
-    num_threads_per_blk=32, num_input_blks=2,
-    num_output_blks=1, k_per_blk=8,
-    is_k_reduction=True, num_v_a=2, num_v_b=2,
+    m=32,
+    n=32,
+    k=16,
+    group_size=4,
+    num_groups_per_blk=4,
+    num_threads_per_blk=32,
+    num_input_blks=2,
+    num_output_blks=1,
+    k_per_blk=8,
+    is_k_reduction=True,
+    num_v_a=2,
+    num_v_b=2,
 )
 
 # v_mfma_i32_16x16x32i8: 16x16 output, K=32
@@ -551,11 +671,18 @@ CDNA3_32x32x16_I32I8I8_MFMA = make_mfma_atom(
 CDNA3_16x16x32_I32I8I8_MFMA = make_mfma_atom(
     name="CDNA3_16x16x32_I32I8I8_MFMA",
     inst="v_mfma_i32_16x16x32i8",
-    m=16, n=16, k=32,
-    group_size=4, num_groups_per_blk=1,
-    num_threads_per_blk=16, num_input_blks=4,
-    num_output_blks=1, k_per_blk=8,
-    is_k_reduction=True, num_v_a=2, num_v_b=2,
+    m=16,
+    n=16,
+    k=32,
+    group_size=4,
+    num_groups_per_blk=1,
+    num_threads_per_blk=16,
+    num_input_blks=4,
+    num_output_blks=1,
+    k_per_blk=8,
+    is_k_reduction=True,
+    num_v_a=2,
+    num_v_b=2,
 )
 
 # --- XF32 (TF32-like, CDNA3) ---
@@ -564,22 +691,36 @@ CDNA3_16x16x32_I32I8I8_MFMA = make_mfma_atom(
 CDNA3_32x32x4_F32XF32XF32_MFMA = make_mfma_atom(
     name="CDNA3_32x32x4_F32XF32XF32_MFMA",
     inst="v_mfma_f32_32x32x4_xf32",
-    m=32, n=32, k=4,
-    group_size=4, num_groups_per_blk=4,
-    num_threads_per_blk=32, num_input_blks=2,
-    num_output_blks=1, k_per_blk=2,
-    is_k_reduction=True, num_v_a=2, num_v_b=2,
+    m=32,
+    n=32,
+    k=4,
+    group_size=4,
+    num_groups_per_blk=4,
+    num_threads_per_blk=32,
+    num_input_blks=2,
+    num_output_blks=1,
+    k_per_blk=2,
+    is_k_reduction=True,
+    num_v_a=2,
+    num_v_b=2,
 )
 
 # v_mfma_f32_16x16x8_xf32
 CDNA3_16x16x8_F32XF32XF32_MFMA = make_mfma_atom(
     name="CDNA3_16x16x8_F32XF32XF32_MFMA",
     inst="v_mfma_f32_16x16x8_xf32",
-    m=16, n=16, k=8,
-    group_size=4, num_groups_per_blk=1,
-    num_threads_per_blk=16, num_input_blks=4,
-    num_output_blks=1, k_per_blk=2,
-    is_k_reduction=True, num_v_a=2, num_v_b=2,
+    m=16,
+    n=16,
+    k=8,
+    group_size=4,
+    num_groups_per_blk=1,
+    num_threads_per_blk=16,
+    num_input_blks=4,
+    num_output_blks=1,
+    k_per_blk=2,
+    is_k_reduction=True,
+    num_v_a=2,
+    num_v_b=2,
 )
 
 
@@ -591,85 +732,141 @@ CDNA3_16x16x8_F32XF32XF32_MFMA = make_mfma_atom(
 CDNA3_32x32x16_F32F8F8_MFMA = make_mfma_atom(
     name="CDNA3_32x32x16_F32F8F8_MFMA",
     inst="v_mfma_f32_32x32x16_fp8_fp8",
-    m=32, n=32, k=16,
-    group_size=4, num_groups_per_blk=4,
-    num_threads_per_blk=32, num_input_blks=2,
-    num_output_blks=1, k_per_blk=8,
-    is_k_reduction=True, num_v_a=2, num_v_b=2,
+    m=32,
+    n=32,
+    k=16,
+    group_size=4,
+    num_groups_per_blk=4,
+    num_threads_per_blk=32,
+    num_input_blks=2,
+    num_output_blks=1,
+    k_per_blk=8,
+    is_k_reduction=True,
+    num_v_a=2,
+    num_v_b=2,
 )
 
 # v_mfma_f32_16x16x32_fp8_fp8
 CDNA3_16x16x32_F32F8F8_MFMA = make_mfma_atom(
     name="CDNA3_16x16x32_F32F8F8_MFMA",
     inst="v_mfma_f32_16x16x32_fp8_fp8",
-    m=16, n=16, k=32,
-    group_size=4, num_groups_per_blk=1,
-    num_threads_per_blk=16, num_input_blks=4,
-    num_output_blks=1, k_per_blk=8,
-    is_k_reduction=True, num_v_a=2, num_v_b=2,
+    m=16,
+    n=16,
+    k=32,
+    group_size=4,
+    num_groups_per_blk=1,
+    num_threads_per_blk=16,
+    num_input_blks=4,
+    num_output_blks=1,
+    k_per_blk=8,
+    is_k_reduction=True,
+    num_v_a=2,
+    num_v_b=2,
 )
 
 # v_mfma_f32_32x32x16_bf8_bf8: same layout as fp8_fp8 32x32
 CDNA3_32x32x16_F32BF8BF8_MFMA = make_mfma_atom(
     name="CDNA3_32x32x16_F32BF8BF8_MFMA",
     inst="v_mfma_f32_32x32x16_bf8_bf8",
-    m=32, n=32, k=16,
-    group_size=4, num_groups_per_blk=4,
-    num_threads_per_blk=32, num_input_blks=2,
-    num_output_blks=1, k_per_blk=8,
-    is_k_reduction=True, num_v_a=2, num_v_b=2,
+    m=32,
+    n=32,
+    k=16,
+    group_size=4,
+    num_groups_per_blk=4,
+    num_threads_per_blk=32,
+    num_input_blks=2,
+    num_output_blks=1,
+    k_per_blk=8,
+    is_k_reduction=True,
+    num_v_a=2,
+    num_v_b=2,
 )
 
 # v_mfma_f32_16x16x32_bf8_bf8
 CDNA3_16x16x32_F32BF8BF8_MFMA = make_mfma_atom(
     name="CDNA3_16x16x32_F32BF8BF8_MFMA",
     inst="v_mfma_f32_16x16x32_bf8_bf8",
-    m=16, n=16, k=32,
-    group_size=4, num_groups_per_blk=1,
-    num_threads_per_blk=16, num_input_blks=4,
-    num_output_blks=1, k_per_blk=8,
-    is_k_reduction=True, num_v_a=2, num_v_b=2,
+    m=16,
+    n=16,
+    k=32,
+    group_size=4,
+    num_groups_per_blk=1,
+    num_threads_per_blk=16,
+    num_input_blks=4,
+    num_output_blks=1,
+    k_per_blk=8,
+    is_k_reduction=True,
+    num_v_a=2,
+    num_v_b=2,
 )
 
 # Mixed FP8 variants (fp8 x bf8, bf8 x fp8) — same layouts
 CDNA3_32x32x16_F32F8BF8_MFMA = make_mfma_atom(
     name="CDNA3_32x32x16_F32F8BF8_MFMA",
     inst="v_mfma_f32_32x32x16_fp8_bf8",
-    m=32, n=32, k=16,
-    group_size=4, num_groups_per_blk=4,
-    num_threads_per_blk=32, num_input_blks=2,
-    num_output_blks=1, k_per_blk=8,
-    is_k_reduction=True, num_v_a=2, num_v_b=2,
+    m=32,
+    n=32,
+    k=16,
+    group_size=4,
+    num_groups_per_blk=4,
+    num_threads_per_blk=32,
+    num_input_blks=2,
+    num_output_blks=1,
+    k_per_blk=8,
+    is_k_reduction=True,
+    num_v_a=2,
+    num_v_b=2,
 )
 
 CDNA3_16x16x32_F32F8BF8_MFMA = make_mfma_atom(
     name="CDNA3_16x16x32_F32F8BF8_MFMA",
     inst="v_mfma_f32_16x16x32_fp8_bf8",
-    m=16, n=16, k=32,
-    group_size=4, num_groups_per_blk=1,
-    num_threads_per_blk=16, num_input_blks=4,
-    num_output_blks=1, k_per_blk=8,
-    is_k_reduction=True, num_v_a=2, num_v_b=2,
+    m=16,
+    n=16,
+    k=32,
+    group_size=4,
+    num_groups_per_blk=1,
+    num_threads_per_blk=16,
+    num_input_blks=4,
+    num_output_blks=1,
+    k_per_blk=8,
+    is_k_reduction=True,
+    num_v_a=2,
+    num_v_b=2,
 )
 
 CDNA3_32x32x16_F32BF8F8_MFMA = make_mfma_atom(
     name="CDNA3_32x32x16_F32BF8F8_MFMA",
     inst="v_mfma_f32_32x32x16_bf8_fp8",
-    m=32, n=32, k=16,
-    group_size=4, num_groups_per_blk=4,
-    num_threads_per_blk=32, num_input_blks=2,
-    num_output_blks=1, k_per_blk=8,
-    is_k_reduction=True, num_v_a=2, num_v_b=2,
+    m=32,
+    n=32,
+    k=16,
+    group_size=4,
+    num_groups_per_blk=4,
+    num_threads_per_blk=32,
+    num_input_blks=2,
+    num_output_blks=1,
+    k_per_blk=8,
+    is_k_reduction=True,
+    num_v_a=2,
+    num_v_b=2,
 )
 
 CDNA3_16x16x32_F32BF8F8_MFMA = make_mfma_atom(
     name="CDNA3_16x16x32_F32BF8F8_MFMA",
     inst="v_mfma_f32_16x16x32_bf8_fp8",
-    m=16, n=16, k=32,
-    group_size=4, num_groups_per_blk=1,
-    num_threads_per_blk=16, num_input_blks=4,
-    num_output_blks=1, k_per_blk=8,
-    is_k_reduction=True, num_v_a=2, num_v_b=2,
+    m=16,
+    n=16,
+    k=32,
+    group_size=4,
+    num_groups_per_blk=1,
+    num_threads_per_blk=16,
+    num_input_blks=4,
+    num_output_blks=1,
+    k_per_blk=8,
+    is_k_reduction=True,
+    num_v_a=2,
+    num_v_b=2,
 )
 
 
@@ -683,11 +880,18 @@ CDNA3_16x16x32_F32BF8F8_MFMA = make_mfma_atom(
 CDNA3P_32x32x16_F32F16F16_MFMA = make_mfma_atom(
     name="CDNA3P_32x32x16_F32F16F16_MFMA",
     inst="v_mfma_f32_32x32x16_f16",
-    m=32, n=32, k=16,
-    group_size=4, num_groups_per_blk=4,
-    num_threads_per_blk=32, num_input_blks=2,
-    num_output_blks=1, k_per_blk=8,
-    is_k_reduction=True, num_v_a=2, num_v_b=2,
+    m=32,
+    n=32,
+    k=16,
+    group_size=4,
+    num_groups_per_blk=4,
+    num_threads_per_blk=32,
+    num_input_blks=2,
+    num_output_blks=1,
+    k_per_blk=8,
+    is_k_reduction=True,
+    num_v_a=2,
+    num_v_b=2,
 )
 
 # v_mfma_f32_16x16x32_f16 (gfx950 only): 2x K vs 16x16x16f16
@@ -696,11 +900,18 @@ CDNA3P_32x32x16_F32F16F16_MFMA = make_mfma_atom(
 CDNA3P_16x16x32_F32F16F16_MFMA = make_mfma_atom(
     name="CDNA3P_16x16x32_F32F16F16_MFMA",
     inst="v_mfma_f32_16x16x32_f16",
-    m=16, n=16, k=32,
-    group_size=4, num_groups_per_blk=1,
-    num_threads_per_blk=16, num_input_blks=4,
-    num_output_blks=1, k_per_blk=8,
-    is_k_reduction=True, num_v_a=2, num_v_b=2,
+    m=16,
+    n=16,
+    k=32,
+    group_size=4,
+    num_groups_per_blk=1,
+    num_threads_per_blk=16,
+    num_input_blks=4,
+    num_output_blks=1,
+    k_per_blk=8,
+    is_k_reduction=True,
+    num_v_a=2,
+    num_v_b=2,
 )
 
 # v_mfma_f32_32x32x16_bf16 (gfx950 only)
@@ -709,44 +920,72 @@ CDNA3P_16x16x32_F32F16F16_MFMA = make_mfma_atom(
 CDNA3P_32x32x16_F32BF16BF16_MFMA = make_mfma_atom(
     name="CDNA3P_32x32x16_F32BF16BF16_MFMA",
     inst="v_mfma_f32_32x32x16_bf16",
-    m=32, n=32, k=16,
-    group_size=4, num_groups_per_blk=4,
-    num_threads_per_blk=32, num_input_blks=2,
-    num_output_blks=1, k_per_blk=8,
-    is_k_reduction=True, num_v_a=2, num_v_b=2,
+    m=32,
+    n=32,
+    k=16,
+    group_size=4,
+    num_groups_per_blk=4,
+    num_threads_per_blk=32,
+    num_input_blks=2,
+    num_output_blks=1,
+    k_per_blk=8,
+    is_k_reduction=True,
+    num_v_a=2,
+    num_v_b=2,
 )
 
 # v_mfma_f32_16x16x32_bf16 (gfx950 only)
 CDNA3P_16x16x32_F32BF16BF16_MFMA = make_mfma_atom(
     name="CDNA3P_16x16x32_F32BF16BF16_MFMA",
     inst="v_mfma_f32_16x16x32_bf16",
-    m=16, n=16, k=32,
-    group_size=4, num_groups_per_blk=1,
-    num_threads_per_blk=16, num_input_blks=4,
-    num_output_blks=1, k_per_blk=8,
-    is_k_reduction=True, num_v_a=2, num_v_b=2,
+    m=16,
+    n=16,
+    k=32,
+    group_size=4,
+    num_groups_per_blk=1,
+    num_threads_per_blk=16,
+    num_input_blks=4,
+    num_output_blks=1,
+    k_per_blk=8,
+    is_k_reduction=True,
+    num_v_a=2,
+    num_v_b=2,
 )
 
 # v_mfma_i32_32x32x32_i8 (gfx950 only)
 CDNA3P_32x32x32_I32I8I8_MFMA = make_mfma_atom(
     name="CDNA3P_32x32x32_I32I8I8_MFMA",
     inst="v_mfma_i32_32x32x32i8",
-    m=32, n=32, k=32,
-    group_size=4, num_groups_per_blk=4,
-    num_threads_per_blk=32, num_input_blks=2,
-    num_output_blks=1, k_per_blk=16,
-    is_k_reduction=True, num_v_a=2, num_v_b=2,
+    m=32,
+    n=32,
+    k=32,
+    group_size=4,
+    num_groups_per_blk=4,
+    num_threads_per_blk=32,
+    num_input_blks=2,
+    num_output_blks=1,
+    k_per_blk=16,
+    is_k_reduction=True,
+    num_v_a=2,
+    num_v_b=2,
 )
 
 # v_mfma_i32_16x16x64_i8 (gfx950 only)
 CDNA3P_16x16x64_I32I8I8_MFMA = make_mfma_atom(
     name="CDNA3P_16x16x64_I32I8I8_MFMA",
     inst="v_mfma_i32_16x16x64i8",
-    m=16, n=16, k=64,
-    group_size=4, num_groups_per_blk=1,
-    num_threads_per_blk=16, num_input_blks=4,
-    num_output_blks=1, k_per_blk=16,
-    is_k_reduction=True, num_v_a=2, num_v_b=2,
+    m=16,
+    n=16,
+    k=64,
+    group_size=4,
+    num_groups_per_blk=1,
+    num_threads_per_blk=16,
+    num_input_blks=4,
+    num_output_blks=1,
+    k_per_blk=16,
+    is_k_reduction=True,
+    num_v_a=2,
+    num_v_b=2,
 )
 
 
@@ -920,7 +1159,7 @@ def make_wmma_atom(
         name=name,
         ptx=inst,
         shape_mnk=(m, n, k),
-        thr_id=None,   # identity: lane_id = thread_idx % 32
+        thr_id=None,  # identity: lane_id = thread_idx % 32
         a_layout=a_layout,
         b_layout=b_layout,
         c_layout=c_layout,
@@ -935,40 +1174,52 @@ def make_wmma_atom(
 RDNA3_16x16x16_F32F16F16_WMMA = make_wmma_atom(
     name="RDNA3_16x16x16_F32F16F16_WMMA",
     inst="v_wmma_f32_16x16x16_f16",
-    m=16, n=16, k=16,
+    m=16,
+    n=16,
+    k=16,
 )
 
 RDNA3_16x16x16_F16F16F16_WMMA = make_wmma_atom(
     name="RDNA3_16x16x16_F16F16F16_WMMA",
     inst="v_wmma_f16_16x16x16_f16",
-    m=16, n=16, k=16,
+    m=16,
+    n=16,
+    k=16,
 )
 
 # --- BF16 ---
 RDNA3_16x16x16_F32BF16BF16_WMMA = make_wmma_atom(
     name="RDNA3_16x16x16_F32BF16BF16_WMMA",
     inst="v_wmma_f32_16x16x16_bf16",
-    m=16, n=16, k=16,
+    m=16,
+    n=16,
+    k=16,
 )
 
 RDNA3_16x16x16_BF16BF16BF16_WMMA = make_wmma_atom(
     name="RDNA3_16x16x16_BF16BF16BF16_WMMA",
     inst="v_wmma_bf16_16x16x16_bf16",
-    m=16, n=16, k=16,
+    m=16,
+    n=16,
+    k=16,
 )
 
 # --- INT8 ---
 RDNA3_16x16x16_I32I8I8_WMMA = make_wmma_atom(
     name="RDNA3_16x16x16_I32I8I8_WMMA",
     inst="v_wmma_i32_16x16x16_iu8",
-    m=16, n=16, k=16,
+    m=16,
+    n=16,
+    k=16,
 )
 
 # --- INT4 ---
 RDNA3_16x16x16_I32I4I4_WMMA = make_wmma_atom(
     name="RDNA3_16x16x16_I32I4I4_WMMA",
     inst="v_wmma_i32_16x16x16_iu4",
-    m=16, n=16, k=16,
+    m=16,
+    n=16,
+    k=16,
 )
 
 
@@ -980,53 +1231,69 @@ RDNA3_16x16x16_I32I4I4_WMMA = make_wmma_atom(
 RDNA4_16x16x32_F32F16F16_WMMA = make_wmma_atom(
     name="RDNA4_16x16x32_F32F16F16_WMMA",
     inst="v_wmma_f32_16x16x32_f16",
-    m=16, n=16, k=32,
+    m=16,
+    n=16,
+    k=32,
 )
 
 RDNA4_16x16x32_F16F16F16_WMMA = make_wmma_atom(
     name="RDNA4_16x16x32_F16F16F16_WMMA",
     inst="v_wmma_f16_16x16x32_f16",
-    m=16, n=16, k=32,
+    m=16,
+    n=16,
+    k=32,
 )
 
 # --- BF16 ---
 RDNA4_16x16x32_F32BF16BF16_WMMA = make_wmma_atom(
     name="RDNA4_16x16x32_F32BF16BF16_WMMA",
     inst="v_wmma_f32_16x16x32_bf16",
-    m=16, n=16, k=32,
+    m=16,
+    n=16,
+    k=32,
 )
 
 RDNA4_16x16x32_BF16BF16BF16_WMMA = make_wmma_atom(
     name="RDNA4_16x16x32_BF16BF16BF16_WMMA",
     inst="v_wmma_bf16_16x16x32_bf16",
-    m=16, n=16, k=32,
+    m=16,
+    n=16,
+    k=32,
 )
 
 # --- FP8 (new in RDNA4) ---
 RDNA4_16x16x32_F32F8F8_WMMA = make_wmma_atom(
     name="RDNA4_16x16x32_F32F8F8_WMMA",
     inst="v_wmma_f32_16x16x32_fp8_fp8",
-    m=16, n=16, k=32,
+    m=16,
+    n=16,
+    k=32,
 )
 
 RDNA4_16x16x32_F32BF8BF8_WMMA = make_wmma_atom(
     name="RDNA4_16x16x32_F32BF8BF8_WMMA",
     inst="v_wmma_f32_16x16x32_bf8_bf8",
-    m=16, n=16, k=32,
+    m=16,
+    n=16,
+    k=32,
 )
 
 # --- INT8 (doubled K) ---
 RDNA4_16x16x32_I32I8I8_WMMA = make_wmma_atom(
     name="RDNA4_16x16x32_I32I8I8_WMMA",
     inst="v_wmma_i32_16x16x32_iu8",
-    m=16, n=16, k=32,
+    m=16,
+    n=16,
+    k=32,
 )
 
 # --- INT4 (quadrupled K) ---
 RDNA4_16x16x64_I32I4I4_WMMA = make_wmma_atom(
     name="RDNA4_16x16x64_I32I4I4_WMMA",
     inst="v_wmma_i32_16x16x64_iu4",
-    m=16, n=16, k=64,
+    m=16,
+    n=16,
+    k=64,
 )
 
 

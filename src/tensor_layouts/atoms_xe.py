@@ -96,6 +96,7 @@ from .layouts import Layout
 # Helper: construct CuTe layouts from DPAS structural parameters
 # =============================================================================
 
+
 def _dpas_c_layout(m: int, n: int) -> Layout:
     """Build the (T_n, V_m) -> col-major(M, N) accumulator layout.
 
@@ -154,7 +155,7 @@ def make_dpas_atom(
         name=name,
         ptx=inst,
         shape_mnk=(m, n, k),
-        thr_id=None,   # identity: lane_id = thread_idx % subgroup_size
+        thr_id=None,  # identity: lane_id = thread_idx % subgroup_size
         a_layout=a_layout,
         b_layout=b_layout,
         c_layout=c_layout,
@@ -170,28 +171,36 @@ def make_dpas_atom(
 XeHPC_8x8x8_F32F16F16_DPAS = make_dpas_atom(
     name="XeHPC_8x8x8_F32F16F16_DPAS",
     inst="dpas.8x8 (exec_size=8, FP16)",
-    m=8, n=8, k=8,
+    m=8,
+    n=8,
+    k=8,
 )
 
 # --- BF16 input, FP32 accumulator ---
 XeHPC_8x8x8_F32BF16BF16_DPAS = make_dpas_atom(
     name="XeHPC_8x8x8_F32BF16BF16_DPAS",
     inst="dpas.8x8 (exec_size=8, BF16)",
-    m=8, n=8, k=8,
+    m=8,
+    n=8,
+    k=8,
 )
 
 # --- TF32 input, FP32 accumulator ---
 XeHPC_8x8x8_F32TF32TF32_DPAS = make_dpas_atom(
     name="XeHPC_8x8x8_F32TF32TF32_DPAS",
     inst="dpas.8x8 (exec_size=8, TF32)",
-    m=8, n=8, k=8,
+    m=8,
+    n=8,
+    k=8,
 )
 
 # --- INT8 input, INT32 accumulator ---
 XeHPC_8x8x8_I32I8I8_DPAS = make_dpas_atom(
     name="XeHPC_8x8x8_I32I8I8_DPAS",
     inst="dpas.8x8 (exec_size=8, INT8)",
-    m=8, n=8, k=8,
+    m=8,
+    n=8,
+    k=8,
 )
 
 
@@ -204,21 +213,27 @@ XeHPC_8x8x8_I32I8I8_DPAS = make_dpas_atom(
 XeHPG_8x16x8_F32F16F16_DPAS = make_dpas_atom(
     name="XeHPG_8x16x8_F32F16F16_DPAS",
     inst="dpas.8x8 (exec_size=16, FP16)",
-    m=8, n=16, k=8,
+    m=8,
+    n=16,
+    k=8,
 )
 
 # --- BF16 input, FP32 accumulator ---
 XeHPG_8x16x8_F32BF16BF16_DPAS = make_dpas_atom(
     name="XeHPG_8x16x8_F32BF16BF16_DPAS",
     inst="dpas.8x8 (exec_size=16, BF16)",
-    m=8, n=16, k=8,
+    m=8,
+    n=16,
+    k=8,
 )
 
 # --- INT8 input, INT32 accumulator ---
 XeHPG_8x16x8_I32I8I8_DPAS = make_dpas_atom(
     name="XeHPG_8x16x8_I32I8I8_DPAS",
     inst="dpas.8x8 (exec_size=16, INT8)",
-    m=8, n=16, k=8,
+    m=8,
+    n=16,
+    k=8,
 )
 
 

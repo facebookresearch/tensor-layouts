@@ -23,9 +23,9 @@
 """Pure-Python implementation of GPU layout algebra."""
 
 from .layouts import *  # noqa: F401,F403
-from .tensor import Tensor  # noqa: F401
-from .atoms import MMAAtom, CopyAtom  # noqa: F401
-
 from importlib.metadata import version  # noqa: F401
+
+from .atoms import CopyAtom, MMAAtom  # noqa: F401
+from .tensor import Tensor  # noqa: F401
 
 __version__ = version("tensor-layouts")
