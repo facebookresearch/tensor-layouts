@@ -337,7 +337,9 @@ class Tensor:
             )
         if isinstance(key, tuple):
             if len(key) != rank(self._layout):
-                raise IndexError(f"Expected {rank(self._layout)} indices, got {len(key)}")
+                raise IndexError(
+                    f"Expected {rank(self._layout)} indices, got {len(key)}"
+                )
             offset = _tensor_address(self._offset, self._layout, key)
         elif isinstance(key, int):
             offset = _tensor_address(self._offset, self._layout, key)

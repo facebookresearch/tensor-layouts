@@ -36,8 +36,8 @@ See also:
     viz.ipynb    — Jupyter notebook gallery
 """
 
-from pathlib import Path
 import sys
+from pathlib import Path
 
 # Prefer the local repo sources when running this script from a checkout.
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -46,7 +46,7 @@ if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
 from tensor_layouts import *
-from tensor_layouts.viz import draw_layout, draw_composite
+from tensor_layouts.viz import draw_composite, draw_layout
 
 
 def setup_output_dir(name: str = "examples_output") -> Path:
@@ -58,6 +58,7 @@ def setup_output_dir(name: str = "examples_output") -> Path:
 # =============================================================================
 # Section 1: Attaching Storage
 # =============================================================================
+
 
 def example_storage():
     """Attach storage to a Tensor for element-level access.
@@ -97,6 +98,7 @@ def example_storage():
 # Section 2: Reading Through Coordinates
 # =============================================================================
 
+
 def example_reading():
     """Access elements using logical coordinates.
 
@@ -135,6 +137,7 @@ def example_reading():
 # Section 3: Writing Through Coordinates
 # =============================================================================
 
+
 def example_writing():
     """Write to storage through logical coordinates.
 
@@ -165,6 +168,7 @@ def example_writing():
 # =============================================================================
 # Section 4: View Semantics (Slicing Shares Data)
 # =============================================================================
+
 
 def example_views():
     """Slicing produces sub-Tensors that share storage.
@@ -206,6 +210,7 @@ def example_views():
 # Section 5: Swapping Storage
 # =============================================================================
 
+
 def example_swap():
     """The data property is writable — swap storage without rebuilding.
 
@@ -237,6 +242,7 @@ def example_swap():
 # Section 6: Two Layouts, One Buffer
 # =============================================================================
 
+
 def example_two_layouts():
     """Attach the same storage to two Tensors with different layouts.
 
@@ -264,6 +270,7 @@ def example_two_layouts():
 # Section 7: Auto-Labeling in draw_layout
 # =============================================================================
 
+
 def example_auto_label(output: Path):
     """draw_layout auto-labels cells with data values.
 
@@ -280,33 +287,44 @@ def example_auto_label(output: Path):
     t = Tensor(layout, data=buf)
 
     # Auto-label: cells show A, B, C, ...
-    draw_layout(t, output / "tensor_data_auto.svg",
-                title="Auto-labeled from data")
+    draw_layout(t, output / "tensor_data_auto.svg", title="Auto-labeled from data")
     print(f"  tensor_data_auto.svg — cells show data values")
 
     # Override: show raw offsets
-    draw_layout(t, output / "tensor_data_offsets.svg",
-                title="cell_labels='offset'", cell_labels="offset")
+    draw_layout(
+        t,
+        output / "tensor_data_offsets.svg",
+        title="cell_labels='offset'",
+        cell_labels="offset",
+    )
     print(f"  tensor_data_offsets.svg — cells show offsets")
 
     # Override: no labels
-    draw_layout(t, output / "tensor_data_nolabels.svg",
-                title="cell_labels=False", colorize=True, cell_labels=False)
+    draw_layout(
+        t,
+        output / "tensor_data_nolabels.svg",
+        title="cell_labels=False",
+        colorize=True,
+        cell_labels=False,
+    )
     print(f"  tensor_data_nolabels.svg — no cell text")
 
     # Side-by-side: same data, two layouts
     row_t = Tensor(Layout((4, 8), (8, 1)), data=buf)
     col_t = Tensor(Layout((4, 8), (1, 4)), data=buf)
-    draw_composite([row_t, col_t],
-                   output / "tensor_data_compare.svg",
-                   titles=["Row-major", "Col-major"],
-                   main_title="Same data, different layouts")
+    draw_composite(
+        [row_t, col_t],
+        output / "tensor_data_compare.svg",
+        titles=["Row-major", "Col-major"],
+        main_title="Same data, different layouts",
+    )
     print(f"  tensor_data_compare.svg — row vs col-major, same data")
 
 
 # =============================================================================
 # Main
 # =============================================================================
+
 
 def main():
     """Run all Tensor storage examples."""

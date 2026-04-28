@@ -203,7 +203,9 @@ def test_compose_swizzled_layout_outer_preserves_exactness():
 def test_logical_divide_forwards_through_composed_layout():
     composed = compose(Layout(16, 2), compose(Swizzle(2, 0, 2), Layout(16, 1)))
     result = logical_divide(composed, 4)
-    expected = ComposedLayout(composed.outer, logical_divide(composed.inner, 4), preoffset=0)
+    expected = ComposedLayout(
+        composed.outer, logical_divide(composed.inner, 4), preoffset=0
+    )
 
     assert isinstance(result, ComposedLayout)
     assert result.outer == composed.outer
@@ -214,7 +216,9 @@ def test_logical_divide_forwards_through_composed_layout():
 def test_logical_product_forwards_through_composed_layout():
     composed = compose(Layout(8, 2), compose(Swizzle(2, 0, 2), Layout(8, 1)))
     result = logical_product(composed, Layout(3, 1))
-    expected = ComposedLayout(composed.outer, logical_product(composed.inner, Layout(3, 1)))
+    expected = ComposedLayout(
+        composed.outer, logical_product(composed.inner, Layout(3, 1))
+    )
 
     assert isinstance(result, ComposedLayout)
     _assert_pointwise_equal(result, expected)
@@ -401,6 +405,7 @@ def test_generative_compose_with_preoffsets():
 # Divide / product cascade on composed inputs
 # ---------------------------------------------------------------------------
 
+
 def test_zipped_divide_forwards_through_composed_layout():
     composed = compose(
         Layout((4, 4), (4, 1)),
@@ -435,7 +440,9 @@ def test_zipped_product_forwards_through_composed_layout():
     composed = compose(Layout(8, 2), compose(Swizzle(2, 0, 2), Layout(8, 1)))
     result = zipped_product(composed, Layout(3, 1))
     assert isinstance(result, ComposedLayout)
-    expected = ComposedLayout(composed.outer, zipped_product(composed.inner, Layout(3, 1)))
+    expected = ComposedLayout(
+        composed.outer, zipped_product(composed.inner, Layout(3, 1))
+    )
     _assert_pointwise_equal(result, expected)
 
 
@@ -443,7 +450,9 @@ def test_tiled_product_forwards_through_composed_layout():
     composed = compose(Layout(8, 2), compose(Swizzle(2, 0, 2), Layout(8, 1)))
     result = tiled_product(composed, Layout(3, 1))
     assert isinstance(result, ComposedLayout)
-    expected = ComposedLayout(composed.outer, tiled_product(composed.inner, Layout(3, 1)))
+    expected = ComposedLayout(
+        composed.outer, tiled_product(composed.inner, Layout(3, 1))
+    )
     _assert_pointwise_equal(result, expected)
 
 
@@ -451,13 +460,16 @@ def test_flat_product_forwards_through_composed_layout():
     composed = compose(Layout(8, 2), compose(Swizzle(2, 0, 2), Layout(8, 1)))
     result = flat_product(composed, Layout(3, 1))
     assert isinstance(result, ComposedLayout)
-    expected = ComposedLayout(composed.outer, flat_product(composed.inner, Layout(3, 1)))
+    expected = ComposedLayout(
+        composed.outer, flat_product(composed.inner, Layout(3, 1))
+    )
     _assert_pointwise_equal(result, expected)
 
 
 # ---------------------------------------------------------------------------
 # Recursive composition and push-through
 # ---------------------------------------------------------------------------
+
 
 def test_compose_composed_layout_as_outer_pushes_through():
     """compose(ComposedLayout, Layout) pushes into the inner."""
@@ -515,6 +527,7 @@ def test_logical_divide_on_hierarchical_composed():
 # Full-slice and multi-mode
 # ---------------------------------------------------------------------------
 
+
 def test_full_slice_on_composed_layout_preserves_identity():
     """Slicing with all-None returns the same composed layout with offset 0."""
     composed = compose(
@@ -542,6 +555,7 @@ def test_mode_on_composed_layout_mode1():
 # Tensor.view() with ComposedLayout
 # ---------------------------------------------------------------------------
 
+
 def test_tensor_view_with_composed_layout():
     """Tensor.view() accepts a ComposedLayout."""
     composed = compose(Layout(16, 2), compose(Swizzle(2, 0, 2), Layout(16, 1)))
@@ -555,6 +569,7 @@ def test_tensor_view_with_composed_layout():
 # ---------------------------------------------------------------------------
 # Generic analysis functions with ComposedLayout
 # ---------------------------------------------------------------------------
+
 
 def test_image_on_composed_layout():
     composed = compose(Layout(16, 2), compose(Swizzle(2, 0, 2), Layout(16, 1)))

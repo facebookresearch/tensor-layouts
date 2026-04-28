@@ -155,8 +155,13 @@ def _selected_cells(layout, tiler):
 def _expand_slice_component(spec, shape):
     if is_tuple(shape):
         if not is_tuple(spec):
-            raise ValueError(f"Nested shape {shape!r} requires nested spec, got {spec!r}")
-        parts = [_expand_slice_component(subspec, subshape) for subspec, subshape in zip(spec, shape)]
+            raise ValueError(
+                f"Nested shape {shape!r} requires nested spec, got {spec!r}"
+            )
+        parts = [
+            _expand_slice_component(subspec, subshape)
+            for subspec, subshape in zip(spec, shape)
+        ]
         return {coords for coords in product(*parts)}
     if spec is None:
         return set(range(shape))
@@ -169,7 +174,9 @@ def _infer_slice_component(selected, shape):
     selected = list(selected)
     if is_tuple(shape):
         if not selected:
-            raise ValueError(f"Cannot infer slice for empty selection in shape {shape!r}")
+            raise ValueError(
+                f"Cannot infer slice for empty selection in shape {shape!r}"
+            )
         spec = tuple(
             _infer_slice_component([coord[i] for coord in selected], subshape)
             for i, subshape in enumerate(shape)
@@ -187,7 +194,9 @@ def _infer_slice_component(selected, shape):
         return None
     if values == list(range(values[0], values[-1] + 1)):
         return slice(values[0], values[-1] + 1)
-    raise ValueError(f"Selection {values!r} is not representable as a flat slice of {shape}")
+    raise ValueError(
+        f"Selection {values!r} is not representable as a flat slice of {shape}"
+    )
 
 
 def _common_subvector_slice_spec(layout, common):
@@ -199,7 +208,10 @@ def _selected_coords_from_slice_spec(layout, slice_spec):
     row_spec, col_spec = slice_spec
     row_coords = _expand_slice_component(row_spec, mode(layout.shape, 0))
     col_coords = _expand_slice_component(col_spec, mode(layout.shape, 1))
-    return {(row_coord, col_coord) for row_coord, col_coord in product(row_coords, col_coords)}
+    return {
+        (row_coord, col_coord)
+        for row_coord, col_coord in product(row_coords, col_coords)
+    }
 
 
 def _fig1_tensor(layout=None):
@@ -238,6 +250,7 @@ FIG1_TENSOR_DATA = tuple("abcdefgh")
 FIG1_COLOR_LAYOUT_RANK3 = Layout((2, 2, 2), (1, 0, 2))
 FIG1_COLOR_LAYOUT_4X2 = Layout((4, 2), (1, 0))
 FIG1_COLOR_LAYOUT_2X4 = Layout((2, (2, 2)), (1, (0, 2)))
+
 
 def test_fig1_rank3_tensor(viz):
     """Figure 1, row 1: a 2×2×2 tensor with Shape (2,2,2) : Stride (2,1,4)."""
@@ -280,7 +293,9 @@ def test_fig1_fold_mode2_into_mode0(viz):
     assert C == Layout((4, 2), (2, 1))
     assert functionally_equal(L, C)
     tensor = _fig1_tensor(C)
-    assert [tensor[row, col] for row in range(4) for col in range(2)] == list("abcdefgh")
+    assert [tensor[row, col] for row in range(4) for col in range(2)] == list(
+        "abcdefgh"
+    )
     if not viz:
         return
     viz.draw_layout(
@@ -498,7 +513,10 @@ def test_fig4a_identity_coordinate(viz):
     layout = Layout((4, 8), (1, 4))
     tensor = Tensor(
         layout,
-        data=[_format_coord(idx2crd(offset, layout.shape)) for offset in range(size(layout))],
+        data=[
+            _format_coord(idx2crd(offset, layout.shape))
+            for offset in range(size(layout))
+        ],
     )
     assert tensor[0, 0] == "(0,0)"
     assert tensor[3, 7] == "(3,7)"
@@ -518,7 +536,9 @@ def test_fig4b_transposed_block_coordinate(viz):
     layout = Layout((4, (2, 4)), (4, (24, 1)))
     tensor = Tensor(
         layout,
-        data=[_format_coord(idx2crd(offset, (4, 10))) for offset in range(cosize(layout))],
+        data=[
+            _format_coord(idx2crd(offset, (4, 10))) for offset in range(cosize(layout))
+        ],
     )
     assert [tensor[0, j] for j in range(8)] == [
         "(0,0)",
@@ -569,6 +589,7 @@ def test_fig4c_binary_swizzle(viz):
 # =============================================================================
 
 FIG4_BINARY_SWIZZLE_4X4 = compose(Swizzle(2, 0, 2), Layout((4, 4), (1, 4)))
+
 
 def test_table1_integer_linear_form():
     """Table 1: integer strides are columns of a 1×n Z-matrix."""
@@ -1127,6 +1148,7 @@ def test_s3_3_3_apparent_violation_fail_right_raises():
 
 THR_VAL_LAYOUT_C = Layout(((4, 8), 2), ((16, 1), 8))
 
+
 def test_fig6_thread_value_partitioning(viz):
     """Figure 6: inverse display of ThrValLayoutC over the 8×8 C-matrix."""
     t_shape = mode(THR_VAL_LAYOUT_C.shape, 0)
@@ -1154,6 +1176,7 @@ def test_fig6_thread_value_partitioning(viz):
 # =============================================================================
 # §3.3.4 — Application: Partitioning (Table 4)
 # =============================================================================
+
 
 def test_table4_colmajor():
     """Table 4: ColMajor (8,8):(1,8) composed with TV layout."""
@@ -1516,10 +1539,7 @@ def test_fig8a_two_element_common_subvector(viz):
     if not viz:
         return
     viz.draw_composite(
-        [
-            ( src, { "slice_spec": src_spec } ),
-            ( dst, { "slice_spec": dst_spec } )
-        ],
+        [(src, {"slice_spec": src_spec}), (dst, {"slice_spec": dst_spec})],
         filename=_figure_path("fig8a_two_element_common_subvector"),
         titles=["Source", "Destination"],
         main_title="Fig 8a: A 2-element common subvector",
@@ -1546,10 +1566,7 @@ def test_fig8b_four_element_common_subvector(viz):
     if not viz:
         return
     viz.draw_composite(
-        [
-            ( src, { "slice_spec": src_spec } ),
-            ( dst, { "slice_spec": dst_spec } )
-        ],
+        [(src, {"slice_spec": src_spec}), (dst, {"slice_spec": dst_spec})],
         filename=_figure_path("fig8b_four_element_common_subvector"),
         titles=["Source", "Destination"],
         main_title="Fig 8b: A 4-element common subvector",
@@ -1716,6 +1733,7 @@ def test_table7_complement_broadcast_even_stride():
 
 def test_table7_complement_coordinate_identity_proxy():
     """Table 7: (4,8):(e0,e1) is complemented by the proxy (1,1):(4e0,4e1)."""
+
     def complement_proxy(coord):
         block_row, block_col = coord
         return (4 * block_row, 4 * block_col)
@@ -1725,13 +1743,16 @@ def test_table7_complement_coordinate_identity_proxy():
     # 4-step coordinate basis directly, rather than asserting arbitrary finite
     # extensions are disjoint from the original 4×8 block.
     sample_shape = (2, 2)
-    sample_image = [complement_proxy(idx2crd(i, sample_shape)) for i in range(size(sample_shape))]
+    sample_image = [
+        complement_proxy(idx2crd(i, sample_shape)) for i in range(size(sample_shape))
+    ]
     assert sample_image == [(0, 0), (4, 0), (0, 4), (4, 4)]
     assert [crd2idx(coord, (8, 8)) for coord in sample_image] == [0, 4, 32, 36]
 
 
 def test_table7_complement_coordinate_blocked_proxy():
     """Table 7: (4,(4,2)):(e1,(e0,12e1)) is complemented by (1,(3,1)):(4e0,(4e1,24e1))."""
+
     def coord_layout(coord):
         row, (col, block) = coord
         return (col, row + 12 * block)
@@ -1741,10 +1762,14 @@ def test_table7_complement_coordinate_blocked_proxy():
         return (4 * block_row, 4 * block_col + 24 * block_group)
 
     original_shape = (4, (4, 2))
-    original_image = {coord_layout(idx2crd(i, original_shape)) for i in range(size(original_shape))}
+    original_image = {
+        coord_layout(idx2crd(i, original_shape)) for i in range(size(original_shape))
+    }
 
     paper_shape = (1, (3, 1))
-    assert [complement_proxy(idx2crd(i, paper_shape)) for i in range(size(paper_shape))] == [
+    assert [
+        complement_proxy(idx2crd(i, paper_shape)) for i in range(size(paper_shape))
+    ] == [
         (0, 0),
         (0, 4),
         (0, 8),
@@ -1754,7 +1779,9 @@ def test_table7_complement_coordinate_blocked_proxy():
     # larger compatible extension to check the paper's "disjoint and ordered"
     # claim concretely.
     sample_shape = (2, (3, 2))
-    sample_image = [complement_proxy(idx2crd(i, sample_shape)) for i in range(size(sample_shape))]
+    sample_image = [
+        complement_proxy(idx2crd(i, sample_shape)) for i in range(size(sample_shape))
+    ]
     for coord in sample_image[1:]:
         assert coord not in original_image
     assert [crd2idx(coord, (8, 48)) for coord in sample_image] == sorted(

@@ -35,22 +35,21 @@ The key invariant: tensor[fixed_coords, :](remaining_coords) == tensor(all_coord
 """
 
 import pytest
-
 from tensor_layouts import (
-    Layout,
-    Swizzle,
-    compose,
+    coalesce,
     complement,
+    compose,
+    cosize,
+    flatten,
+    Layout,
     logical_divide,
     logical_product,
+    mode,
     rank,
     size,
-    cosize,
-    mode,
-    flatten,
-    coalesce,
+    Swizzle,
+    Tensor,
 )
-from tensor_layouts import Tensor
 
 
 # ============================================================================
@@ -190,7 +189,7 @@ def test_repr_with_offset():
 
 
 def test_is_affine():
-    from tensor_layouts import ComposedLayout, Swizzle, is_affine
+    from tensor_layouts import ComposedLayout, is_affine, Swizzle
 
     # Affine layout
     t1 = Tensor(Layout((4, 8), (1, 4)))
@@ -1097,7 +1096,9 @@ def test_cute_mma_fragment_pattern():
     assert isinstance(thread1_slice, Tensor)
 
     # Verify they access different starting positions
-    assert thread0_slice.offset != thread1_slice.offset or thread0_slice(0) != thread1_slice(0)
+    assert thread0_slice.offset != thread1_slice.offset or thread0_slice(
+        0
+    ) != thread1_slice(0)
 
 
 def test_hierarchical_slice_preserves_structure():

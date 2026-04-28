@@ -62,7 +62,9 @@ def example_fast_path() -> None:
 
 
 def example_exact_fallback() -> LayoutExpr:
-    _banner("2. Exact fallback: compositions that do not collapse return ComposedLayout")
+    _banner(
+        "2. Exact fallback: compositions that do not collapse return ComposedLayout"
+    )
 
     base = Layout((4, 4), (4, 1))
     swizzled = compose(Swizzle(2, 0, 2), base)
@@ -142,7 +144,12 @@ def maybe_draw(exact: LayoutExpr, outdir: Path | None) -> None:
     from tensor_layouts.viz import draw_layout, draw_slice
 
     outdir.mkdir(parents=True, exist_ok=True)
-    draw_layout(exact, outdir / "composed_exact.png", title="Exact composed layout", colorize=True)
+    draw_layout(
+        exact,
+        outdir / "composed_exact.png",
+        title="Exact composed layout",
+        colorize=True,
+    )
     draw_slice(
         exact,
         (None, 1),
@@ -155,7 +162,9 @@ def maybe_draw(exact: LayoutExpr, outdir: Path | None) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--draw", type=Path, default=None, help="Optional directory for PNG output")
+    parser.add_argument(
+        "--draw", type=Path, default=None, help="Optional directory for PNG output"
+    )
     args = parser.parse_args()
 
     example_fast_path()

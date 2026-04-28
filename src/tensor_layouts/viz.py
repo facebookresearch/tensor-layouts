@@ -72,6 +72,7 @@ from matplotlib.font_manager import FontProperties
 from matplotlib.textpath import TextToPath
 
 from .layouts import *
+
 __all__ = [
     # draw_* (save to file or display inline)
     "draw_layout",
@@ -177,7 +178,7 @@ def _make_rainbow_palette(n: int, interleave: bool = False) -> list:
     for i in range(n):
         hue = i / n
         r, g, b = colorsys.hsv_to_rgb(hue, sat, val)
-        monotonic.append(f"#{int(r*255):02X}{int(g*255):02X}{int(b*255):02X}")
+        monotonic.append(f"#{int(r * 255):02X}{int(g * 255):02X}{int(b * 255):02X}")
     order = _max_contrast_order(n)
     return [monotonic[k] for k in order]
 
@@ -257,7 +258,9 @@ _IDENTITY_LAYOUT = Layout(1, 1)
 
 def _normalize_display_layout(layout):
     if isinstance(layout, Layout):
-        return Layout(unwrap(layout.shape), unwrap(layout.stride), swizzle=layout.swizzle)
+        return Layout(
+            unwrap(layout.shape), unwrap(layout.stride), swizzle=layout.swizzle
+        )
     return layout
 
 
@@ -280,8 +283,12 @@ def _layout_expr_with_offset(layout, offset: int):
         return layout
     if isinstance(layout, Layout):
         if layout.swizzle is None:
-            return ComposedLayout(_IDENTITY_LAYOUT, Layout(layout.shape, layout.stride), preoffset=offset)
-        return ComposedLayout(layout.swizzle, Layout(layout.shape, layout.stride), preoffset=offset)
+            return ComposedLayout(
+                _IDENTITY_LAYOUT, Layout(layout.shape, layout.stride), preoffset=offset
+            )
+        return ComposedLayout(
+            layout.swizzle, Layout(layout.shape, layout.stride), preoffset=offset
+        )
     return ComposedLayout(_IDENTITY_LAYOUT, layout, preoffset=offset)
 
 
@@ -571,11 +578,17 @@ def _draw_cells(
                 color_idx = idx % len(colors)
             base_facecolor = colors[color_idx]
             final_facecolors[i, j] = highlight_facecolor if is_hl else base_facecolor
-            ax.add_patch(patches.Rectangle(
-                (j, i), cell_size, cell_size,
-                facecolor=base_facecolor, edgecolor="black",
-                linewidth=1, zorder=1,
-            ))
+            ax.add_patch(
+                patches.Rectangle(
+                    (j, i),
+                    cell_size,
+                    cell_size,
+                    facecolor=base_facecolor,
+                    edgecolor="black",
+                    linewidth=1,
+                    zorder=1,
+                )
+            )
             if is_hl:
                 highlighted_cells.append((i, j))
     return final_facecolors, highlighted_cells
@@ -596,11 +609,17 @@ def _draw_cell_highlights(
     thicker border.
     """
     for i, j in highlighted_cells:
-        ax.add_patch(patches.Rectangle(
-            (j, i), cell_size, cell_size,
-            facecolor=highlight_facecolor, edgecolor=highlight_edgecolor,
-            linewidth=2, zorder=6,
-        ))
+        ax.add_patch(
+            patches.Rectangle(
+                (j, i),
+                cell_size,
+                cell_size,
+                facecolor=highlight_facecolor,
+                edgecolor=highlight_edgecolor,
+                linewidth=2,
+                zorder=6,
+            )
+        )
 
 
 def _draw_cell_value_labels(
@@ -633,9 +652,14 @@ def _draw_cell_value_labels(
             else:
                 label = str(idx)
             ax.text(
-                j + 0.5, i + 0.5, label,
-                ha="center", va="center",
-                fontsize=cell_fontsize, color=text_color, zorder=7,
+                j + 0.5,
+                i + 0.5,
+                label,
+                ha="center",
+                va="center",
+                fontsize=cell_fontsize,
+                color=text_color,
+                zorder=7,
             )
 
 
@@ -649,15 +673,25 @@ def _draw_axis_index_labels(
     """Draw the row indices on the left and column indices on top."""
     for i in range(rows):
         ax.text(
-            -0.3, i + 0.5, str(i),
-            ha="center", va="center",
-            fontsize=label_fontsize, color=label_color, zorder=8,
+            -0.3,
+            i + 0.5,
+            str(i),
+            ha="center",
+            va="center",
+            fontsize=label_fontsize,
+            color=label_color,
+            zorder=8,
         )
     for j in range(cols):
         ax.text(
-            j + 0.5, -0.3, str(j),
-            ha="center", va="center",
-            fontsize=label_fontsize, color=label_color, zorder=8,
+            j + 0.5,
+            -0.3,
+            str(j),
+            ha="center",
+            va="center",
+            fontsize=label_fontsize,
+            color=label_color,
+            zorder=8,
         )
 
 
@@ -726,26 +760,40 @@ def _draw_grid(
     _setup_axes(ax, (-0.5, cols + 0.5), (-0.5, rows + 0.5), title=title)
 
     final_facecolors, highlighted_cells = _draw_cells(
-        ax, indices, colors, color_indices,
-        highlight_mask, highlight_facecolor, cell_size,
+        ax,
+        indices,
+        colors,
+        color_indices,
+        highlight_mask,
+        highlight_facecolor,
+        cell_size,
     )
 
     if hierarchy_shapes is not None:
         row_shape, col_shape = hierarchy_shapes
         _draw_hierarchy_boundary_lines(
-            ax, rows, cols,
+            ax,
+            rows,
+            cols,
             _level_block_sizes(row_shape),
             _level_block_sizes(col_shape),
             zorder_base=4,
         )
 
     _draw_cell_highlights(
-        ax, highlighted_cells, cell_size,
-        highlight_facecolor, highlight_edgecolor,
+        ax,
+        highlighted_cells,
+        cell_size,
+        highlight_facecolor,
+        highlight_edgecolor,
     )
     _draw_cell_value_labels(
-        ax, indices, final_facecolors,
-        cell_fontsize, cell_labels, precision,
+        ax,
+        indices,
+        final_facecolors,
+        cell_fontsize,
+        cell_labels,
+        precision,
     )
 
     if show_labels:
@@ -824,7 +872,7 @@ def _build_composite_figure(
         for p in panels:
             lay = p[0] if isinstance(p, tuple) else p
             opts = p[1] if isinstance(p, tuple) else {}
-            if hasattr(lay, 'layout'):
+            if hasattr(lay, "layout"):
                 lay = lay.layout
             lay = as_layout_expr(lay)
             # Per-panel grid overrides take priority, then defaults
@@ -841,8 +889,10 @@ def _build_composite_figure(
                     pr, pc = 1, size(lay)
             max_rows = max(max_rows, pr)
             max_cols = max(max_cols, pc)
-        panel_size = (max_cols * cell_scale + padding_w,
-                      max_rows * cell_scale + padding_h)
+        panel_size = (
+            max_cols * cell_scale + padding_w,
+            max_rows * cell_scale + padding_h,
+        )
 
     # Parse arrangement
     if arrangement == "horizontal":
@@ -898,7 +948,7 @@ def _build_composite_figure(
         # class-identity mismatches after editable-install reloads)
         eval_fn = None
         tensor = None
-        if hasattr(layout, 'layout') and hasattr(layout, 'data') and callable(layout):
+        if hasattr(layout, "layout") and hasattr(layout, "data") and callable(layout):
             tensor = layout
             eval_fn = tensor.__call__
             layout = tensor.layout
@@ -944,9 +994,13 @@ def _build_composite_figure(
         else:
             # Check if this panel should use hierarchical rendering
             r = rank(layout)
-            is_hier = r == 2 and not panel_flatten and (
-                isinstance(mode(layout.shape, 0), tuple)
-                or isinstance(mode(layout.shape, 1), tuple)
+            is_hier = (
+                r == 2
+                and not panel_flatten
+                and (
+                    isinstance(mode(layout.shape, 0), tuple)
+                    or isinstance(mode(layout.shape, 1), tuple)
+                )
             )
             grid = _prepare_offset_grid(
                 layout,
@@ -1009,7 +1063,7 @@ def _build_composite_figure(
 
 def _unwrap_tensor(panel):
     """Duck-type unwrap a Layout or Tensor into (layout, eval_fn, cell_labels)."""
-    if hasattr(panel, 'layout') and hasattr(panel, 'data') and callable(panel):
+    if hasattr(panel, "layout") and hasattr(panel, "data") and callable(panel):
         tensor = panel
         layout = tensor.layout
         eval_fn = tensor.__call__
@@ -1019,7 +1073,9 @@ def _unwrap_tensor(panel):
 
 
 def _build_gemm_figure(
-    A, B, C,
+    A,
+    B,
+    C,
     main_title: Optional[str] = None,
     **defaults,
 ):
@@ -1070,7 +1126,8 @@ def _build_gemm_figure(
 
     fig = plt.figure(figsize=(fig_w, fig_h), layout="constrained")
     gs = fig.add_gridspec(
-        2, 2,
+        2,
+        2,
         width_ratios=[K, N],
         height_ratios=[K, M],
         wspace=0.3,
@@ -1097,11 +1154,14 @@ def _build_gemm_figure(
         if cell_labels is True and isinstance(auto_labels, list):
             cell_labels = auto_labels
         grid = _prepare_offset_grid(
-            layout, eval_fn=eval_fn,
+            layout,
+            eval_fn=eval_fn,
             color_layout=defaults.get("color_layout"),
         )
         _draw_grid(
-            ax, grid.indices, title=title,
+            ax,
+            grid.indices,
+            title=title,
             colorize=defaults.get("colorize", False),
             color_indices=grid.color_indices,
             num_colors=defaults.get("num_colors", 8),
@@ -1122,7 +1182,9 @@ def _build_gemm_figure(
 
 
 def draw_gemm(
-    A, B, C,
+    A,
+    B,
+    C,
     filename: str = None,
     main_title: Optional[str] = None,
     dpi: int = 150,
@@ -1886,7 +1948,7 @@ def _build_layout_figure(
     # (duck-typed to avoid class-identity mismatches after editable-install reloads)
     eval_fn = None
     tensor = None
-    if hasattr(layout, 'layout') and hasattr(layout, 'data') and callable(layout):
+    if hasattr(layout, "layout") and hasattr(layout, "data") and callable(layout):
         tensor = layout
         eval_fn = tensor.__call__
         layout = tensor.layout
@@ -1956,8 +2018,12 @@ def _build_layout_figure(
                 sub_evals.append(_make_eval(offset, sub))
 
             if color_layout is not None and rank(color_layout) == r:
-                color_sub, color_offset = slice_and_offset(slice_spec, as_layout_expr(color_layout))
-                sub_color_layouts.append(_layout_expr_with_offset(color_sub, color_offset))
+                color_sub, color_offset = slice_and_offset(
+                    slice_spec, as_layout_expr(color_layout)
+                )
+                sub_color_layouts.append(
+                    _layout_expr_with_offset(color_sub, color_offset)
+                )
             else:
                 sub_color_layouts.append(color_layout)
 
@@ -1984,7 +2050,9 @@ def _build_layout_figure(
 
         for idx in range(n_panels):
             grid = _prepare_offset_grid(
-                sub_layouts[idx], color_layout=sub_color_layouts[idx], eval_fn=sub_evals[idx]
+                sub_layouts[idx],
+                color_layout=sub_color_layouts[idx],
+                eval_fn=sub_evals[idx],
             )
             _draw_grid(
                 axes[idx],
@@ -2023,7 +2091,9 @@ def _build_layout_figure(
     if transpose and rank(layout) <= 1:
         grid = OffsetGrid(
             indices=grid.indices.T,
-            color_indices=grid.color_indices.T if grid.color_indices is not None else None,
+            color_indices=grid.color_indices.T
+            if grid.color_indices is not None
+            else None,
             cell_coords=grid.cell_coords,
             row_shape=grid.row_shape,
             col_shape=grid.col_shape,
@@ -3152,8 +3222,12 @@ def draw_swizzle(
             (stacked). Use "vertical" for wide layouts like 8×128.
     """
     fig = _build_swizzle_figure(
-        base_layout, swizzle, figsize=figsize, colorize=colorize,
-        num_colors=num_colors, arrangement=arrangement,
+        base_layout,
+        swizzle,
+        figsize=figsize,
+        colorize=colorize,
+        num_colors=num_colors,
+        arrangement=arrangement,
     )
     return _save_figure(fig, filename, dpi)
 
@@ -3183,7 +3257,9 @@ def _expand_hier_slice(spec, shape):
     elif is_tuple(spec):
         if is_tuple(shape):
             if len(spec) != len(shape):
-                raise ValueError(f"Rank mismatch: spec has {len(spec)} elements, shape has {len(shape)}")
+                raise ValueError(
+                    f"Rank mismatch: spec has {len(spec)} elements, shape has {len(shape)}"
+                )
             sub_iters = [_expand_hier_slice(s, sh) for s, sh in zip(spec, shape)]
             for combo in itertools.product(*sub_iters):
                 yield combo
@@ -3336,7 +3412,9 @@ def _build_slice_figure(
         sub, offset = slice_and_offset(slice_spec, as_layout_expr(layout))
         if isinstance(sub, Layout):
             display_sub = _normalize_display_layout(sub)
-            title = str(display_sub) if offset == 0 else f"{{{offset}}}\u2218{display_sub}"
+            title = (
+                str(display_sub) if offset == 0 else f"{{{offset}}}\u2218{display_sub}"
+            )
         else:
             display_sub = _layout_expr_with_offset(sub, offset)
             title = str(display_sub)

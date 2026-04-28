@@ -62,23 +62,23 @@ def test_offset_table_strided():
 def test_aliasing_profile_contiguous():
     """Contiguous layout has no aliasing."""
     profile = aliasing_profile(Layout((2, 4), (1, 2)))
-    assert profile['has_aliasing'] is False
-    assert profile['max_alias_ways'] == 1
-    assert profile['aliased_offset_count'] == 0
-    assert profile['duplicate_elements'] == 0
-    assert profile['reuse_histogram'] == {1: 8}
-    assert profile['aliased_offsets'] == []
+    assert profile["has_aliasing"] is False
+    assert profile["max_alias_ways"] == 1
+    assert profile["aliased_offset_count"] == 0
+    assert profile["duplicate_elements"] == 0
+    assert profile["reuse_histogram"] == {1: 8}
+    assert profile["aliased_offsets"] == []
 
 
 def test_aliasing_profile_broadcast():
     """Broadcast layout aliases four logical values onto each offset."""
     profile = aliasing_profile(Layout((4, 2), (0, 1)))
-    assert profile['has_aliasing'] is True
-    assert profile['max_alias_ways'] == 4
-    assert profile['aliased_offset_count'] == 2
-    assert profile['duplicate_elements'] == 6
-    assert profile['reuse_histogram'] == {4: 2}
-    assert profile['aliased_offsets'] == [0, 1]
+    assert profile["has_aliasing"] is True
+    assert profile["max_alias_ways"] == 4
+    assert profile["aliased_offset_count"] == 2
+    assert profile["duplicate_elements"] == 6
+    assert profile["reuse_histogram"] == {4: 2}
+    assert profile["aliased_offsets"] == [0, 1]
 
 
 def test_aliasing_profile_matches_offset_table_1d_invariants():
@@ -97,21 +97,21 @@ def test_aliasing_profile_matches_offset_table_1d_invariants():
             for ways in ways_per_offset.values():
                 reuse_histogram[ways] = reuse_histogram.get(ways, 0) + 1
 
-            assert profile['has_aliasing'] == bool(aliased_offsets)
-            assert profile['max_alias_ways'] == max(ways_per_offset.values(), default=0)
-            assert profile['aliased_offset_count'] == len(aliased_offsets)
-            assert profile['duplicate_elements'] == size(lyt) - len(ways_per_offset)
-            assert profile['reuse_histogram'] == dict(sorted(reuse_histogram.items()))
-            assert profile['aliased_offsets'] == aliased_offsets
+            assert profile["has_aliasing"] == bool(aliased_offsets)
+            assert profile["max_alias_ways"] == max(ways_per_offset.values(), default=0)
+            assert profile["aliased_offset_count"] == len(aliased_offsets)
+            assert profile["duplicate_elements"] == size(lyt) - len(ways_per_offset)
+            assert profile["reuse_histogram"] == dict(sorted(reuse_histogram.items()))
+            assert profile["aliased_offsets"] == aliased_offsets
 
 
 def test_aliasing_profile_tensor_like_input():
     """Tensor inputs are accepted via as_layout conversion."""
     t = Tensor(Layout((4, 2), (0, 1)))
     profile = aliasing_profile(t)
-    assert profile['has_aliasing'] is True
-    assert profile['max_alias_ways'] == 4
-    assert profile['duplicate_elements'] == 6
+    assert profile["has_aliasing"] is True
+    assert profile["max_alias_ways"] == 4
+    assert profile["duplicate_elements"] == 6
 
 
 ## footprint
@@ -120,32 +120,32 @@ def test_aliasing_profile_tensor_like_input():
 def test_footprint_contiguous():
     """Contiguous layout: no holes, no reuse."""
     result = footprint(Layout(8, 1))
-    assert result['min_offset'] == 0
-    assert result['max_offset'] == 7
-    assert result['span'] == 8
-    assert result['unique_offsets'] == 8
-    assert result['total_elements'] == 8
-    assert result['reuse_factor'] == 1.0
-    assert result['holes'] == 0
+    assert result["min_offset"] == 0
+    assert result["max_offset"] == 7
+    assert result["span"] == 8
+    assert result["unique_offsets"] == 8
+    assert result["total_elements"] == 8
+    assert result["reuse_factor"] == 1.0
+    assert result["holes"] == 0
 
 
 def test_footprint_strided():
     """Strided layout: holes between offsets."""
     result = footprint(Layout(4, 2))
-    assert result['min_offset'] == 0
-    assert result['max_offset'] == 6
-    assert result['span'] == 7
-    assert result['unique_offsets'] == 4
-    assert result['holes'] == 3
+    assert result["min_offset"] == 0
+    assert result["max_offset"] == 6
+    assert result["span"] == 7
+    assert result["unique_offsets"] == 4
+    assert result["holes"] == 3
 
 
 def test_footprint_broadcast():
     """Broadcast: high reuse factor."""
     result = footprint(Layout((4, 2), (0, 1)))
-    assert result['unique_offsets'] == 2
-    assert result['total_elements'] == 8
-    assert result['reuse_factor'] == 4.0
-    assert result['holes'] == 0
+    assert result["unique_offsets"] == 2
+    assert result["total_elements"] == 8
+    assert result["reuse_factor"] == 4.0
+    assert result["holes"] == 0
 
 
 ## gap_profile
@@ -154,57 +154,57 @@ def test_footprint_broadcast():
 def test_gap_profile_contiguous():
     """Contiguous layout has one run and no interior gaps."""
     result = gap_profile(Layout(8, 1))
-    assert result['runs'] == [(0, 7)]
-    assert result['gap_sizes'] == []
-    assert result['max_gap'] == 0
-    assert result['avg_gap'] == 0.0
-    assert result['run_count'] == 1
-    assert result['isolated_offsets'] == 0
+    assert result["runs"] == [(0, 7)]
+    assert result["gap_sizes"] == []
+    assert result["max_gap"] == 0
+    assert result["avg_gap"] == 0.0
+    assert result["run_count"] == 1
+    assert result["isolated_offsets"] == 0
 
 
 def test_gap_profile_strided():
     """Stride-2 layout has single-element runs separated by gap=1."""
     result = gap_profile(Layout(4, 2))
-    assert result['runs'] == [(0, 0), (2, 2), (4, 4), (6, 6)]
-    assert result['gap_sizes'] == [1, 1, 1]
-    assert result['max_gap'] == 1
-    assert result['avg_gap'] == pytest.approx(1.0)
-    assert result['run_count'] == 4
-    assert result['isolated_offsets'] == 4
+    assert result["runs"] == [(0, 0), (2, 2), (4, 4), (6, 6)]
+    assert result["gap_sizes"] == [1, 1, 1]
+    assert result["max_gap"] == 1
+    assert result["avg_gap"] == pytest.approx(1.0)
+    assert result["run_count"] == 4
+    assert result["isolated_offsets"] == 4
 
 
 def test_gap_profile_negative_stride():
     """Negative strides still produce sorted runs in offset space."""
     result = gap_profile(Layout(4, -2))
-    assert result['runs'] == [(-6, -6), (-4, -4), (-2, -2), (0, 0)]
-    assert result['gap_sizes'] == [1, 1, 1]
-    assert result['max_gap'] == 1
-    assert result['avg_gap'] == pytest.approx(1.0)
-    assert result['run_count'] == 4
-    assert result['isolated_offsets'] == 4
+    assert result["runs"] == [(-6, -6), (-4, -4), (-2, -2), (0, 0)]
+    assert result["gap_sizes"] == [1, 1, 1]
+    assert result["max_gap"] == 1
+    assert result["avg_gap"] == pytest.approx(1.0)
+    assert result["run_count"] == 4
+    assert result["isolated_offsets"] == 4
 
 
 def test_gap_profile_broadcast_aliasing_has_no_gaps():
     """Aliasing does not imply holes: broadcast is dense in offset space."""
     result = gap_profile(Layout((4, 2), (0, 1)))
-    assert result['runs'] == [(0, 1)]
-    assert result['gap_sizes'] == []
-    assert result['max_gap'] == 0
-    assert result['avg_gap'] == 0.0
-    assert result['run_count'] == 1
-    assert result['isolated_offsets'] == 0
+    assert result["runs"] == [(0, 1)]
+    assert result["gap_sizes"] == []
+    assert result["max_gap"] == 0
+    assert result["avg_gap"] == 0.0
+    assert result["run_count"] == 1
+    assert result["isolated_offsets"] == 0
 
 
 def test_gap_profile_zero_size_layout():
     """Empty domains produce an empty run/gap profile."""
     result = gap_profile(Layout(0, 1))
     assert result == {
-        'runs': [],
-        'gap_sizes': [],
-        'max_gap': 0,
-        'avg_gap': 0.0,
-        'run_count': 0,
-        'isolated_offsets': 0,
+        "runs": [],
+        "gap_sizes": [],
+        "max_gap": 0,
+        "avg_gap": 0.0,
+        "run_count": 0,
+        "isolated_offsets": 0,
     }
 
 
@@ -217,22 +217,22 @@ def test_gap_profile_invariants_match_footprint():
             fp = footprint(lyt)
 
             # Reconstruct unique-offset count from run lengths.
-            run_lengths = [end - start + 1 for start, end in gp['runs']]
-            assert sum(run_lengths) == fp['unique_offsets']
+            run_lengths = [end - start + 1 for start, end in gp["runs"]]
+            assert sum(run_lengths) == fp["unique_offsets"]
 
             # Holes are exactly the interior gaps between runs.
-            assert sum(gp['gap_sizes']) == fp['holes']
-            assert gp['max_gap'] == max(gp['gap_sizes'], default=0)
-            assert gp['run_count'] == len(gp['runs'])
-            assert gp['isolated_offsets'] == sum(1 for n in run_lengths if n == 1)
+            assert sum(gp["gap_sizes"]) == fp["holes"]
+            assert gp["max_gap"] == max(gp["gap_sizes"], default=0)
+            assert gp["run_count"] == len(gp["runs"])
+            assert gp["isolated_offsets"] == sum(1 for n in run_lengths if n == 1)
 
             # Empty/single-run edge cases.
-            if gp['gap_sizes']:
-                assert gp['avg_gap'] == pytest.approx(
-                    sum(gp['gap_sizes']) / len(gp['gap_sizes'])
+            if gp["gap_sizes"]:
+                assert gp["avg_gap"] == pytest.approx(
+                    sum(gp["gap_sizes"]) / len(gp["gap_sizes"])
                 )
             else:
-                assert gp['avg_gap'] == 0.0
+                assert gp["avg_gap"] == 0.0
 
 
 ## bank_conflicts
@@ -241,14 +241,14 @@ def test_gap_profile_invariants_match_footprint():
 def test_bank_conflicts_linear():
     """Linear stride-1 access: no conflicts."""
     result = bank_conflicts(Layout(32, 1), element_bytes=2)
-    assert result['conflict_free']
-    assert result['max_ways'] == 1
+    assert result["conflict_free"]
+    assert result["max_ways"] == 1
 
 
 def test_bank_conflicts_broadcast():
     """All threads access same address: broadcast, not a conflict."""
     result = bank_conflicts(Layout(32, 0), element_bytes=2)
-    assert result['conflict_free']
+    assert result["conflict_free"]
 
 
 def test_bank_conflicts_stride_32():
@@ -257,7 +257,7 @@ def test_bank_conflicts_stride_32():
     # Actually: thread t -> offset 32*t, byte_addr = 64*t, bank = (64t/4) % 32 = 16t % 32
     # This causes 2-way conflicts (threads 0,2,4,... hit bank 0; threads 1,3,5,... hit bank 16)
     result = bank_conflicts(Layout(32, 32), element_bytes=2)
-    assert not result['conflict_free']
+    assert not result["conflict_free"]
 
 
 def test_bank_conflicts_swizzled():
@@ -283,13 +283,13 @@ def test_bank_conflicts_swizzled():
             element_bytes=4,  # treat each offset as a 4-byte word
         )
         # stride-1, 8 consecutive elements with 4-byte words: 8 different banks
-        assert result['conflict_free']
+        assert result["conflict_free"]
 
 
 def test_bank_conflicts_fp32():
     """4-byte elements: bank width matches element width."""
     result = bank_conflicts(Layout(32, 1), element_bytes=4)
-    assert result['conflict_free']
+    assert result["conflict_free"]
 
 
 def test_bank_conflicts_group_size():
@@ -298,11 +298,11 @@ def test_bank_conflicts_group_size():
     r32 = bank_conflicts(Layout(32, 32), element_bytes=2)
     r64_default = bank_conflicts(Layout(64, 32), element_bytes=2)
     # Default group_size=32 limits analysis to first warp
-    assert r64_default['max_ways'] == r32['max_ways']
+    assert r64_default["max_ways"] == r32["max_ways"]
 
     # Explicitly analyzing all 64 threads gives a larger conflict factor
     r64_full = bank_conflicts(Layout(64, 32), element_bytes=2, group_size=64)
-    assert r64_full['max_ways'] > r32['max_ways']
+    assert r64_full["max_ways"] > r32["max_ways"]
 
 
 def test_bank_conflicts_group_size_validation():
@@ -318,8 +318,8 @@ def test_bank_conflicts_tv_layout():
     # 32 threads, 2 values: stride-1 threads, stride-32 values
     tv = Layout((32, 2), (1, 32))
     r = bank_conflicts(tv, element_bytes=2)
-    assert r['conflict_free']
-    assert len(r['bank_to_threads']) == 32  # all banks accessed
+    assert r["conflict_free"]
+    assert len(r["bank_to_threads"]) == 32  # all banks accessed
 
 
 ## coalescing_efficiency
@@ -328,40 +328,40 @@ def test_bank_conflicts_tv_layout():
 def test_coalescing_contiguous_fp16():
     """32 threads, stride 1, fp16: one cache line (64B of 128B)."""
     result = coalescing_efficiency(Layout(32, 1), element_bytes=2)
-    assert result['transactions'] == 1
-    assert result['efficiency'] == pytest.approx(0.5)
+    assert result["transactions"] == 1
+    assert result["efficiency"] == pytest.approx(0.5)
 
 
 def test_coalescing_contiguous_fp32():
     """32 threads, stride 1, fp32: one cache line (128B of 128B)."""
     result = coalescing_efficiency(Layout(32, 1), element_bytes=4)
-    assert result['transactions'] == 1
-    assert result['efficiency'] == pytest.approx(1.0)
+    assert result["transactions"] == 1
+    assert result["efficiency"] == pytest.approx(1.0)
 
 
 def test_coalescing_strided():
     """Stride-2 access doubles the cache lines touched."""
     result = coalescing_efficiency(Layout(32, 2), element_bytes=2)
-    assert result['transactions'] == 1  # 32*2*2=128 bytes, still fits in 1 line
+    assert result["transactions"] == 1  # 32*2*2=128 bytes, still fits in 1 line
     # Actually: offsets 0,2,4,...,62. byte addrs 0,4,8,...,124. All in line 0.
-    assert result['efficiency'] == pytest.approx(0.5)
+    assert result["efficiency"] == pytest.approx(0.5)
 
 
 def test_coalescing_large_stride():
     """Large stride: each thread touches a different cache line."""
     # stride 64 elements * 2 bytes = 128 bytes = 1 cache line apart
     result = coalescing_efficiency(Layout(32, 64), element_bytes=2)
-    assert result['transactions'] == 32
+    assert result["transactions"] == 32
     # 32 threads * 2 bytes = 64 useful bytes, 32 * 128 = 4096 transferred
-    assert result['efficiency'] == pytest.approx(64.0 / (32 * 128))
+    assert result["efficiency"] == pytest.approx(64.0 / (32 * 128))
 
 
 def test_coalescing_broadcast():
     """All threads access same element: single transaction, minimal useful bytes."""
     result = coalescing_efficiency(Layout(32, 0), element_bytes=2)
-    assert result['transactions'] == 1
+    assert result["transactions"] == 1
     # Only 1 unique offset: 1 * 2 bytes useful out of 128 transferred
-    assert result['efficiency'] == pytest.approx(2.0 / 128)
+    assert result["efficiency"] == pytest.approx(2.0 / 128)
 
 
 def test_coalescing_tv_layout():
@@ -370,16 +370,16 @@ def test_coalescing_tv_layout():
     tv = Layout((32, 4), (4, 1))
     result = coalescing_efficiency(tv, element_bytes=2)
     # 128 unique offsets * 2B = 256B -> cache lines 0, 1
-    assert result['transactions'] == 2
-    assert result['efficiency'] == pytest.approx(1.0)
+    assert result["transactions"] == 2
+    assert result["efficiency"] == pytest.approx(1.0)
 
 
 def test_coalescing_negative_stride_rebases_footprint():
     """Dense reverse layouts should analyze like translated dense runs."""
     result = coalescing_efficiency(Layout(4, -1), element_bytes=4)
-    assert result['transactions'] == 1
-    assert result['efficiency'] == pytest.approx(16.0 / 128)
-    assert result['cache_lines'] == [0]
+    assert result["transactions"] == 1
+    assert result["efficiency"] == pytest.approx(16.0 / 128)
+    assert result["cache_lines"] == [0]
 
 
 ## segment_analysis
@@ -389,29 +389,29 @@ def test_segment_analysis_contiguous_fp16():
     """32 threads, stride 1, fp16: 2 segments, 1 cache line."""
     result = segment_analysis(Layout(32, 1), element_bytes=2)
     # 32 * 2B = 64B -> 2 segments of 32B, 1 cache line of 128B
-    assert result['segments'] == 2
-    assert result['cache_lines'] == 1
-    assert result['unique_bytes'] == 64
-    assert result['requested_bytes'] == 64
-    assert result['transferred_bytes'] == 64  # 2 * 32
-    assert result['segment_efficiency'] == pytest.approx(1.0)
-    assert result['first_alignment'] == 0
+    assert result["segments"] == 2
+    assert result["cache_lines"] == 1
+    assert result["unique_bytes"] == 64
+    assert result["requested_bytes"] == 64
+    assert result["transferred_bytes"] == 64  # 2 * 32
+    assert result["segment_efficiency"] == pytest.approx(1.0)
+    assert result["first_alignment"] == 0
 
 
 def test_segment_analysis_strided():
     """Stride-2 touches more segments than contiguous."""
     result = segment_analysis(Layout(32, 2), element_bytes=2)
     # offsets 0,2,4,...,62 -> byte addrs 0,4,8,...,124 -> 4 segments
-    assert result['segments'] == 4
-    assert result['cache_lines'] == 1
+    assert result["segments"] == 4
+    assert result["cache_lines"] == 1
 
 
 def test_segment_analysis_broadcast():
     """Broadcast: 1 segment, minimal unique bytes."""
     result = segment_analysis(Layout(32, 0), element_bytes=2)
-    assert result['segments'] == 1
-    assert result['unique_bytes'] == 2
-    assert result['requested_bytes'] == 64
+    assert result["segments"] == 1
+    assert result["unique_bytes"] == 2
+    assert result["requested_bytes"] == 64
 
 
 def test_segment_analysis_tv_layout():
@@ -419,21 +419,21 @@ def test_segment_analysis_tv_layout():
     tv = Layout((32, 4), (4, 1))
     result = segment_analysis(tv, element_bytes=2)
     # 128 elements * 2B = 256B -> 8 segments, 2 cache lines
-    assert result['segments'] == 8
-    assert result['cache_lines'] == 2
-    assert result['requested_bytes'] == 256  # 32 * 4 * 2
+    assert result["segments"] == 8
+    assert result["cache_lines"] == 2
+    assert result["requested_bytes"] == 256  # 32 * 4 * 2
 
 
 def test_segment_analysis_negative_stride_rebases_footprint():
     """Segment analysis should use the addressed footprint, not signed origin."""
     result = segment_analysis(Layout((4, 2), (-1, 4)), element_bytes=4)
-    assert result['segments'] == 1
-    assert result['cache_lines'] == 1
-    assert result['unique_bytes'] == 32
-    assert result['transferred_bytes'] == 32
-    assert result['segment_efficiency'] == pytest.approx(1.0)
-    assert result['first_byte_addr'] == 12
-    assert result['first_alignment'] == 12
+    assert result["segments"] == 1
+    assert result["cache_lines"] == 1
+    assert result["unique_bytes"] == 32
+    assert result["transferred_bytes"] == 32
+    assert result["segment_efficiency"] == pytest.approx(1.0)
+    assert result["first_byte_addr"] == 12
+    assert result["first_alignment"] == 12
 
 
 ## per-group analysis
@@ -443,11 +443,11 @@ def test_per_group_bank_conflicts():
     """Per-group analysis matches single-group result for each warp."""
     r_single = bank_conflicts(Layout(32, 32), element_bytes=2)
     r_per = per_group_bank_conflicts(Layout(64, 32), element_bytes=2)
-    assert len(r_per['groups']) == 2
+    assert len(r_per["groups"]) == 2
     # Each group should match the single-warp result
-    for g in r_per['groups']:
-        assert g['max_ways'] == r_single['max_ways']
-    assert r_per['worst_max_ways'] == r_single['max_ways']
+    for g in r_per["groups"]:
+        assert g["max_ways"] == r_single["max_ways"]
+    assert r_per["worst_max_ways"] == r_single["max_ways"]
 
 
 def test_per_group_bank_conflicts_tv_layout():
@@ -455,16 +455,16 @@ def test_per_group_bank_conflicts_tv_layout():
     # 32 threads, 4 values each: should be 1 group (not 4)
     tv = Layout((32, 4), (1, 32))
     result = per_group_bank_conflicts(tv, element_bytes=2, group_size=32)
-    assert len(result['groups']) == 1
+    assert len(result["groups"]) == 1
 
 
 def test_per_group_coalescing():
     """Per-group coalescing for a uniform layout gives identical per-warp results."""
     r_per = per_group_coalescing(Layout(64, 1), element_bytes=2)
-    assert len(r_per['groups']) == 2
-    for g in r_per['groups']:
-        assert g['efficiency'] == pytest.approx(0.5)
-        assert g['transactions'] == 1
+    assert len(r_per["groups"]) == 2
+    for g in r_per["groups"]:
+        assert g["efficiency"] == pytest.approx(0.5)
+        assert g["transactions"] == 1
 
 
 def test_per_group_coalescing_tv_layout():
@@ -472,19 +472,19 @@ def test_per_group_coalescing_tv_layout():
     # 32 threads, 4 values each (contiguous within each thread's block)
     tv = Layout((32, 4), (4, 1))
     result = per_group_coalescing(tv, element_bytes=2, group_size=32)
-    assert len(result['groups']) == 1
+    assert len(result["groups"]) == 1
     # 32 threads * 4 values = 128 elements * 2B = 256B -> 2 cache lines
-    assert result['groups'][0]['transactions'] == 2
+    assert result["groups"][0]["transactions"] == 2
 
 
 def test_per_group_coalescing_negative_stride_rebases_each_group():
     """Each group should analyze its own dense reversed footprint."""
     result = per_group_coalescing(Layout(64, -1), element_bytes=4, group_size=32)
-    assert len(result['groups']) == 2
-    for group in result['groups']:
-        assert group['transactions'] == 1
-        assert group['efficiency'] == pytest.approx(1.0)
-        assert group['cache_lines'] == [0]
+    assert len(result["groups"]) == 2
+    for group in result["groups"]:
+        assert group["transactions"] == 1
+        assert group["efficiency"] == pytest.approx(1.0)
+        assert group["cache_lines"] == [0]
 
 
 ## cycles
@@ -665,43 +665,48 @@ def test_slice_contiguity_col_major():
 def test_atom_summary_nv_sm80():
     """SM80 16x8x16 F16 atom summary."""
     from tensor_layouts.atoms_nv import SM80_16x8x16_F16F16F16F16_TN
+
     result = atom_summary(SM80_16x8x16_F16F16F16F16_TN)
-    assert result['shape_mnk'] == (16, 8, 16)
-    assert result['threads'] == 32
-    assert result['values_c'] > 0
-    assert result['c_coverage_ok']
+    assert result["shape_mnk"] == (16, 8, 16)
+    assert result["threads"] == 32
+    assert result["values_c"] > 0
+    assert result["c_coverage_ok"]
 
 
 def test_atom_summary_nv_sm80_f32():
     """SM80 16x8x8 F32 accumulator atom."""
     from tensor_layouts.atoms_nv import SM80_16x8x8_F32F16F16F32_TN
+
     result = atom_summary(SM80_16x8x8_F32F16F16F32_TN)
-    assert result['shape_mnk'] == (16, 8, 8)
-    assert result['threads'] == 32
-    assert result['c_coverage_ok']
+    assert result["shape_mnk"] == (16, 8, 8)
+    assert result["threads"] == 32
+    assert result["c_coverage_ok"]
 
 
 def test_atom_summary_amd_cdna():
     """AMD CDNA 32x32x8 MFMA atom summary."""
     from tensor_layouts.atoms_amd import CDNA_32x32x8_F32F16F16_MFMA
+
     result = atom_summary(CDNA_32x32x8_F32F16F16_MFMA)
-    assert result['shape_mnk'] == (32, 32, 8)
-    assert result['threads'] == 64  # AMD wavefront
-    assert result['c_coverage_ok']
+    assert result["shape_mnk"] == (32, 32, 8)
+    assert result["threads"] == 64  # AMD wavefront
+    assert result["c_coverage_ok"]
 
 
 def test_atom_summary_text_output():
     """atom_summary returns a readable text summary."""
     from tensor_layouts.atoms_nv import SM80_16x8x16_F16F16F16F16_TN
+
     result = atom_summary(SM80_16x8x16_F16F16F16F16_TN)
-    assert 'SM80' in result['text']
-    assert '16 x 8 x 16' in result['text']
-    assert 'Threads' in result['text']
+    assert "SM80" in result["text"]
+    assert "16 x 8 x 16" in result["text"]
+    assert "Threads" in result["text"]
 
 
 def test_atom_summary_rejects_wrong_c_offsets():
     """c_coverage_ok must check exact offset set, not just cardinality."""
     from tensor_layouts.atoms import MMAAtom
+
     # Build a 2x2 atom where C layout produces offsets {0, 1, 2, 5}
     # instead of the expected {0, 1, 2, 3}. Cardinality is 4 = M*N,
     # but the set is wrong.
@@ -710,10 +715,10 @@ def test_atom_summary_rejects_wrong_c_offsets():
         ptx="test",
         shape_mnk=(2, 2, 1),
         thr_id=Layout(4),
-        a_layout=Layout((4, 1), (1, 0)),   # doesn't matter for this test
-        b_layout=Layout((4, 1), (1, 0)),   # doesn't matter for this test
+        a_layout=Layout((4, 1), (1, 0)),  # doesn't matter for this test
+        b_layout=Layout((4, 1), (1, 0)),  # doesn't matter for this test
         # C layout: 4 threads, 1 value each -> offsets 0, 1, 2, 5
-        c_layout=Layout((4, 1), (1, 0)),   # placeholder, override below
+        c_layout=Layout((4, 1), (1, 0)),  # placeholder, override below
     )
     # Manually construct a C layout that maps t -> {0, 1, 2, 5}
     # Layout((4, 1), (1, 0)) maps t -> t, giving {0, 1, 2, 3} — that's correct.
@@ -721,16 +726,19 @@ def test_atom_summary_rejects_wrong_c_offsets():
     # Layout with shape (2, 2) stride (1, 2) gives 0,1,2,3 — still correct.
     # Use a non-standard construction: ((2, 2), 1) : ((1, 4), 0) -> 0,1,4,5
     import dataclasses
+
     bad_c = Layout(((2, 2), 1), ((1, 4), 0))
     bad_atom = dataclasses.replace(bad_atom, c_layout=bad_c)
     result = atom_summary(bad_atom)
-    assert not result['c_coverage_ok']
+    assert not result["c_coverage_ok"]
 
 
 def test_atom_summary_rejects_duplicate_c_coverage():
     """c_coverage_ok must be False when C layout produces duplicate offsets."""
-    from tensor_layouts.atoms import MMAAtom
     import dataclasses
+
+    from tensor_layouts.atoms import MMAAtom
+
     # Build a 2x2x1 atom where C layout has shape (4, 2) stride (1, 0).
     # This maps (t, v) pairs to offsets [0,0,1,1,2,2,3,3] — correct set
     # but each offset appears twice.
@@ -746,25 +754,27 @@ def test_atom_summary_rejects_duplicate_c_coverage():
     dup_c = Layout((4, 2), (1, 0))  # 8 accesses, offsets 0..3 each twice
     bad_atom = dataclasses.replace(base, c_layout=dup_c)
     result = atom_summary(bad_atom)
-    assert not result['c_coverage_ok']
+    assert not result["c_coverage_ok"]
 
 
 def test_operand_analysis_sm80():
     """operand_analysis on a well-formed atom reports full coverage."""
     from tensor_layouts.atoms_nv import SM80_16x8x16_F16F16F16F16_TN
+
     result = operand_analysis(SM80_16x8x16_F16F16F16F16_TN)
-    for op in ['a', 'b', 'c']:
-        assert result[op]['coverage_ok']
-        assert result[op]['duplicates'] == 0
-        assert result[op]['thread_utilization'] == pytest.approx(1.0)
-    assert result['a']['domain_size'] == 16 * 16  # M * K
-    assert result['b']['domain_size'] == 8 * 16   # N * K
-    assert result['c']['domain_size'] == 16 * 8   # M * N
+    for op in ["a", "b", "c"]:
+        assert result[op]["coverage_ok"]
+        assert result[op]["duplicates"] == 0
+        assert result[op]["thread_utilization"] == pytest.approx(1.0)
+    assert result["a"]["domain_size"] == 16 * 16  # M * K
+    assert result["b"]["domain_size"] == 8 * 16  # N * K
+    assert result["c"]["domain_size"] == 16 * 8  # M * N
 
 
 def test_operand_analysis_bad_coverage():
     """operand_analysis detects malformed operand coverage."""
     from tensor_layouts.atoms import MMAAtom
+
     base = MMAAtom(
         name="test_bad_operand",
         ptx="test",
@@ -775,9 +785,9 @@ def test_operand_analysis_bad_coverage():
         c_layout=Layout(((2, 2), 1), ((1, 4), 0)),  # offsets {0,1,4,5}, not {0,1,2,3}
     )
     result = operand_analysis(base)
-    assert not result['c']['coverage_ok']
-    assert len(result['c']['missing']) > 0
-    assert len(result['c']['extra']) > 0
+    assert not result["c"]["coverage_ok"]
+    assert len(result["c"]["missing"]) > 0
+    assert len(result["c"]["extra"]) > 0
 
 
 ## explain
@@ -786,36 +796,36 @@ def test_operand_analysis_bad_coverage():
 def test_explain_logical_divide():
     """explain shows step-by-step logical_divide computation."""
     text = explain(logical_divide, Layout(16, 1), 4)
-    assert 'logical_divide' in text
-    assert 'complement' in text
-    assert 'compose' in text
-    assert '(4, 4) : (1, 4)' in text
+    assert "logical_divide" in text
+    assert "complement" in text
+    assert "compose" in text
+    assert "(4, 4) : (1, 4)" in text
 
 
 def test_explain_logical_product():
     """explain shows step-by-step logical_product computation."""
     text = explain(logical_product, Layout(4, 1), Layout(3, 1))
-    assert 'logical_product' in text
-    assert 'complement' in text
-    assert '(4, 3) : (1, 4)' in text
+    assert "logical_product" in text
+    assert "complement" in text
+    assert "(4, 3) : (1, 4)" in text
 
 
 def test_explain_logical_product_layout_tiler_uses_cosize_bound():
     """Layout-tiler explanations should match CuTe's size(A) * cosize(B)."""
     text = explain(logical_product, Layout(4, 1), Layout(3, 2))
-    assert 'size(A) = 4' in text
-    assert 'cosize(B) = 5' in text
-    assert 'size(A) * cosize(B) = 20' in text
-    assert 'size(A) * size(B)' not in text
+    assert "size(A) = 4" in text
+    assert "cosize(B) = 5" in text
+    assert "size(A) * cosize(B) = 20" in text
+    assert "size(A) * size(B)" not in text
     assert str(logical_product(Layout(4, 1), Layout(3, 2))) in text
 
 
 def test_explain_logical_product_tuple_tiler():
     """explain handles logical_product with tuple tiler without crashing."""
     text = explain(logical_product, Layout((4, 4), (1, 4)), (2, 2))
-    assert 'logical_product' in text
-    assert 'mode 0' in text
-    assert 'mode 1' in text
+    assert "logical_product" in text
+    assert "mode 0" in text
+    assert "mode 1" in text
     expected = logical_product(Layout((4, 4), (1, 4)), (2, 2))
     assert str(expected) in text
 
@@ -823,16 +833,16 @@ def test_explain_logical_product_tuple_tiler():
 def test_explain_complement():
     """explain shows complement with image and codomain."""
     text = explain(complement, Layout(4, 2), 16)
-    assert 'image' in text
-    assert 'codomain' in text
-    assert '[0, 16)' in text
+    assert "image" in text
+    assert "codomain" in text
+    assert "[0, 16)" in text
 
 
 def test_explain_compose():
     """explain shows compose with per-element trace."""
     text = explain(compose, Layout(8, 2), Layout(4, 1))
-    assert 'C(i) = A(B(i))' in text
-    assert 'i=0' in text
+    assert "C(i) = A(B(i))" in text
+    assert "i=0" in text
 
 
 def test_explain_compose_tuple_tiler():
@@ -840,72 +850,72 @@ def test_explain_compose_tuple_tiler():
     A = Layout((4, 8), (8, 1))
     B = (2, 4)
     text = explain(compose, A, B)
-    assert 'For tuple tilers, composition is applied mode-by-mode.' in text
-    assert 'mode 0: compose(4 : 8, 2 : 1) = 2 : 8' in text
-    assert 'mode 1: compose(8 : 1, 4 : 1) = 4 : 1' in text
-    assert 'coord=(0, 0): result((0, 0))=0' in text
+    assert "For tuple tilers, composition is applied mode-by-mode." in text
+    assert "mode 0: compose(4 : 8, 2 : 1) = 2 : 8" in text
+    assert "mode 1: compose(8 : 1, 4 : 1) = 4 : 1" in text
+    assert "coord=(0, 0): result((0, 0))=0" in text
     assert str(compose(A, B)) in text
 
 
 def test_explain_right_inverse():
     """explain shows right_inverse with verification."""
     text = explain(right_inverse, Layout(4, 2))
-    assert 'R such that L(R(i)) == i' in text
-    assert 'Verification' in text
+    assert "R such that L(R(i)) == i" in text
+    assert "Verification" in text
 
 
 def test_explain_left_inverse():
     """explain shows left_inverse with verification."""
     text = explain(left_inverse, Layout(4, 2))
-    assert 'R such that R(L(i)) == i' in text
-    assert 'Verification' in text
+    assert "R such that R(L(i)) == i" in text
+    assert "Verification" in text
 
 
 def test_explain_unsupported():
     """explain gracefully handles unsupported functions."""
     text = explain(size, Layout(4, 1))
-    assert 'does not support' in text
+    assert "does not support" in text
 
 
 def test_explain_blocked_product():
     """explain shows blocked_product as interleaved logical_product."""
     text = explain(blocked_product, Layout((2, 3), (1, 2)), Layout((4, 2), (1, 4)))
-    assert 'blocked_product' in text
-    assert 'logical_product' in text
-    assert 'A varies fastest' in text
+    assert "blocked_product" in text
+    assert "logical_product" in text
+    assert "A varies fastest" in text
 
 
 def test_explain_raked_product():
     """explain shows raked_product with comparison to blocked."""
     text = explain(raked_product, Layout(4, 1), Layout(3, 1))
-    assert 'raked_product' in text
-    assert 'B varies fastest' in text
-    assert 'blocked' in text
-    assert 'raked' in text
+    assert "raked_product" in text
+    assert "B varies fastest" in text
+    assert "blocked" in text
+    assert "raked" in text
 
 
 def test_explain_zipped_divide():
     """explain shows zipped_divide as rearranged logical_divide."""
     text = explain(zipped_divide, Layout((4, 6), (1, 4)), (2, 3))
-    assert 'zipped_divide' in text
-    assert 'logical_divide' in text
-    assert '((tiles), (rests))' in text
+    assert "zipped_divide" in text
+    assert "logical_divide" in text
+    assert "((tiles), (rests))" in text
 
 
 def test_explain_tiled_divide():
     """explain shows tiled_divide structure."""
     text = explain(tiled_divide, Layout((4, 6), (1, 4)), (2, 3))
-    assert 'tiled_divide' in text
-    assert 'logical_divide' in text
-    assert '((tiles), rest0, rest1, ...)' in text
+    assert "tiled_divide" in text
+    assert "logical_divide" in text
+    assert "((tiles), rest0, rest1, ...)" in text
 
 
 def test_explain_flat_divide():
     """explain shows flat_divide structure."""
     text = explain(flat_divide, Layout((4, 6), (1, 4)), (2, 3))
-    assert 'flat_divide' in text
-    assert 'logical_divide' in text
-    assert '(tile0, tile1, ..., rest0, rest1, ...)' in text
+    assert "flat_divide" in text
+    assert "logical_divide" in text
+    assert "(tile0, tile1, ..., rest0, rest1, ...)" in text
 
 
 ## MMAAtom and CopyAtom __str__
@@ -999,11 +1009,13 @@ def test_F2_matrix_row_major():
 def test_F2_matrix_col_major():
     """Column-major produces identity (already in natural bit order)."""
     M = to_F2_matrix(Layout((4, 8), (1, 4)))
-    assert M == [[1, 0, 0, 0, 0],
-                 [0, 1, 0, 0, 0],
-                 [0, 0, 1, 0, 0],
-                 [0, 0, 0, 1, 0],
-                 [0, 0, 0, 0, 1]]
+    assert M == [
+        [1, 0, 0, 0, 0],
+        [0, 1, 0, 0, 0],
+        [0, 0, 1, 0, 0],
+        [0, 0, 0, 1, 0],
+        [0, 0, 0, 0, 1],
+    ]
 
 
 def test_F2_matrix_swizzle():
@@ -1088,6 +1100,7 @@ def test_F2_matrix_sm80_mma_c_accumulator():
       n1..n2 = T0..T1  (thread pairs select column groups)
     """
     from tensor_layouts.atoms_nv import SM80_16x8x16_F16F16F16F16_TN
+
     c = SM80_16x8x16_F16F16F16F16_TN.c_layout
     M = to_F2_matrix(c)
     #        T0  T1  T2  T3  T4  V0  V1
@@ -1175,9 +1188,14 @@ def test_F2_matrix_sm80_c_vs_triton_MMAv2():
     # (matching CuTe's flattened thread → value coord bit order)
     triton_bases = [
         # lane (thread) bases — from LinearLayoutConversionsTest.cpp:438
-        (0, 2), (0, 4), (1, 0), (2, 0), (4, 0),
+        (0, 2),
+        (0, 4),
+        (1, 0),
+        (2, 0),
+        (4, 0),
         # register (value) bases — from LinearLayoutConversionsTest.cpp:438
-        (0, 1), (8, 0),
+        (0, 1),
+        (8, 0),
     ]
     expected = _triton_bases_to_F2_matrix(triton_bases, tile_M=16, tile_N=8)
 
@@ -1195,13 +1213,13 @@ def test_F2_matrix_sm80_c_all_atoms_share_layout():
     Source: mma_traits_sm80.hpp line 53 (SM80_16x8_Row definition).
     """
     from tensor_layouts.atoms_nv import (
-        SM80_16x8x8_F16F16F16F16_TN,
-        SM80_16x8x16_F32F16F16F32_TN,
+        SM120_16x8x32_F32E4M3E4M3F32_TN,
         SM80_16x8x16_F32BF16BF16F32_TN,
+        SM80_16x8x16_F32F16F16F32_TN,
         SM80_16x8x32_S32S8S8S32_TN,
         SM80_16x8x64_S32S4S4S32_TN,
+        SM80_16x8x8_F16F16F16F16_TN,
         SM89_16x8x32_F32E4M3E4M3F32_TN,
-        SM120_16x8x32_F32E4M3E4M3F32_TN,
     )
 
     ref = to_F2_matrix(SM80_16x8x8_F16F16F16F16_TN.c_layout)
@@ -1240,11 +1258,18 @@ def test_F2_matrix_sm90_gmma_c_64x16_vs_triton_MMAv3():
     # (matching CuTe's flattened thread → value coord bit order)
     triton_bases = [
         # lane bases — LinearLayoutConversionsTest.cpp:531
-        (0, 2), (0, 4), (1, 0), (2, 0), (4, 0),
+        (0, 2),
+        (0, 4),
+        (1, 0),
+        (2, 0),
+        (4, 0),
         # warp bases — LinearLayoutConversionsTest.cpp:532
-        (16, 0), (32, 0),
+        (16, 0),
+        (32, 0),
         # register bases — LinearLayoutConversionsTest.cpp:530
-        (0, 1), (8, 0), (0, 8),
+        (0, 1),
+        (8, 0),
+        (0, 8),
     ]
     expected = _triton_bases_to_F2_matrix(triton_bases, tile_M=64, tile_N=16)
 
@@ -1280,8 +1305,8 @@ def test_F2_matrix_sm80_a_operand():
 
     a = SM80_16x8x16_F16F16F16F16_TN.a_layout
     M = to_F2_matrix(a)
-    assert len(M) == 8       # 8 offset bits (cosize = 256 = 16×16)
-    assert len(M[0]) == 8    # 8 coord bits (5 thread + 3 value)
+    assert len(M) == 8  # 8 offset bits (cosize = 256 = 16×16)
+    assert len(M[0]) == 8  # 8 coord bits (5 thread + 3 value)
     _verify_F2_matrix(a)
 
 
@@ -1296,8 +1321,8 @@ def test_F2_matrix_sm80_b_operand():
 
     b = SM80_16x8x16_F16F16F16F16_TN.b_layout
     M = to_F2_matrix(b)
-    assert len(M) == 7       # 7 offset bits (cosize = 128 = 8×16)
-    assert len(M[0]) == 7    # 7 coord bits (5 thread + 2 value)
+    assert len(M) == 7  # 7 offset bits (cosize = 128 = 8×16)
+    assert len(M[0]) == 7  # 7 coord bits (5 thread + 2 value)
     _verify_F2_matrix(b)
 
 
@@ -1328,11 +1353,19 @@ def test_F2_matrix_sm90_gmma_c_64x32_vs_triton_MMAv3():
     # Triton basis vectors — non-zero bases only, lane→warp→register order
     triton_bases = [
         # lane bases — LinearLayoutConversionsTest.cpp:577
-        (0, 2), (0, 4), (1, 0), (2, 0), (4, 0),
+        (0, 2),
+        (0, 4),
+        (1, 0),
+        (2, 0),
+        (4, 0),
         # warp bases (skipping W2=(0,0) broadcast) — line 578
-        (16, 0), (32, 0),
+        (16, 0),
+        (32, 0),
         # register bases — LinearLayoutConversionsTest.cpp:576
-        (0, 1), (8, 0), (0, 8), (0, 16),
+        (0, 1),
+        (8, 0),
+        (0, 8),
+        (0, 16),
     ]
     expected = _triton_bases_to_F2_matrix(triton_bases, tile_M=64, tile_N=32)
 
@@ -1350,15 +1383,20 @@ def test_F2_matrix_sm90_warp_c_vs_triton_MMAv3():
     The atom-level bases (first 2 register + 5 lane) match MMAv2.
     """
     from tensor_layouts.atoms_nv import (
-        SM90_16x8x4_F64F64F64F64_TN,
-        SM90_16x8x16_F64F64F64F64_TN,
         SM90_16x8x16_C64C64C64C64_TN,
+        SM90_16x8x16_F64F64F64F64_TN,
+        SM90_16x8x4_F64F64F64F64_TN,
     )
 
     # Same expected matrix as SM80 MMAv2 C accumulator
     triton_bases = [
-        (0, 2), (0, 4), (1, 0), (2, 0), (4, 0),  # lane
-        (0, 1), (8, 0),                            # register
+        (0, 2),
+        (0, 4),
+        (1, 0),
+        (2, 0),
+        (4, 0),  # lane
+        (0, 1),
+        (8, 0),  # register
     ]
     expected = _triton_bases_to_F2_matrix(triton_bases, tile_M=16, tile_N=8)
 
@@ -1407,8 +1445,7 @@ def test_F2_matrix_sm100_umma_c_parametric():
     """
     from tensor_layouts.atoms_nv import umma_layout
 
-    for m, n in [(64, 64), (64, 128), (64, 256),
-                 (128, 64), (128, 128), (128, 256)]:
+    for m, n in [(64, 64), (64, 128), (64, 256), (128, 64), (128, 128), (128, 256)]:
         c = umma_layout(m, n)
         M = to_F2_matrix(c)
         n_bits = len(M)
@@ -1633,53 +1670,53 @@ def test_functionally_equal_row_col_major():
 def test_thread_stride_profile_linear_layout():
     """Stride-1 layout has a uniform +1 thread stride."""
     p = thread_stride_profile(Layout(8, 1))
-    assert p['thread_count'] == 8
-    assert p['value_count'] == 1
-    assert p['per_value_deltas'] == [[1, 1, 1, 1, 1, 1, 1]]
-    assert p['global_unique_strides'] == [1]
-    assert p['is_uniform'] is True
-    assert p['has_broadcast_lane'] is False
+    assert p["thread_count"] == 8
+    assert p["value_count"] == 1
+    assert p["per_value_deltas"] == [[1, 1, 1, 1, 1, 1, 1]]
+    assert p["global_unique_strides"] == [1]
+    assert p["is_uniform"] is True
+    assert p["has_broadcast_lane"] is False
 
 
 def test_thread_stride_profile_broadcast_lane():
     """Stride-0 thread mode is detected as a broadcast lane."""
     p = thread_stride_profile(Layout((8, 2), (0, 8)))
-    assert p['thread_count'] == 8
-    assert p['value_count'] == 2
-    assert p['per_value_constant_stride'] == [0, 0]
-    assert p['global_unique_strides'] == [0]
-    assert p['is_uniform'] is True
-    assert p['has_broadcast_lane'] is True
+    assert p["thread_count"] == 8
+    assert p["value_count"] == 2
+    assert p["per_value_constant_stride"] == [0, 0]
+    assert p["global_unique_strides"] == [0]
+    assert p["is_uniform"] is True
+    assert p["has_broadcast_lane"] is True
 
 
 def test_thread_stride_profile_nonuniform_lane():
     """Composed layout can produce non-constant adjacent-thread deltas."""
     p = thread_stride_profile(compose(Swizzle(2, 0, 2), Layout(8, 1)))
-    assert p['thread_count'] == 8
-    assert p['value_count'] == 1
-    assert p['per_value_is_constant'] == [False]
-    assert p['per_value_constant_stride'] == [None]
-    assert p['global_unique_strides'] == [-1, 1, 2, 3]
-    assert p['is_uniform'] is False
+    assert p["thread_count"] == 8
+    assert p["value_count"] == 1
+    assert p["per_value_is_constant"] == [False]
+    assert p["per_value_constant_stride"] == [None]
+    assert p["global_unique_strides"] == [-1, 1, 2, 3]
+    assert p["is_uniform"] is False
 
 
 def test_thread_stride_profile_multimode_value_shape():
     """Value modes beyond rank-2 are flattened lane-wise correctly."""
     tv = Layout((4, (2, 2)), (1, (8, 16)))
     p = thread_stride_profile(tv)
-    assert p['thread_count'] == 4
-    assert p['value_count'] == 4
-    assert p['per_value_constant_stride'] == [1, 1, 1, 1]
-    assert p['global_unique_strides'] == [1]
-    assert p['is_uniform'] is True
+    assert p["thread_count"] == 4
+    assert p["value_count"] == 4
+    assert p["per_value_constant_stride"] == [1, 1, 1, 1]
+    assert p["global_unique_strides"] == [1]
+    assert p["is_uniform"] is True
 
 
 def test_thread_stride_profile_single_thread_edge_case():
     """Single-thread layouts have no adjacent-thread deltas."""
     p = thread_stride_profile(Layout((1, 4), (0, 1)))
-    assert p['thread_count'] == 1
-    assert p['value_count'] == 4
-    assert p['per_value_deltas'] == [[], [], [], []]
-    assert p['global_unique_strides'] == []
-    assert p['is_uniform'] is True
-    assert p['has_broadcast_lane'] is False
+    assert p["thread_count"] == 1
+    assert p["value_count"] == 4
+    assert p["per_value_deltas"] == [[], [], [], []]
+    assert p["global_unique_strides"] == []
+    assert p["is_uniform"] is True
+    assert p["has_broadcast_lane"] is False

@@ -80,8 +80,8 @@ Usage::
     print(atom.c_layout)      # (1, (16, 16)):(0, (1, 16))
 """
 
-from .layouts import Layout
 from .atoms import MMAAtom
+from .layouts import Layout
 
 
 # =============================================================================
@@ -102,58 +102,70 @@ from .atoms import MMAAtom
 AMX_16x16x32_F32BF16BF16F32 = MMAAtom(
     name="AMX_16x16x32_F32BF16BF16F32",
     ptx="tdpbf16ps",
-    shape_mnk=(16, 16, 32), thr_id=Layout(1),
+    shape_mnk=(16, 16, 32),
+    thr_id=Layout(1),
     # (T=1, V=512) -> col-major offset in (M=16, K=32)
     a_layout=Layout((1, (16, 32)), (0, (1, 16))),
     # (T=1, V=512) -> col-major offset in (N=16, K=32)
     b_layout=Layout((1, (16, 32)), (0, (1, 16))),
     # (T=1, V=256) -> col-major offset in (M=16, N=16)
-    c_layout=Layout((1, (16, 16)), (0, (1, 16))))
+    c_layout=Layout((1, (16, 16)), (0, (1, 16))),
+)
 
 # -- FP16 -> FP32 -------------------------------------------------------------
 AMX_16x16x32_F32F16F16F32 = MMAAtom(
     name="AMX_16x16x32_F32F16F16F32",
     ptx="tdpfp16ps",
-    shape_mnk=(16, 16, 32), thr_id=Layout(1),
+    shape_mnk=(16, 16, 32),
+    thr_id=Layout(1),
     a_layout=Layout((1, (16, 32)), (0, (1, 16))),
     b_layout=Layout((1, (16, 32)), (0, (1, 16))),
-    c_layout=Layout((1, (16, 16)), (0, (1, 16))))
+    c_layout=Layout((1, (16, 16)), (0, (1, 16))),
+)
 
 # -- INT8 x INT8 -> INT32 (signed x signed) -----------------------------------
 AMX_16x16x64_S32S8S8S32 = MMAAtom(
     name="AMX_16x16x64_S32S8S8S32",
     ptx="tdpbssd",
-    shape_mnk=(16, 16, 64), thr_id=Layout(1),
+    shape_mnk=(16, 16, 64),
+    thr_id=Layout(1),
     # (T=1, V=1024) -> col-major offset in (M=16, K=64)
     a_layout=Layout((1, (16, 64)), (0, (1, 16))),
     # (T=1, V=1024) -> col-major offset in (N=16, K=64)
     b_layout=Layout((1, (16, 64)), (0, (1, 16))),
     # (T=1, V=256) -> col-major offset in (M=16, N=16)
-    c_layout=Layout((1, (16, 16)), (0, (1, 16))))
+    c_layout=Layout((1, (16, 16)), (0, (1, 16))),
+)
 
 # -- INT8 x UINT8 -> INT32 (signed x unsigned) --------------------------------
 AMX_16x16x64_S32S8U8S32 = MMAAtom(
     name="AMX_16x16x64_S32S8U8S32",
     ptx="tdpbsud",
-    shape_mnk=(16, 16, 64), thr_id=Layout(1),
+    shape_mnk=(16, 16, 64),
+    thr_id=Layout(1),
     a_layout=Layout((1, (16, 64)), (0, (1, 16))),
     b_layout=Layout((1, (16, 64)), (0, (1, 16))),
-    c_layout=Layout((1, (16, 16)), (0, (1, 16))))
+    c_layout=Layout((1, (16, 16)), (0, (1, 16))),
+)
 
 # -- UINT8 x INT8 -> INT32 (unsigned x signed) --------------------------------
 AMX_16x16x64_S32U8S8S32 = MMAAtom(
     name="AMX_16x16x64_S32U8S8S32",
     ptx="tdpbusd",
-    shape_mnk=(16, 16, 64), thr_id=Layout(1),
+    shape_mnk=(16, 16, 64),
+    thr_id=Layout(1),
     a_layout=Layout((1, (16, 64)), (0, (1, 16))),
     b_layout=Layout((1, (16, 64)), (0, (1, 16))),
-    c_layout=Layout((1, (16, 16)), (0, (1, 16))))
+    c_layout=Layout((1, (16, 16)), (0, (1, 16))),
+)
 
 # -- UINT8 x UINT8 -> INT32 (unsigned x unsigned) -----------------------------
 AMX_16x16x64_S32U8U8S32 = MMAAtom(
     name="AMX_16x16x64_S32U8U8S32",
     ptx="tdpbuud",
-    shape_mnk=(16, 16, 64), thr_id=Layout(1),
+    shape_mnk=(16, 16, 64),
+    thr_id=Layout(1),
     a_layout=Layout((1, (16, 64)), (0, (1, 16))),
     b_layout=Layout((1, (16, 64)), (0, (1, 16))),
-    c_layout=Layout((1, (16, 16)), (0, (1, 16))))
+    c_layout=Layout((1, (16, 16)), (0, (1, 16))),
+)

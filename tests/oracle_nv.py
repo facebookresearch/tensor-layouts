@@ -31,22 +31,24 @@ invariants over all valid layouts up to a size bound.
 """
 
 from tensor_layouts import *
-from tensor_layouts.analysis import is_injective, is_bijective, is_contiguous
-from tensor_layouts.layout_utils import make_ordered_layout, tile_to_shape
-
 import pytest
+from tensor_layouts.analysis import is_bijective, is_contiguous, is_injective
+from tensor_layouts.layout_utils import make_ordered_layout, tile_to_shape
 
 # Import pycute reference — skip all tests if unavailable.
 # Note: there is an unrelated "pycute" package on PyPI (statistics library).
 # We need NVIDIA's pycute from the CUTLASS source tree.
 try:
     import pycute
-    if not hasattr(pycute, 'Layout'):
+
+    if not hasattr(pycute, "Layout"):
         pycute = None
 except ImportError:
     pycute = None
 
-pytestmark = pytest.mark.skipif(pycute is None, reason="pycute (NVIDIA CUTLASS) not available")
+pytestmark = pytest.mark.skipif(
+    pycute is None, reason="pycute (NVIDIA CUTLASS) not available"
+)
 
 
 ###############################################################################
@@ -116,33 +118,53 @@ def layouts_functionally_equal(our, ref, domain_size):
 # Standard test layouts: (shape, stride) pairs covering many patterns
 LAYOUT_CORPUS = [
     # Trivial
-    (1, 0), (1, 1),
+    (1, 0),
+    (1, 1),
     # 1D
-    (4, 1), (4, 2), (8, 1), (8, 2), (12, 1), (12, 3),
+    (4, 1),
+    (4, 2),
+    (8, 1),
+    (8, 2),
+    (12, 1),
+    (12, 3),
     # Zero stride (broadcast)
-    (4, 0), (8, 0),
+    (4, 0),
+    (8, 0),
     # 2D col-major
-    ((2, 4), (1, 2)), ((4, 3), (1, 4)), ((8, 4), (1, 8)),
+    ((2, 4), (1, 2)),
+    ((4, 3), (1, 4)),
+    ((8, 4), (1, 8)),
     # 2D row-major
-    ((2, 4), (4, 1)), ((4, 3), (3, 1)), ((8, 4), (4, 1)),
+    ((2, 4), (4, 1)),
+    ((4, 3), (3, 1)),
+    ((8, 4), (4, 1)),
     # 2D with gaps
-    ((2, 4), (1, 4)), ((2, 4), (1, 6)), ((4, 2), (1, 10)), ((4, 2), (1, 16)),
+    ((2, 4), (1, 4)),
+    ((2, 4), (1, 6)),
+    ((4, 2), (1, 10)),
+    ((4, 2), (1, 16)),
     # 2D with broadcast
-    ((2, 4), (0, 2)), ((4, 2), (2, 0)),
+    ((2, 4), (0, 2)),
+    ((4, 2), (2, 0)),
     # 3D
-    ((2, 4, 6), (1, 2, 8)), ((2, 4, 6), (4, 1, 8)),
-    ((2, 3, 4), (1, 2, 6)), ((2, 4, 8), (8, 1, 64)),
+    ((2, 4, 6), (1, 2, 8)),
+    ((2, 4, 6), (4, 1, 8)),
+    ((2, 3, 4), (1, 2, 6)),
+    ((2, 4, 8), (8, 1, 64)),
     ((2, 4, 6), (24, 6, 1)),
     # 3D with broadcast
-    ((2, 4, 8), (8, 1, 0)), ((2, 4, 3), (1, 2, 0)),
+    ((2, 4, 8), (8, 1, 0)),
+    ((2, 4, 3), (1, 2, 0)),
     # Nested (hierarchical)
     (((2, 2), (2, 2)), ((1, 4), (8, 32))),
     ((2, (3, 4)), (3, (1, 6))),
     (((4, 2),), ((1, 16),)),
     # Auto-stride (col-major)
-    ((2, 4), None), ((4, 3), None), ((2, 4, 6), None), ((2, 3, 4), None),
+    ((2, 4), None),
+    ((4, 3), None),
+    ((2, 4, 6), None),
+    ((2, 3, 4), None),
     ((8, 8), None),
-
     # ===== FROM C++ TESTS =====
     # C++ inverse / complement tests: broadcast shapes
     (((3, 7),), ((0, 0),)),
@@ -165,7 +187,6 @@ LAYOUT_CORPUS = [
     ((4, 10), (1, 10)),
     # C++ composition tests: transposed strides
     ((4, 3), (3, 1)),
-
     # ===== EDGE CASES =====
     # All-zero strides (pure broadcast)
     ((2, 3, 4), (0, 0, 0)),
@@ -308,11 +329,22 @@ def test_oracle_composition():
     # Composition pairs: (A_shape, A_stride, B_shape, B_stride)
     composition_pairs = [
         # Simple
-        (1, 0, 1, 0), (1, 0, 1, 1), (1, 1, 1, 0), (1, 1, 1, 1),
-        (4, 1, 4, 1), (4, 2, 4, 1), (4, 1, 4, 2), (4, 0, 4, 1),
-        (4, 1, 4, 0), (1, 0, 4, 1), (4, 1, 1, 0),
+        (1, 0, 1, 0),
+        (1, 0, 1, 1),
+        (1, 1, 1, 0),
+        (1, 1, 1, 1),
+        (4, 1, 4, 1),
+        (4, 2, 4, 1),
+        (4, 1, 4, 2),
+        (4, 0, 4, 1),
+        (4, 1, 4, 0),
+        (1, 0, 4, 1),
+        (4, 1, 1, 0),
         # Partial
-        (4, 1, 2, 1), (4, 2, 2, 1), (4, 1, 2, 2), (4, 2, 2, 2),
+        (4, 1, 2, 1),
+        (4, 2, 2, 1),
+        (4, 1, 2, 2),
+        (4, 2, 2, 2),
         # Multi-dim A, 1D B
         ((4, 3), (1, 4), 12, 1),
         ((4, 3), (1, 4), 6, 1),
@@ -380,16 +412,32 @@ def test_oracle_shape_div():
     """Cross-validate shape_div() against pycute."""
     test_cases = [
         # (shape, divisor) -- only cases valid for pycute (a%b==0 or b%a==0 at each level)
-        ((3, 4), 1), ((3, 4), 3), ((3, 4), 6),
-        ((3, 4), 12), ((3, 4), 36),
-        ((4, 3), 2), ((4, 3), 4), ((4, 3), 12),
-        ((6, 2), 2), ((6, 2), 3), ((6, 2), 6), ((6, 2), 12),
+        ((3, 4), 1),
+        ((3, 4), 3),
+        ((3, 4), 6),
+        ((3, 4), 12),
+        ((3, 4), 36),
+        ((4, 3), 2),
+        ((4, 3), 4),
+        ((4, 3), 12),
+        ((6, 2), 2),
+        ((6, 2), 3),
+        ((6, 2), 6),
+        ((6, 2), 12),
         # Nested
-        (((3, 4), 6), 1), (((3, 4), 6), 3), (((3, 4), 6), 12),
-        (((3, 4), 6), 36), (((3, 4), 6), 72),
-        ((6, (3, 4)), 6), ((6, (3, 4)), 36),
+        (((3, 4), 6), 1),
+        (((3, 4), 6), 3),
+        (((3, 4), 6), 12),
+        (((3, 4), 6), 36),
+        (((3, 4), 6), 72),
+        ((6, (3, 4)), 6),
+        ((6, (3, 4)), 36),
         # Scalars
-        (12, 1), (12, 3), (12, 4), (12, 6), (12, 12),
+        (12, 1),
+        (12, 3),
+        (12, 4),
+        (12, 6),
+        (12, 12),
     ]
 
     for shape, divisor in test_cases:
@@ -405,11 +453,8 @@ def test_oracle_shape_div():
 
         assert shapes_equal(
             ours_r if isinstance(ours_r, int) else ours_r,
-            ref_r if isinstance(ref_r, int) else ref_r
-        ), (
-            f"shape_div({shape}, {divisor}): "
-            f"ours={ours_r} vs pycute={ref_r}"
-        )
+            ref_r if isinstance(ref_r, int) else ref_r,
+        ), f"shape_div({shape}, {divisor}): ours={ours_r} vs pycute={ref_r}"
 
 
 def test_oracle_prefix_product():
@@ -431,10 +476,8 @@ def test_oracle_prefix_product():
 
         assert shapes_equal(
             ours_r if isinstance(ours_r, int) else ours_r,
-            ref_r if isinstance(ref_r, int) else ref_r
-        ), (
-            f"prefix_product({shape}): ours={ours_r} vs pycute={ref_r}"
-        )
+            ref_r if isinstance(ref_r, int) else ref_r,
+        ), f"prefix_product({shape}): ours={ours_r} vs pycute={ref_r}"
 
 
 def test_oracle_inner_product():
@@ -528,12 +571,22 @@ def test_oracle_logical_divide():
     """Cross-validate logical_divide() with Layout tilers against pycute."""
     # (layout_shape, layout_stride, tiler_shape, tiler_stride)
     divide_cases = [
-        (1, 0, 1, 0), (1, 0, 1, 1), (1, 1, 1, 0), (1, 1, 1, 1),
-        (6, 1, 2, 1), (6, 1, 2, 3), (6, 2, 2, 1), (6, 2, 2, 3),
-        (6, 1, (2, 3), (3, 1)), (6, 2, (2, 3), (3, 1)),
+        (1, 0, 1, 0),
+        (1, 0, 1, 1),
+        (1, 1, 1, 0),
+        (1, 1, 1, 1),
+        (6, 1, 2, 1),
+        (6, 1, 2, 3),
+        (6, 2, 2, 1),
+        (6, 2, 2, 3),
+        (6, 1, (2, 3), (3, 1)),
+        (6, 2, (2, 3), (3, 1)),
         (32, 1, 2, 8),
-        (12, 1, 4, 1), (12, 1, 6, 1), (12, 2, 4, 1),
-        (48, 1, 32, 1), (96, 1, 32, 2),
+        (12, 1, 4, 1),
+        (12, 1, 6, 1),
+        (12, 2, 4, 1),
+        (48, 1, 32, 1),
+        (96, 1, 32, 2),
     ]
 
     for item in divide_cases:
@@ -562,16 +615,26 @@ def test_oracle_logical_product():
     cute_cpp_unsupported = {(4, 2, 3, 1)}
     product_cases = [
         # (A_shape, A_stride, B_shape, B_stride)
-        (4, 1, 3, 1), (4, 2, 3, 1), (4, 1, 3, 2),
+        (4, 1, 3, 1),
+        (4, 2, 3, 1),
+        (4, 1, 3, 2),
         ((2, 4), (1, 2), 3, 1),
-        (8, 1, 4, 1), (8, 2, 4, 1),
+        (8, 1, 4, 1),
+        (8, 2, 4, 1),
         # === C++ test cases ===
         # Trivial
-        (1, 0, 1, 0), (1, 1, 1, 0), (1, 0, 1, 1), (1, 1, 1, 1),
+        (1, 0, 1, 0),
+        (1, 1, 1, 0),
+        (1, 0, 1, 1),
+        (1, 1, 1, 1),
         # Broadcast
-        (3, 1, 4, 0), (3, 0, 4, 1), (3, 0, 4, 0), (3, 2, 4, 1),
+        (3, 1, 4, 0),
+        (3, 0, 4, 1),
+        (3, 0, 4, 0),
+        (3, 2, 4, 1),
         # 1D
-        (3, 1, (2, 4), None), ((2, 4), None, 3, 1),
+        (3, 1, (2, 4), None),
+        ((2, 4), None, 3, 1),
         # Hierarchical
         ((8, (2, 2)), None, 4, 2),
         ((2, 2), None, (3, 3), (3, 1)),
@@ -670,8 +733,7 @@ def test_exhaustive_complement_disjointness():
                 la = layout(a)
                 cb = c(b)
                 assert (la != cb) or (la == 0 and cb == 0), (
-                    f"Disjointness violated for {layout}: "
-                    f"L({a})={la} == C({b})={cb}"
+                    f"Disjointness violated for {layout}: L({a})={la} == C({b})={cb}"
                 )
 
 
@@ -682,7 +744,7 @@ def test_exhaustive_complement_ordering():
         for i in range(1, size(c)):
             assert c(i - 1) < c(i), (
                 f"Complement not ordered for {layout}: "
-                f"C({i-1})={c(i-1)} >= C({i})={c(i)}"
+                f"C({i - 1})={c(i - 1)} >= C({i})={c(i)}"
             )
 
 
@@ -703,9 +765,7 @@ def test_exhaustive_coalesce_reduces_depth():
     """Verify coalesce produces depth <= 1."""
     for layout in _generate_small_layouts():
         coal = coalesce(layout)
-        assert depth(coal) <= 1, (
-            f"coalesce({layout}) has depth {depth(coal)} > 1"
-        )
+        assert depth(coal) <= 1, f"coalesce({layout}) has depth {depth(coal)} > 1"
 
 
 def test_exhaustive_right_inverse_identity():
@@ -727,8 +787,6 @@ def _is_injective(layout):
             return False
         seen.add(v)
     return True
-
-
 
 
 def test_exhaustive_left_inverse_identity():
@@ -794,8 +852,13 @@ def test_exhaustive_shape_div_mod_complementary():
     so not all divisors of size(s) are valid. We try each and skip failures.
     """
     shapes = [
-        (2, 3), (3, 4), (2, 2, 3), (4, 3),
-        (6, 2), (2, 6), (3, 2, 4),
+        (2, 3),
+        (3, 4),
+        (2, 2, 3),
+        (4, 3),
+        (6, 2),
+        (2, 6),
+        (3, 2, 4),
     ]
 
     tested = 0
@@ -843,8 +906,7 @@ def test_exhaustive_logical_divide_preserves_mapping_when_domain_size_is_unchang
 
             for i in range(size(layout)):
                 assert result(i) == layout(i), (
-                    f"logical_divide({layout}, {t})({i}) = "
-                    f"{result(i)} != {layout(i)}"
+                    f"logical_divide({layout}, {t})({i}) = {result(i)} != {layout(i)}"
                 )
             tested += 1
 
@@ -862,17 +924,13 @@ def test_exhaustive_inverse_roundtrip():
 
         # right_inverse property: L(R(i)) == i (works for all layouts)
         for i in range(size(rinv)):
-            assert layout(rinv(i)) == i, (
-                f"right_inverse({layout}): L(R({i})) != {i}"
-            )
+            assert layout(rinv(i)) == i, f"right_inverse({layout}): L(R({i})) != {i}"
 
         # left_inverse property: R(L(i)) == i (only for contiguous layouts)
         if is_contiguous(layout):
             linv = left_inverse(layout)
             for i in range(size(layout)):
-                assert linv(layout(i)) == i, (
-                    f"left_inverse({layout}): R(L({i})) != {i}"
-                )
+                assert linv(layout(i)) == i, f"left_inverse({layout}): R(L({i})) != {i}"
 
 
 ###############################################################################
@@ -899,8 +957,8 @@ def test_oracle_tuple_max():
 def test_oracle_elem_scale():
     """Cross-validate elem_scale against pycute."""
     cases = [
-        (3, 4),          # int x int
-        (2, (3, 4)),     # int x tuple
+        (3, 4),  # int x int
+        (2, (3, 4)),  # int x tuple
         ((2, 3), (4, 5)),  # tuple x tuple
         (1, (2, 3, 4)),  # int x tuple
     ]
@@ -1107,8 +1165,7 @@ def test_oracle_filter():
         # Functional equivalence
         for i in range(size(ours_f)):
             assert ours_f(i) == ref_f(i), (
-                f"filter({shape}:{stride})({i}): "
-                f"ours={ours_f(i)} vs pycute={ref_f(i)}"
+                f"filter({shape}:{stride})({i}): ours={ours_f(i)} vs pycute={ref_f(i)}"
             )
 
 
@@ -1366,10 +1423,16 @@ def test_exhaustive_filter_idempotent():
 def test_exhaustive_blocked_product_size():
     """Verify blocked_product(A, B) has size(A) * size(B)."""
     layouts_1d = [
-        Layout(2, 1), Layout(3, 1), Layout(4, 1), Layout(2, 2), Layout(4, 2),
+        Layout(2, 1),
+        Layout(3, 1),
+        Layout(4, 1),
+        Layout(2, 2),
+        Layout(4, 2),
     ]
     layouts_2d = [
-        Layout((2, 2), (1, 2)), Layout((2, 3), (3, 1)), Layout((3, 2)),
+        Layout((2, 2), (1, 2)),
+        Layout((2, 3), (3, 1)),
+        Layout((3, 2)),
     ]
     all_layouts = layouts_1d + layouts_2d
 
@@ -1378,8 +1441,7 @@ def test_exhaustive_blocked_product_size():
             result = blocked_product(a, b)
             expected_size = size(a) * size(b)
             assert size(result) == expected_size, (
-                f"blocked_product({a}, {b}): "
-                f"size={size(result)} != {expected_size}"
+                f"blocked_product({a}, {b}): size={size(result)} != {expected_size}"
             )
 
 
@@ -1390,10 +1452,14 @@ def test_exhaustive_blocked_product_covers_offsets():
     blocks: B's offsets are shifted by cosize(A) * i for each copy.
     """
     compact_layouts = [
-        Layout(2, 1), Layout(4, 1), Layout((2, 2)),
+        Layout(2, 1),
+        Layout(4, 1),
+        Layout((2, 2)),
     ]
     tiling_layouts = [
-        Layout(2, 1), Layout(3, 1), Layout((2, 2)),
+        Layout(2, 1),
+        Layout(3, 1),
+        Layout((2, 2)),
     ]
 
     for a in compact_layouts:
@@ -1436,7 +1502,11 @@ def test_exhaustive_flat_divide_preserves_mapping():
             # For multi-mode layouts, only test tilers that divide evenly
             # within the first mode to avoid cross-mode reordering issues
             if r > 1:
-                first_mode_size = layout.shape[0] if isinstance(layout.shape[0], int) else size(Layout(layout.shape[0]))
+                first_mode_size = (
+                    layout.shape[0]
+                    if isinstance(layout.shape[0], int)
+                    else size(Layout(layout.shape[0]))
+                )
                 if t > first_mode_size or first_mode_size % t != 0:
                     continue
             try:
@@ -1446,8 +1516,7 @@ def test_exhaustive_flat_divide_preserves_mapping():
 
             for i in range(s):
                 assert result(i) == layout(i), (
-                    f"flat_divide({layout}, {t})({i}) = "
-                    f"{result(i)} != {layout(i)}"
+                    f"flat_divide({layout}, {t})({i}) = {result(i)} != {layout(i)}"
                 )
             tested += 1
 
@@ -1553,7 +1622,6 @@ def test_product_each_matches_pycute_size():
         # Manual verification: size of each top-level element
         expected = tuple(pycute.size(s) if not isinstance(s, int) else s for s in shape)
         assert result == expected, f"product_each({shape}) = {result} != {expected}"
-
 
 
 @pytest.mark.skipif(pycute is None, reason="pycute not installed")
@@ -1677,7 +1745,10 @@ def test_oracle_left_inverse_padded():
 
 if __name__ == "__main__":
     import traceback
-    test_funcs = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
+
+    test_funcs = [
+        v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)
+    ]
     passed = 0
     failed = 0
     errors = []

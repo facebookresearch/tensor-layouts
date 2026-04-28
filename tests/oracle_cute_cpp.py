@@ -31,10 +31,10 @@ of truth.
 from __future__ import annotations
 
 import importlib.util
-from pathlib import Path
 import shutil
 import subprocess
 import tempfile
+from pathlib import Path
 
 import pytest
 
@@ -232,7 +232,9 @@ PYTHON_CASES = {
     "logical_divide_unit_tile": lambda: logical_divide(Layout(2, 5), 1),
     "logical_divide_exact_division_unit_rest": lambda: logical_divide(Layout(4, 3), 4),
     "logical_divide_oversize_tile": lambda: logical_divide(Layout(2, 5), 4),
-    "logical_divide_exact_tuple": lambda: logical_divide(Layout((2, 3), (1, 2)), (2, 3)),
+    "logical_divide_exact_tuple": lambda: logical_divide(
+        Layout((2, 3), (1, 2)), (2, 3)
+    ),
     "logical_divide_nested_tuple_tiler": lambda: logical_divide(
         Layout(((2, 3), 8), ((1, 2), 6)),
         ((2, 3), 4),
@@ -271,19 +273,25 @@ PYTHON_CASES = {
 
 PYTHON_POINTWISE_CASES = {
     "compose_double_swizzle_offsets": lambda: ",".join(
-        str(compose(Swizzle(1, 0, 3), compose(Swizzle(3, 0, 3), Layout((8, 8), (8, 1))))(i))
+        str(
+            compose(
+                Swizzle(1, 0, 3), compose(Swizzle(3, 0, 3), Layout((8, 8), (8, 1)))
+            )(i)
+        )
         for i in range(size(Layout((8, 8), (8, 1))))
     ),
     "compose_outer_layout_swizzled_offsets": lambda: ",".join(
-        str(compose(Layout((4, 4), (4, 1)), compose(Swizzle(3, 0, 3), Layout(16, 1)))(i))
+        str(
+            compose(Layout((4, 4), (4, 1)), compose(Swizzle(3, 0, 3), Layout(16, 1)))(i)
+        )
         for i in range(16)
     ),
     "compose_layout_swizzle_exact_offsets": lambda: ",".join(
-        str(compose(Layout((4, 4), (4, 1)), Swizzle(2, 1, 3))(i))
-        for i in range(16)
+        str(compose(Layout((4, 4), (4, 1)), Swizzle(2, 1, 3))(i)) for i in range(16)
     ),
     "compose_slice_row": lambda: (
-        lambda sliced: f"{sliced[1]}|" + ",".join(str(sliced[0](i)) for i in range(size(sliced[0])))
+        lambda sliced: f"{sliced[1]}|"
+        + ",".join(str(sliced[0](i)) for i in range(size(sliced[0])))
     )(
         slice_and_offset(
             (2, None),
@@ -294,18 +302,30 @@ PYTHON_POINTWISE_CASES = {
         )
     ),
     "compose_layout_zero_preoffset_composed_offsets": lambda: ",".join(
-        str(compose(Layout(32, 2), ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), preoffset=0))(i))
+        str(
+            compose(
+                Layout(32, 2),
+                ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), preoffset=0),
+            )(i)
+        )
         for i in range(32)
     ),
     "compose_layout_nonzero_preoffset_composed_offsets": lambda: ",".join(
-        str(compose(Layout(32, 2), ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), preoffset=4))(i))
+        str(
+            compose(
+                Layout(32, 2),
+                ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), preoffset=4),
+            )(i)
+        )
         for i in range(32)
     ),
     "compose_recursive_chain_offsets": lambda: ",".join(
         str(
             compose(
                 Layout(16, 3),
-                ComposedLayout(Layout(16, 2), compose(Swizzle(2, 0, 2), Layout(16, 1)), preoffset=0),
+                ComposedLayout(
+                    Layout(16, 2), compose(Swizzle(2, 0, 2), Layout(16, 1)), preoffset=0
+                ),
             )(i)
         )
         for i in range(16)
@@ -359,15 +379,40 @@ PYTHON_POINTWISE_CASES = {
         )
     ),
     "right_inverse_swizzled_composed_offsets": lambda: ",".join(
-        str(right_inverse(ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), preoffset=0))(i))
-        for i in range(size(right_inverse(ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), preoffset=0))))
+        str(
+            right_inverse(ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), preoffset=0))(
+                i
+            )
+        )
+        for i in range(
+            size(
+                right_inverse(
+                    ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), preoffset=0)
+                )
+            )
+        )
     ),
     "left_inverse_swizzled_composed_offsets": lambda: ",".join(
-        str(left_inverse(ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), preoffset=0))(i))
-        for i in range(size(left_inverse(ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), preoffset=0))))
+        str(
+            left_inverse(ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), preoffset=0))(
+                i
+            )
+        )
+        for i in range(
+            size(
+                left_inverse(
+                    ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), preoffset=0)
+                )
+            )
+        )
     ),
     "tensor_composed_values": lambda: ",".join(
-        str(Tensor(ComposedLayout(Swizzle(2, 1, 3), Layout(16, 1), preoffset=4), data=list(range(256)))[i])
+        str(
+            Tensor(
+                ComposedLayout(Swizzle(2, 1, 3), Layout(16, 1), preoffset=4),
+                data=list(range(256)),
+            )[i]
+        )
         for i in range(16)
     ),
 }
@@ -424,7 +469,9 @@ def cute_cpp_oracle() -> dict[str, str]:
 
     include_dirs = _candidate_include_dirs()
     if not any((path / "cute/layout.hpp").exists() for path in include_dirs):
-        pytest.skip("CuTe headers not found; install CUTLASS headers to run this oracle")
+        pytest.skip(
+            "CuTe headers not found; install CUTLASS headers to run this oracle"
+        )
     if not any((path / "cuda/std/utility").exists() for path in include_dirs):
         pytest.skip("CUDA C++ headers not found; CuTe C++ oracle cannot compile")
 
@@ -437,12 +484,16 @@ def cute_cpp_oracle() -> dict[str, str]:
         for include_dir in include_dirs:
             command.extend(["-I", str(include_dir)])
 
-        compile_result = subprocess.run(command, capture_output=True, text=True, check=False)
+        compile_result = subprocess.run(
+            command, capture_output=True, text=True, check=False
+        )
         if compile_result.returncode != 0:
             stderr = compile_result.stderr.strip() or "unknown compiler error"
             pytest.skip(f"failed to compile CuTe oracle: {stderr}")
 
-        run_result = subprocess.run([str(exe_path)], capture_output=True, text=True, check=False)
+        run_result = subprocess.run(
+            [str(exe_path)], capture_output=True, text=True, check=False
+        )
         if run_result.returncode != 0:
             stderr = run_result.stderr.strip() or "unknown runtime error"
             pytest.skip(f"failed to run CuTe oracle: {stderr}")
@@ -459,7 +510,9 @@ def cute_cpp_oracle() -> dict[str, str]:
 @pytest.mark.parametrize("case_name", sorted(PYTHON_CASES))
 def test_cute_cpp_oracle(case_name, cute_cpp_oracle):
     result = PYTHON_CASES[case_name]()
-    assert _normalize_layout_repr(str(result)) == _normalize_layout_repr(cute_cpp_oracle[case_name])
+    assert _normalize_layout_repr(str(result)) == _normalize_layout_repr(
+        cute_cpp_oracle[case_name]
+    )
 
 
 @pytest.mark.parametrize("case_name", sorted(PYTHON_POINTWISE_CASES))
