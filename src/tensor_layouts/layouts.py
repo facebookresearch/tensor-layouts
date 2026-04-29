@@ -1703,6 +1703,12 @@ def complement(layout: Layout, cosize_bound: Any = None) -> Layout:
     elif is_layout(cosize_bound):
         cosize_bound = cosize_bound.shape
 
+    # ComposedLayout(outer, inner): the outer is an involution / permutation
+    # in CuTe; only the inner controls the codomain image, so the complement
+    # is the inner's complement. Matches CuTe C++ layout_composed.hpp:395-409.
+    if isinstance(layout, ComposedLayout):
+        return complement(layout.inner, cosize_bound)
+
     # Short-circuit unit layout AND zero-sized layouts (no elements to span)
     if is_empty(layout) or size(layout) == 0:
         return Layout(cosize_bound, 1) if cosize_bound > 1 else Layout()
