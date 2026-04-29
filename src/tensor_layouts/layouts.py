@@ -2068,6 +2068,108 @@ def max_common_vector(layout_a: LayoutExpr, layout_b: LayoutExpr) -> int:
     return size(max_common_layout(layout_a, layout_b))
 
 
+def _swizzle_bit_decomposition(swizzle: "Swizzle", yz_pre: int) -> "Layout":
+    """Affine layout that encodes the swizzle's per-bit effect on its YZ window
+    given a fixed YZ-portion of the preoffset.
+
+    Builds the equivalent of CuTe C++'s "swizzle_layout" (cute/swizzle_layout.hpp
+    lines 289-290): one size-2 mode per swizzlable bit position, with a stride
+    equal to the swizzle's output difference when only that bit toggles. Bits
+    outside the YZ window (the M low bits and the |S|-B gap between Y and Z)
+    are emitted as single contiguous modes with their natural strides.
+
+    The result has total size ``1 << (M + |S| + B)`` and is suitable as the
+    LHS of a ``compose`` to project a sliced inner layout into the swizzle's
+    address space. Pre-condition: the caller has already verified that the
+    sliced inner's YZ-projection misses either Y or Z (so the swizzle is
+    affine on the relevant subspace).
+    """
+    M = swizzle.base
+    B = swizzle.bits
+    abs_S = abs(swizzle.shift)
+    base = swizzle(yz_pre)
+
+    def _bit_stride(p: int) -> int:
+        return swizzle(yz_pre + (1 << p)) - base
+
+    shapes: list = []
+    strides: list = []
+    if M > 0:
+        shapes.append(1 << M)
+        strides.append(1)
+    # Y bits (low side of the swizzle XOR)
+    for i in range(B):
+        shapes.append(2)
+        strides.append(_bit_stride(M + i))
+    if abs_S - B > 0:
+        shapes.append(1 << (abs_S - B))
+        strides.append(1 << (M + B))
+    # Z bits (high side; stride encodes the Y-bit alias when relevant)
+    for i in range(B):
+        shapes.append(2)
+        strides.append(_bit_stride(M + abs_S + i))
+    return Layout(tuple(shapes), tuple(strides))
+
+
+def _try_decay_swizzle_composed(composed: "ComposedLayout"):
+    """If a ComposedLayout(Swizzle, affine_layout, preoffset) is reducible on
+    its inner's image, decay it to a plain (Layout, offset) pair.
+
+    Mirrors CuTe C++'s slice_and_offset decay path in cute/swizzle_layout.hpp
+    (lines 263-294): if the inner's codomain doesn't hit BOTH Y and Z bits of
+    the swizzle, the swizzle becomes affine on this subspace and we can build
+    a per-bit affine encoding of the swizzle, then compose with the inner to
+    fold the swizzle into normal strides plus a constant base offset. Returns
+    None when the decay is unsafe (Y AND Z hit, or composition does not yield
+    a stride pattern that reproduces the swizzled output) so the caller can
+    keep the ComposedLayout wrapping.
+    """
+    if not isinstance(composed, ComposedLayout):
+        return None
+    swizzle = composed.outer
+    inner = composed.inner
+    if not isinstance(swizzle, Swizzle):
+        return None
+    if not isinstance(inner, Layout) or inner.swizzle is not None:
+        return None  # only collapse when the inner is plain affine
+
+    yz_mask = swizzle.yyy_msk | swizzle.zzz_msk
+    yz_pre = composed.preoffset & yz_mask
+    anti_yz_pre = composed.preoffset & ~yz_mask
+
+    # Reducibility: OR the YZ-projection of the inner's image. If the swizzle
+    # would flip any of those bits, both Y and Z are hit -> can't decay.
+    n = size(inner)
+    active_bits = 0
+    for i in range(n):
+        active_bits |= inner(i) & yz_mask
+    if active_bits & (active_bits ^ swizzle(active_bits)) != 0:
+        return None
+
+    # Build the swizzle-as-affine-layout and compose with the inner. The
+    # composition may fail when inner's strides don't divide cleanly into the
+    # swizzle's bit-decomposition (e.g., non-power-of-2 strides over the YZ
+    # window); treat that as a bail-out rather than a hard error.
+    try:
+        decomp = _swizzle_bit_decomposition(swizzle, yz_pre)
+        decayed = _compose_layouts(decomp, inner)
+    except (ValueError, TypeError):
+        return None
+
+    base_offset = swizzle(yz_pre) + anti_yz_pre
+
+    # Sample-verify the result reproduces the swizzled output exactly. Cheap
+    # at our typical sizes and protects against composition-edge-cases that
+    # the bit-decomposition argument doesn't anticipate.
+    for i in range(n):
+        expected = swizzle(yz_pre + inner(i)) + anti_yz_pre
+        actual = base_offset + decayed(i)
+        if actual != expected:
+            return None
+
+    return (decayed, base_offset)
+
+
 def slice_and_offset(crd, layout: LayoutExpr):
     """Slice a layout by a coordinate and return (sublayout, offset).
 
@@ -2089,6 +2191,16 @@ def slice_and_offset(crd, layout: LayoutExpr):
     """
     if isinstance(layout, ComposedLayout):
         sublayout, offset = _slice_for_composition(crd, layout)
+        # Try to decay the swizzled wrapper to a plain Layout when slicing has
+        # restricted the inner's image enough that the swizzle is affine on it
+        # (matches CuTe C++'s slice_and_offset decay; see _try_decay_*).
+        # The full-slice case is intentionally kept composed by
+        # _slice_for_composition and shouldn't be touched here.
+        if isinstance(sublayout, ComposedLayout) and not coords_all_none(crd):
+            decayed = _try_decay_swizzle_composed(sublayout)
+            if decayed is not None:
+                decayed_layout, base_offset = decayed
+                return (decayed_layout, offset + base_offset)
         return (sublayout, offset)
 
     sliced_shape = slice_modes(crd, layout.shape)
@@ -2106,6 +2218,13 @@ def slice_and_offset(crd, layout: LayoutExpr):
         swizzle=layout.swizzle,
     )
     offset = crd2offset(crd, layout.shape, layout.stride)
+    # Layout-with-embedded-swizzle is intentionally NOT decayed here even
+    # though CuTe C++ would: tensor-layouts' Tensor model applies the
+    # tensor's base offset INSIDE the embedded swizzle (see
+    # tensor.py::_tensor_address) so a downstream Tensor that wraps this
+    # sliced layout still needs the swizzle to participate in the combined
+    # address. ComposedLayout's preoffset is internal and self-contained,
+    # which is why decay is safe in that case (handled above).
     return (sublayout, offset)
 
 
