@@ -310,6 +310,23 @@ def test_affine_only_boundaries_reject_composed_layout():
         slice_contiguity(composed, (None,))
 
 
+def test_complement_of_composed_layout_forwards_to_inner():
+    """complement(ComposedLayout) drops the outer involution and returns
+    complement(inner), matching CuTe C++ layout_composed.hpp:395-409."""
+    composed = ComposedLayout(Swizzle(2, 0, 2), Layout(16, 1))
+    result = complement(composed)
+    expected = complement(Layout(16, 1))
+    assert result == expected
+
+    # Same with an explicit cosize_bound.
+    bounded = complement(composed, 32)
+    assert bounded == complement(Layout(16, 1), 32)
+
+    # Non-bijective inner → nontrivial complement: inner spans {0,2,4,6,8,10,12,14}.
+    composed_strided = ComposedLayout(Swizzle(2, 0, 2), Layout(8, 2))
+    assert complement(composed_strided) == complement(Layout(8, 2))
+
+
 def test_draw_layout_and_draw_slice_smoke_for_composed_layout(tmp_path):
     composed = compose(Layout(16, 2), compose(Swizzle(2, 0, 2), Layout((4, 4), (4, 1))))
 

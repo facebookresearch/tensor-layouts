@@ -125,6 +125,10 @@ int main() {
   auto complement_shape_bound = complement(make_layout(_2{}, _1{}), make_shape(_3{}, _4{}));
   std::cout << "complement_shape_bound=" << complement_shape_bound << "\n";
 
+  auto complement_composed_layout =
+      complement(composition(Swizzle<2,0,2>{}, make_layout(_8{}, _2{})));
+  std::cout << "complement_composed_layout=" << complement_composed_layout << "\n";
+
   // TODO: uncomment when CuTe C++ sorts in coalesce (matching pycute).
   // CuTe C++ currently gives ((2,(2,4)):((4,(8,1))); pycute gives (2,6):(1,2).
   // auto logical_divide_coalesced_shape_bound = logical_divide(
@@ -261,6 +265,9 @@ PYTHON_CASES = {
         Layout((2, 3), (1, 4)),
     ),
     "complement_shape_bound": lambda: complement(Layout(2, 1), (3, 4)),
+    "complement_composed_layout": lambda: complement(
+        ComposedLayout(Swizzle(2, 0, 2), Layout(8, 2))
+    ),
     "max_common_vector_swizzled_composed": lambda: max_common_vector(
         ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), preoffset=0),
         Layout(32, 1),
