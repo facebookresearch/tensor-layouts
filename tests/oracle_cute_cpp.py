@@ -176,6 +176,23 @@ int main() {
   }
   std::cout << "\n";
 
+  // Slice-decay cases: ComposedLayout(Swizzle, Layout) where the surviving
+  // inner only hits Y bits of the swizzle, so CuTe collapses the swizzle
+  // wrapper into per-bit XOR'd strides plus a constant base offset.
+  auto decay_base = composition(Swizzle<2,0,2>{},
+      make_layout(make_shape(_4{}, _4{}), make_stride(_1{}, _4{})));
+  for (int j = 0; j < 4; ++j) {
+    auto p = slice_and_offset(make_coord(_, j), decay_base);
+    auto sub = get<0>(p);
+    auto base_off = int(get<1>(p));
+    std::cout << "slice_decay_j" << j << "=" << base_off << "|";
+    for (int i = 0; i < 4; ++i) {
+      if (i) std::cout << ",";
+      std::cout << sub(i);
+    }
+    std::cout << "\n";
+  }
+
   auto swizzled_composed =
       composition(Swizzle<2,1,3>{}, Int<0>{}, make_layout(_32{}, _1{}));
   auto layout_on_composed =
@@ -378,6 +395,20 @@ PYTHON_POINTWISE_CASES = {
         str(Tensor(ComposedLayout(Swizzle(2, 1, 3), Layout(16, 1), preoffset=4), data=list(range(256)))[i])
         for i in range(16)
     ),
+    **{
+        f"slice_decay_j{j}": (
+            lambda j=j: (
+                lambda pair: f"{pair[1]}|"
+                + ",".join(str(pair[0](i)) for i in range(size(pair[0])))
+            )(
+                slice_and_offset(
+                    (None, j),
+                    ComposedLayout(Swizzle(2, 0, 2), Layout((4, 4), (1, 4))),
+                )
+            )
+        )
+        for j in range(4)
+    },
 }
 
 

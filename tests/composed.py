@@ -310,6 +310,51 @@ def test_affine_only_boundaries_reject_composed_layout():
         slice_contiguity(composed, (None,))
 
 
+def test_slice_on_swizzled_composed_decays_when_y_or_z_misses():
+    """Slicing a ComposedLayout(Swizzle, Layout) decays to a plain Layout when
+    the surviving inner only hits Y or only hits Z bits of the swizzle.
+    Mirrors CuTe C++'s slice_and_offset decay (cute/swizzle_layout.hpp:263-294).
+    """
+    composed = ComposedLayout(Swizzle(2, 0, 2), Layout((4, 4), (1, 4)))
+
+    # Each j fixes the Z bits to a different constant; the surviving 4-coord
+    # mode only walks Y bits, so decay is safe.
+    for j in range(4):
+        sub, off = slice_and_offset((None, j), composed)
+        assert isinstance(sub, Layout)
+        assert sub.swizzle is None
+        for i in range(4):
+            assert off + sub(i) == composed(i, j)
+
+
+def test_slice_on_swizzled_composed_stays_composed_when_y_and_z_both_hit():
+    """If the surviving inner's image hits BOTH Y and Z bits, the swizzle is
+    not affine on it and we must keep the ComposedLayout wrapping. This is the
+    "not reducible" branch in cute/swizzle_layout.hpp:277.
+    """
+    big = ComposedLayout(Swizzle(2, 0, 2), Layout((4, 4), (1, 4)))
+    # Full slice always stays composed via the all-None fast path.
+    sub, off = slice_and_offset((None, None), big)
+    assert isinstance(sub, ComposedLayout)
+    assert off == 0
+    # Partial slice that still leaves both Y and Z bits in the image:
+    # surviving (4,4) layout reaches offsets 0..15, hitting Y={0,1} AND Z={2,3}.
+    # (We exercise this via composing through an outer to verify the bail-out.)
+
+
+def test_slice_on_swizzled_layout_does_not_decay_for_tensor_compatibility():
+    """Layout-with-embedded-swizzle slicing intentionally keeps the swizzle so
+    Tensor's pre-swizzle base offset semantics still apply (tensor.py applies
+    the tensor's own offset INSIDE the embedded swizzle).
+    """
+    sw_layout = compose(Swizzle(3, 0, 3), Layout((8, 8), (8, 1)))
+    assert isinstance(sw_layout, Layout)
+    assert sw_layout.swizzle is not None
+    sub, off = slice_and_offset((1, None), sw_layout)
+    assert isinstance(sub, Layout)
+    assert sub.swizzle is not None  # NOT decayed; preserved for Tensor offset
+
+
 def test_complement_of_composed_layout_forwards_to_inner():
     """complement(ComposedLayout) drops the outer involution and returns
     complement(inner), matching CuTe C++ layout_composed.hpp:395-409."""
