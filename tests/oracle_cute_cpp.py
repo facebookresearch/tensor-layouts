@@ -31,6 +31,7 @@ of truth.
 from __future__ import annotations
 
 import importlib.util
+import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -393,8 +394,20 @@ def _candidate_include_dirs() -> list[Path]:
         (_module_root("nvidia.cuda_runtime"), "include"),
         (_module_root("triton.backends.nvidia"), "include"),
         (Path("/usr/local/cuda/include"), ""),
+        (Path("/usr/local/cuda-12.8/include"), ""),
         (Path("/usr/local/cuda-12.8/targets/sbsa-linux/include"), ""),
     ]
+    # Allow callers to point at an out-of-tree CUTLASS install via
+    # CUTLASS_INCLUDE_DIR (single path) or CUTLASS_PATH (CUTLASS root, we
+    # append /include). Useful when CUTLASS lives outside the candidate set.
+    for env in ("CUTLASS_INCLUDE_DIR", "CUTLASS_PATH"):
+        val = os.environ.get(env)
+        if not val:
+            continue
+        path = Path(val)
+        if env == "CUTLASS_PATH":
+            path = path / "include"
+        candidates.insert(0, (path, ""))
 
     include_dirs = []
     seen = set()
