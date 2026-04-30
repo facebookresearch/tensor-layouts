@@ -3719,16 +3719,80 @@ def logical_product(layout_a: LayoutExpr, layout_b: Layout) -> LayoutExpr:
         strides = tuple(r.stride for r in result_modes)
         return Layout(shapes, strides)
 
+    # Swizzled-tile fast path: when layout_b is ComposedLayout(Swizzle, inner)
+    # with zero preoffset, do the affine product on the inner first and then
+    # transfer the swizzle to the new strides. The generic fallback below
+    # would silently drop the swizzle (composing it through the complement
+    # produces a Layout with embedded swizzle, but the final tuple-Layout
+    # constructor doesn't carry it). Mirrors CuTe C++'s logical_product
+    # specialization in cute/swizzle_layout.hpp:549-587.
+    if (
+        isinstance(layout_b, ComposedLayout)
+        and isinstance(layout_b.outer, Swizzle)
+        and layout_b.preoffset == 0
+        and isinstance(layout_b.inner, Layout)
+        and layout_b.inner.swizzle is None
+    ):
+        return _logical_product_with_swizzled_tile(layout_a, layout_b)
+
     # CuTe definition:
     # logical_product(A, B) = Layout(A, compose(complement(A, size(A)*cosize(B)), B))
     comp = complement(layout_a, size(layout_a) * cosize(layout_b))
     composed = compose(comp, layout_b)
 
-    # make_layout(A, composed)
+    # make_layout(A, composed). Preserve any embedded swizzle that the
+    # composition produced — without this, swizzles silently disappear when
+    # logical_product is called against a tile that itself carries one.
+    embedded_swizzle = composed.swizzle if isinstance(composed, Layout) else None
     return Layout(
         (layout_a.shape, composed.shape),
         (layout_a.stride, composed.stride),
+        swizzle=embedded_swizzle,
     )
+
+
+def _logical_product_with_swizzled_tile(layout_a: "Layout", tile: "ComposedLayout") -> "LayoutExpr":
+    """Compute logical_product(layout_a, ComposedLayout(Swizzle, inner)) by
+    doing the affine product first and then transferring the swizzle to the
+    new strides.
+
+    The new swizzle's masks are derived by passing the original swizzle's
+    active YZ bits through the inner tile and the new product layout, exactly
+    as CuTe C++ does in cute/swizzle_layout.hpp:549-587. When the resulting
+    masks don't form a representable Swizzle, fall back to wrapping the
+    affine product in a ComposedLayout so the function still has the right
+    semantics (matches the defensive fallback in _compose_with_swizzle_rhs).
+    """
+    swizzle = tile.outer
+    tile_inner = tile.inner
+
+    # Affine product on the inner tile.
+    new_layout = logical_product(layout_a, tile_inner)
+
+    # OR-walk the YZ projection of the inner tile's image to get the bits
+    # that the swizzle would interact with. Same idea as the slice-decay
+    # reducibility check; cheap at our typical sizes.
+    yz_mask = swizzle.yyy_msk | swizzle.zzz_msk
+    active_bits = 0
+    n = size(tile_inner)
+    for i in range(n):
+        active_bits |= tile_inner(i) & yz_mask
+    active_Y = active_bits & swizzle.yyy_msk
+    active_Z = active_bits & swizzle.zzz_msk
+
+    # Transfer the active bits through tile_inner and then through new_layout
+    # at coord (0, *) so that the new active masks reflect the strides the
+    # swizzle now needs to act on.
+    new_active_Y = new_layout((0, tile_inner(active_Y)))
+    new_active_Z = new_layout((0, tile_inner(active_Z)))
+
+    try:
+        new_swizzle = make_swizzle(new_active_Y, new_active_Z)
+    except ValueError:
+        return ComposedLayout(swizzle, new_layout)
+    if new_swizzle is None:
+        return new_layout
+    return compose(new_swizzle, new_layout)
 
 
 def _product_interleave(layout_a: Layout, layout_b: Layout) -> Layout:
