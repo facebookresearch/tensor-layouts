@@ -355,6 +355,33 @@ def test_slice_on_swizzled_layout_does_not_decay_for_tensor_compatibility():
     assert sub.swizzle is not None  # NOT decayed; preserved for Tensor offset
 
 
+def test_logical_product_with_swizzled_tile_transfers_swizzle():
+    """logical_product(Layout, ComposedLayout(Swizzle, Layout)) used to silently
+    drop the embedded swizzle from the result. CuTe C++
+    (cute/swizzle_layout.hpp:549-587) rebuilds a fresh swizzle for the new
+    product strides; verify pointwise equivalence to the CuTe formula
+    A(a) + complement(A, size(A)*cosize(B))(B(b))."""
+    layout_a = Layout(2, 1)
+    swizzle = Swizzle(2, 0, 2)
+    tile = ComposedLayout(swizzle, Layout((4, 4), (1, 4)))
+    result = logical_product(layout_a, tile)
+
+    # The swizzle must survive — the old code dropped it.
+    assert isinstance(result, Layout)
+    assert result.swizzle is not None
+
+    # Pointwise check against CuTe's defining formula.
+    comp = complement(layout_a, size(layout_a) * cosize(tile))
+    for a in range(size(layout_a)):
+        for inner_i in range(4):
+            for inner_j in range(4):
+                got = result((a, (inner_i, inner_j)))
+                expected = layout_a(a) + comp(tile((inner_i, inner_j)))
+                assert got == expected, (
+                    f"({a}, ({inner_i}, {inner_j})): got {got}, expected {expected}"
+                )
+
+
 def test_complement_of_composed_layout_forwards_to_inner():
     """complement(ComposedLayout) drops the outer involution and returns
     complement(inner), matching CuTe C++ layout_composed.hpp:395-409."""

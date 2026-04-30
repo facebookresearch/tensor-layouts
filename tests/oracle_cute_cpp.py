@@ -176,6 +176,19 @@ int main() {
   }
   std::cout << "\n";
 
+  // logical_product against a swizzled ComposedLayout: CuTe rebuilds a new
+  // swizzle for the product's strides instead of leaving the original
+  // swizzle wrapping the tile (cute/swizzle_layout.hpp:549-587).
+  auto lp_tile = composition(Swizzle<2,0,2>{},
+      make_layout(make_shape(_4{}, _4{}), make_stride(_1{}, _4{})));
+  auto lp_result = logical_product(make_layout(_2{}, _1{}), lp_tile);
+  std::cout << "logical_product_swizzled_tile=";
+  for (int i = 0; i < 32; ++i) {
+    if (i) std::cout << ",";
+    std::cout << lp_result(i);
+  }
+  std::cout << "\n";
+
   // Slice-decay cases: ComposedLayout(Swizzle, Layout) where the surviving
   // inner only hits Y bits of the swizzle, so CuTe collapses the swizzle
   // wrapper into per-bit XOR'd strides plus a constant base offset.
@@ -394,6 +407,15 @@ PYTHON_POINTWISE_CASES = {
     "tensor_composed_values": lambda: ",".join(
         str(Tensor(ComposedLayout(Swizzle(2, 1, 3), Layout(16, 1), preoffset=4), data=list(range(256)))[i])
         for i in range(16)
+    ),
+    "logical_product_swizzled_tile": lambda: ",".join(
+        str(
+            logical_product(
+                Layout(2, 1),
+                ComposedLayout(Swizzle(2, 0, 2), Layout((4, 4), (1, 4))),
+            )(i)
+        )
+        for i in range(32)
     ),
     **{
         f"slice_decay_j{j}": (
