@@ -1556,8 +1556,26 @@ def test_is_surjective_custom_codomain():
     layout = Layout(4, 2)
     # Not surjective onto [0, 7) -- has gaps
     assert not is_surjective(layout)
-    # Surjective if codomain is exactly the image size
-    assert is_surjective(layout, codomain_size=4)
+    # Still not surjective onto [0, 4) because the image is {0,2,4,6}
+    assert not is_surjective(layout, codomain_size=4)
+    # Surjective when codomain exactly matches requested range [0, 7)
+    assert is_surjective(Layout(7, 1), codomain_size=7)
+
+
+def test_is_surjective_custom_codomain_zero():
+    """codomain_size=0 is surjective only for empty images."""
+    assert is_surjective(Layout(0, 3), codomain_size=0)
+    assert not is_surjective(Layout(1, 0), codomain_size=0)
+
+
+def test_is_surjective_custom_codomain_validation():
+    """codomain_size must be a non-negative integer."""
+    with pytest.raises(TypeError):
+        is_surjective(Layout(4, 1), codomain_size=4.0)
+    with pytest.raises(TypeError):
+        is_surjective(Layout(4, 1), codomain_size=True)
+    with pytest.raises(ValueError):
+        is_surjective(Layout(4, 1), codomain_size=-1)
 
 
 def test_is_bijective_contiguous():
@@ -1595,6 +1613,12 @@ def test_is_bijective_negative_stride_dense():
     assert is_surjective(layout)
     assert is_bijective(layout)
     assert is_contiguous(layout)
+
+
+def test_is_surjective_negative_stride_custom_codomain():
+    """Negative-stride dense spans are not surjective onto [0, n) by default."""
+    layout = Layout(4, -1)
+    assert not is_surjective(layout, codomain_size=4)
 
 
 def test_image_injectivity_consistency():
