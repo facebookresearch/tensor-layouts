@@ -114,7 +114,7 @@ def is_injective(layout: LayoutExpr) -> bool:
     return len(image(layout)) == size(layout)
 
 
-def is_surjective(layout: LayoutExpr, codomain_size: int = None) -> bool:
+def is_surjective(layout: LayoutExpr, codomain_size: int | None = None) -> bool:
     """True if every offset in [0, codomain_size) is produced.
 
     A surjective layout has no gaps --- the image covers the entire
@@ -131,9 +131,22 @@ def is_surjective(layout: LayoutExpr, codomain_size: int = None) -> bool:
         is_surjective(Layout(4, 1))    # True  (image == codomain)
         is_surjective(Layout(4, 2))    # False (image has gaps)
     """
+    offsets = image(layout)
     if codomain_size is None:
-        codomain_size = cosize(layout)
-    return len(image(layout)) == codomain_size
+        if not offsets:
+            return True
+        lo, hi = offsets[0], offsets[-1]
+        return len(offsets) == (hi - lo + 1)
+
+    if not is_int(codomain_size):
+        raise TypeError("codomain_size must be an integer")
+    if codomain_size < 0:
+        raise ValueError("codomain_size must be non-negative")
+    if codomain_size == 0:
+        return len(offsets) == 0
+    if len(offsets) != codomain_size:
+        return False
+    return offsets[0] == 0 and offsets[-1] == codomain_size - 1
 
 
 def is_bijective(layout: LayoutExpr) -> bool:
