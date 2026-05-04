@@ -108,10 +108,19 @@ int main() {
   std::cout << "tiled_divide_layout_tiler_2d=" << tiled_divide_layout_tiler_2d << "\n";
   std::cout << "flat_divide_layout_tiler_2d=" << flat_divide_layout_tiler_2d << "\n";
 
+  // Paper section 3.3.3 "apparent violation" cases: B's image fits inside the
+  // current LHS mode so higher modes are unreachable and truncation is well
+  // defined. Restored after CuTe re-enabled the truncation disjunct in the
+  // divisibility check (CUTLASS commit 2e9ee1ff, follow-up to #3177).
   auto compose_truncation = composition(
       make_layout(make_shape(_4{}, _2{}, _8{}), make_stride(_3{}, _12{}, Int<97>{})),
       make_layout(_3{}, _3{}));
   std::cout << "compose_truncation=" << compose_truncation << "\n";
+
+  auto compose_truncation_paper = composition(
+      make_layout(make_shape(_8{}, _8{}), make_stride(_3{}, Int<97>{})),
+      make_layout(_3{}, _3{}));
+  std::cout << "compose_truncation_paper=" << compose_truncation_paper << "\n";
 
   auto left_inverse_padded =
       left_inverse(make_layout(make_shape(_4{}, _8{}), make_stride(_1{}, _5{})));
@@ -287,6 +296,10 @@ PYTHON_CASES = {
     ),
     "compose_truncation": lambda: compose(
         Layout((4, 2, 8), (3, 12, 97)),
+        Layout(3, 3),
+    ),
+    "compose_truncation_paper": lambda: compose(
+        Layout((8, 8), (3, 97)),
         Layout(3, 3),
     ),
     "left_inverse_padded": lambda: left_inverse(Layout((4, 8), (1, 5))),
