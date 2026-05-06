@@ -75,7 +75,10 @@ def test_composed_layout_boilerplate():
     assert size(layout) == size(inner)
     assert rank(layout) == rank(inner)
     assert depth(layout) == depth(inner)
-    assert cosize(layout) == cosize(inner)
+    # cosize on a ComposedLayout is max(L(c)) + 1 over the full domain,
+    # not cosize(inner) (which is what CuTe C++ returns and is wrong --
+    # see bug-reports/cute_cosize/).
+    assert cosize(layout) == max(layout(i) for i in range(size(layout))) + 1
     assert repr(layout) == f"ComposedLayout({outer!r}, {inner!r}, offset=3)"
     assert str(layout) == f"({outer}) o {{3}} o ({inner})"
     assert layout == ComposedLayout(outer, inner, offset=3)
@@ -359,7 +362,10 @@ def test_swizzle_inner_composed_layout_still_supports_basic_queries():
 
     # Domain queries
     assert size(composed) == 32
-    assert cosize(composed) == 32
+    # cosize is max(F6(i)) + 1. F6's image is [-4, 27], so max+1 = 28.
+    # This is less than size(F6)=32 because the negative outputs eat into
+    # the upper bound -- the offset shifts the image down by 4.
+    assert cosize(composed) == 28
     assert rank(composed) == 1
     assert depth(composed) == 0  # scalar shape -> depth 0, matches Layout(32, 1)
 

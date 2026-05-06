@@ -958,13 +958,32 @@ def size(obj: Any) -> int:
 
 
 def cosize(obj: LayoutExpr) -> int:
-    """Returns the codomain size CuTe associates with a layout expression."""
+    """Returns the codomain size: max(L(i) for i in [0, size(L))) + 1.
+
+    For affine ``Layout`` this is computed in O(1) via the closed-form
+    ``1 + sum_i (s_i - 1) * |d_i|`` (the affine span). For
+    ``ComposedLayout`` there is no closed form -- the outer slot can be a
+    Swizzle, a non-bijective Layout, or another ComposedLayout that
+    permutes or rescales the inner's image -- so cosize must enumerate
+    the full domain. That makes cosize on a ComposedLayout **O(size(L))**
+    rather than O(1).
+
+    Why enumeration is the only correct rule: see
+    ``bug-reports/cute_cosize/cute_cosize_violation.cpp``. CuTe C++'s
+    ``cosize(ComposedLayout) = cosize(layout_b())`` is wrong (it ignores
+    the outer and the offset). The documented ``L(size-1) + 1`` is also
+    wrong (e.g. F7 visits values past ``L(size-1)``). The differential
+    survey shows ``max(L(i)) + 1`` is the only definition that matches
+    the actual codomain extent for every form we tested.
+    """
     if hasattr(obj, "layout") and not is_layout(obj):
         return cosize(obj.layout)
     if isinstance(obj, ComposedLayout):
-        if isinstance(obj.inner, Swizzle):
-            return cosize(obj.outer)
-        return cosize(obj.inner)
+        # O(n) enumeration -- no closed form for non-affine layouts.
+        n = size(obj)
+        if n == 0:
+            return 0
+        return max(obj(i) for i in range(n)) + 1
     if is_int(obj.shape):
         return obj._calculate_max_offset(obj.shape, obj.stride) + 1
     if len(obj.shape) == 0:
