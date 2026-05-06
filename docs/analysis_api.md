@@ -74,9 +74,12 @@ stride tree or linear/F2 structure:
 - `contiguity`
 - `mode_contiguity`
 - `slice_contiguity`
-- `to_F2_matrix`
 
-Passing a `ComposedLayout` to those affine-only helpers raises `TypeError`.
+`to_F2_matrix` is **not** in this list: it accepts `ComposedLayout` whenever
+the form is F2-linear (zero offset, no Swizzle in the inner slot). It only
+raises `ValueError` for the non-F2-linear cases. See the F2 section below.
+
+Passing a `ComposedLayout` to the affine-only helpers above raises `TypeError`.
 That boundary is deliberate and matches the CuTe distinction between
 generic layout-like objects and normal affine layouts.
 
@@ -526,3 +529,60 @@ to_F2_matrix(c)
 Reading: threads 0-3 (T0, T1) select N-dimension column pairs, threads
 within each group of 4 (T2-T4) select M-dimension rows, and the two
 value bits split across M bit 3 and N bit 0.
+
+### Accepted ComposedLayout shapes
+
+`to_F2_matrix` also accepts a `ComposedLayout` when the composition is
+F2-linear: i.e., **zero offset** and **no Swizzle in the inner slot**.
+The matrix of the composition is computed as the matrix product
+`M_outer @ M_inner` over GF(2).
+
+```python
+# These two forms produce the same matrix:
+to_F2_matrix(Layout((8, 8), (8, 1), swizzle=Swizzle(3, 0, 3)))
+to_F2_matrix(ComposedLayout(Swizzle(3, 0, 3), Layout((8, 8), (8, 1)), offset=0))
+```
+
+Rejected with `ValueError`:
+- A nonzero `offset` is an affine translation, not F2-linear.
+- The inverse-form `ComposedLayout(Layout, offset, Swizzle)` -- whose
+  forward IS F2-linear, but you should call `to_F2_matrix` on the forward
+  layout and invert the matrix in GF(2) instead.
+
+### Reverse direction: `from_F2_matrix(M, shape)`
+
+The inverse of `to_F2_matrix`: given a binary matrix `M` of shape
+`(n_offset_bits, n_coord_bits)` and a target layout `shape` (powers of 2,
+log2-product equal to `n_coord_bits`), reconstruct a `Layout` (with
+optional embedded `Swizzle`) such that
+`to_F2_matrix(from_F2_matrix(M, shape)) == M`.
+
+The `shape` parameter is required because the matrix encodes a bit-level
+map but loses the partition of input bits into modes; the constructor
+needs that partition back.
+
+Reconstruction strategy:
+
+1. Try a plain affine reconstruction: interpret each column as an
+   integer stride contribution and assemble a `Layout(shape, strides)`.
+2. If that fails, brute-force search over `Swizzle(bits, base, shift)`
+   candidates: for each, apply `S` to the matrix and re-attempt the
+   affine reconstruction. (`Swizzle` is involutive over F2, so
+   `S @ S = I`.)
+3. If no single-swizzle factorization explains the matrix, raise
+   `NotImplementedError`. Such matrices exist (Triton's `LinearLayout`
+   handles them via multi-swizzle decomposition); we don't replicate
+   that machinery.
+
+```python
+from tensor_layouts.analysis import to_F2_matrix, from_F2_matrix
+
+# Round-trip an affine layout
+L = Layout((4, 8), (8, 1))
+assert from_F2_matrix(to_F2_matrix(L), L.shape) == L
+
+# Round-trip a swizzled layout (swizzle gets extracted by the brute-force
+# search step)
+L = Layout((8, 8), (8, 1), swizzle=Swizzle(3, 0, 3))
+assert from_F2_matrix(to_F2_matrix(L), L.shape) == L
+```

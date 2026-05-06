@@ -66,6 +66,7 @@ __all__ = [
     "operand_analysis",
     "explain",
     "to_F2_matrix",
+    "from_F2_matrix",
 ]
 
 
@@ -1625,7 +1626,39 @@ def explain(fn, *args):
 #
 
 
-def to_F2_matrix(layout: Layout) -> list[list[int]]:
+def _swizzle_to_F2_matrix(sw, n_offset_bits: int) -> list[list[int]]:
+    """Build the F2 matrix for a Swizzle: identity + XOR connections.
+
+    Swizzle(bits, base, shift) XORs offset bits ``[base, base+bits)`` with
+    ``[base+shift, base+shift+bits)``. In F2 that's a post-composition
+    matrix S = I + (off-diagonal entries at the XOR positions).
+    """
+    S = [[1 if i == j else 0 for j in range(n_offset_bits)]
+         for i in range(n_offset_bits)]
+    for k in range(sw.bits):
+        if sw.shift >= 0:
+            src = sw.base + sw.shift + k
+            dst = sw.base + k
+        else:
+            src = sw.base + k
+            dst = sw.base - sw.shift + k
+        if 0 <= src < n_offset_bits and 0 <= dst < n_offset_bits:
+            S[dst][src] = 1
+    return S
+
+
+def _matmul_F2(A: list[list[int]], B: list[list[int]]) -> list[list[int]]:
+    """Multiply two binary matrices over GF(2). A is n×k, B is k×m."""
+    n = len(A)
+    k = len(B)
+    m = len(B[0]) if B else 0
+    return [
+        [sum(A[i][p] * B[p][j] for p in range(k)) % 2 for j in range(m)]
+        for i in range(n)
+    ]
+
+
+def to_F2_matrix(layout) -> list[list[int]]:
     """Return the F2 (binary) matrix representation of a layout.
 
     The layout must have power-of-2 shapes in all modes.  The returned
@@ -1641,15 +1674,21 @@ def to_F2_matrix(layout: Layout) -> list[list[int]]:
     (mode 0 LSB first, then mode 1, etc.).  Rows correspond to offset
     bits (LSB at row 0).
 
-    When the layout has a swizzle, it is folded into the matrix (XOR
-    is linear over F2).
+    When the layout has a swizzle (either embedded in a ``Layout`` or via
+    ``ComposedLayout(Swizzle, Layout, offset=0)``), it is folded into the
+    matrix because XOR is linear over F2. ``ComposedLayout(Layout, Layout,
+    offset=0)`` is also accepted -- it collapses to a single Layout via
+    ``compose()`` first.
 
     Only nonnegative-stride layouts are supported. Negative-stride layouts
     are not linear over the unsigned offset-bit space without an added affine
     translation term, so returning a plain matrix would be misleading.
+    Likewise, a nonzero ``offset`` on a ComposedLayout is an affine
+    translation (not F2-linear) and is rejected.
 
     Args:
-        layout: Layout with power-of-2 shapes.
+        layout: Layout (with optional embedded swizzle) or
+            ComposedLayout with offset=0 and Layout/Swizzle outer.
 
     Returns:
         List of lists representing the binary matrix (row-major).
@@ -1657,6 +1696,10 @@ def to_F2_matrix(layout: Layout) -> list[list[int]]:
     Raises:
         ValueError: If any shape is not a power of 2.
         ValueError: If any flattened stride is negative.
+        ValueError: If a ComposedLayout has nonzero offset (affine, not
+            F2-linear) or a Swizzle in the inner slot (the inverse-form,
+            which represents the inverse of an F2-linear map but is not
+            itself F2-linear without first inverting).
 
     Examples:
         # Identity layout
@@ -1667,9 +1710,65 @@ def to_F2_matrix(layout: Layout) -> list[list[int]]:
         to_F2_matrix(Layout((4, 8), (8, 1)))
         # 5x5 permutation matrix (swaps row/col bit groups)
 
-        # Swizzled layout — swizzle folds into the matrix
-        to_F2_matrix(compose(Swizzle(3, 0, 3), Layout((8, 8), (8, 1))))
+        # Swizzled layout via embedded swizzle
+        to_F2_matrix(Layout((8, 8), (8, 1), swizzle=Swizzle(3, 0, 3)))
+
+        # Same layout via ComposedLayout
+        to_F2_matrix(ComposedLayout(Swizzle(3, 0, 3), Layout((8, 8), (8, 1))))
     """
+    # Accept ComposedLayout shapes that are still F2-linear.
+    if isinstance(layout, ComposedLayout):
+        # Check inverse-form first: it usually carries a negative offset
+        # which would otherwise hit the offset check with a less useful
+        # diagnostic.
+        if isinstance(layout.inner, Swizzle):
+            raise ValueError(
+                "to_F2_matrix() does not support the inverse-form "
+                "ComposedLayout(Layout, offset, Swizzle). The forward map is "
+                "F2-linear; this is its inverse, which is also F2-linear in "
+                "principle but you should call to_F2_matrix on the forward "
+                "layout and invert the matrix in GF(2)."
+            )
+        if layout.offset != 0:
+            raise ValueError(
+                "to_F2_matrix() does not support ComposedLayout with nonzero "
+                "offset; the offset is an affine translation, not F2-linear. "
+                "Compose with the forward layout to absorb the offset, or "
+                "split out the affine term explicitly."
+            )
+        # General rule: M_composed = M_outer @ M_inner (mod 2).
+        # Recursively compute each layer's matrix, then multiply. The
+        # Swizzle outer case becomes a special case where M_outer is the
+        # swizzle matrix sized to match M_inner's output bit count.
+        M_inner = to_F2_matrix(layout.inner)
+        n_inner_out = len(M_inner)
+        if isinstance(layout.outer, Swizzle):
+            M_outer = _swizzle_to_F2_matrix(layout.outer, n_inner_out)
+        else:
+            M_outer = to_F2_matrix(layout.outer)
+            n_outer_in = len(M_outer[0])
+            n_coord_bits = len(M_inner[0])
+            if n_outer_in > n_inner_out:
+                # Pad inner with zero rows: outer accepts more input bits
+                # than inner produces, but the composed layout never reaches
+                # those high bits, so they're identically zero.
+                M_inner = M_inner + [[0] * n_coord_bits
+                                     for _ in range(n_outer_in - n_inner_out)]
+            elif n_outer_in < n_inner_out:
+                raise ValueError(
+                    f"to_F2_matrix(): inner produces {n_inner_out} output "
+                    f"bits but outer accepts only {n_outer_in} input bits; "
+                    f"the composition would have to truncate inner's high "
+                    f"bits, which is not F2-linear."
+                )
+        result = _matmul_F2(M_outer, M_inner)
+        # Trim trailing all-zero rows so n_offset_bits matches the actual
+        # codomain bit-width, consistent with the affine path's
+        # cosize-derived sizing. Keep at least one row.
+        while len(result) > 1 and not any(result[-1]):
+            result.pop()
+        return result
+
     layout = as_affine_layout(layout)
     flat = flatten(layout)
     if is_int(flat.shape):
@@ -1712,29 +1811,174 @@ def to_F2_matrix(layout: Layout) -> list[list[int]]:
         for i in range(n_offset_bits):
             M[i][j] = (val >> i) & 1
 
-    # Fold in swizzle: Swizzle(bits, base, shift) XORs offset bits
-    # [base, base+bits) with [base+shift, base+shift+bits).
-    # In F2: row[base+k] += row[base+shift+k] (mod 2)
-    # This is a post-composition: M' = S @ M
+    # Fold in embedded swizzle as a post-composition: M' = S @ M.
     if layout.swizzle is not None:
-        sw = layout.swizzle
-        # Build swizzle matrix S (identity + XOR connections)
-        S = [[1 if i == j else 0 for j in range(n_offset_bits)]
-             for i in range(n_offset_bits)]
-        for k in range(sw.bits):
-            if sw.shift >= 0:
-                src = sw.base + sw.shift + k
-                dst = sw.base + k
-            else:
-                src = sw.base + k
-                dst = sw.base - sw.shift + k
-            if 0 <= src < n_offset_bits and 0 <= dst < n_offset_bits:
-                S[dst][src] = 1
-        # Compose: M' = S @ M (mod 2)
-        M = [
-            [sum(S[i][k] * M[k][j] for k in range(n_offset_bits)) % 2
-             for j in range(n_coord_bits)]
-            for i in range(n_offset_bits)
-        ]
+        S = _swizzle_to_F2_matrix(layout.swizzle, n_offset_bits)
+        M = _matmul_F2(S, M)
 
     return M
+
+
+def from_F2_matrix(M: list[list[int]], shape) -> "LayoutExpr":
+    """Build a Layout from a binary F2 matrix -- the inverse of to_F2_matrix.
+
+    Given M of shape ``(n_offset_bits, n_coord_bits)`` and a target
+    ``shape``, construct a layout L such that
+    ``to_F2_matrix(L) == M`` and ``size(L) == product(shape)``.
+
+    The shape parameter is required because the matrix encodes a bit-level
+    map but loses the partition of input bits into modes; ``from_F2_matrix``
+    needs the partition back. Each mode in ``shape`` must be a power of 2,
+    and the total log2-product must equal ``n_coord_bits``.
+
+    Reconstruction strategy:
+
+    1. Compute "candidate" strides as the integer value of each column.
+       If those strides match a clean power-of-2 progression per mode (i.e.
+       each mode's bits don't carry into other bits), the matrix represents
+       an affine layout and we return ``Layout(shape, strides)``.
+    2. Otherwise, brute-force search over ``Swizzle(bits, base, shift)``
+       candidates: for each, apply S to M (Swizzle is involutive, so
+       ``S @ S = I``, meaning ``S @ M`` is the affine matrix if M was
+       ``S @ affine``). If any candidate yields a valid affine
+       reconstruction, return ``Layout(shape, strides, swizzle=Sw)``.
+    3. If no single Swizzle explains the matrix, raise NotImplementedError.
+       Such matrices exist (Triton's LinearLayout can express them via
+       multi-swizzle decomposition); we don't replicate that machinery.
+
+    Args:
+        M: Binary matrix (list of lists), each entry 0 or 1, shape
+           ``(n_offset_bits, n_coord_bits)``.
+        shape: Desired layout shape (int or tuple); all values must be
+            powers of 2, total log2-product = n_coord_bits.
+
+    Returns:
+        ``Layout(shape, strides[, swizzle=Sw])`` such that
+        ``to_F2_matrix(result) == M``.
+
+    Raises:
+        ValueError: If M is malformed (non-binary entries, non-rectangular)
+            or if shape doesn't match the matrix dimensions.
+        NotImplementedError: If M cannot be expressed as a Layout with at
+            most one Swizzle.
+
+    Examples:
+        # Round-trip an affine layout
+        L = Layout((4, 8), (8, 1))
+        assert from_F2_matrix(to_F2_matrix(L), L.shape) == L
+
+        # Round-trip a swizzled layout
+        L = Layout((8, 8), (8, 1), swizzle=Swizzle(3, 0, 3))
+        assert from_F2_matrix(to_F2_matrix(L), L.shape) == L
+    """
+    # ----- validate inputs -----
+    n_offset_bits = len(M)
+    if n_offset_bits == 0:
+        raise ValueError("F2 matrix must have at least one row")
+    n_coord_bits = len(M[0])
+    for r, row in enumerate(M):
+        if len(row) != n_coord_bits:
+            raise ValueError(
+                f"F2 matrix is not rectangular; row 0 has {n_coord_bits} "
+                f"columns, row {r} has {len(row)}"
+            )
+        for c, entry in enumerate(row):
+            if entry not in (0, 1):
+                raise ValueError(
+                    f"F2 matrix entry M[{r}][{c}] = {entry} is not 0 or 1"
+                )
+
+    shape_list = [shape] if is_int(shape) else list(shape)
+    for s in shape_list:
+        if not is_int(s) or s < 1 or (s & (s - 1)) != 0:
+            raise ValueError(
+                f"shape entry {s} is not a power of 2; from_F2_matrix "
+                f"requires all shape entries to be powers of 2 >= 1"
+            )
+    bits_per_mode = [s.bit_length() - 1 for s in shape_list]
+    total_coord_bits = sum(bits_per_mode)
+    if total_coord_bits != n_coord_bits:
+        raise ValueError(
+            f"shape {shape} requires {total_coord_bits} coord bits, but "
+            f"matrix has {n_coord_bits} columns"
+        )
+
+    # ----- column integer values -----
+    col_values = [
+        sum((M[i][j] & 1) << i for i in range(n_offset_bits))
+        for j in range(n_coord_bits)
+    ]
+
+    # ----- attempt 1: plain affine reconstruction -----
+    layout = _affine_from_columns(col_values, shape_list, bits_per_mode)
+    if layout is not None and to_F2_matrix(layout) == M:
+        return layout
+
+    # ----- attempt 2: Sw o (affine) factorization, brute-force over Sw -----
+    for sw in _candidate_swizzles(n_offset_bits):
+        S = _swizzle_to_F2_matrix(sw, n_offset_bits)
+        # Swizzle is involutive in F2: S @ S = I, so applying S to M
+        # gives back the underlying affine matrix candidate.
+        M_affine_candidate = _matmul_F2(S, M)
+        candidate_cols = [
+            sum((M_affine_candidate[i][j] & 1) << i for i in range(n_offset_bits))
+            for j in range(n_coord_bits)
+        ]
+        layout = _affine_from_columns(candidate_cols, shape_list, bits_per_mode)
+        if layout is None:
+            continue
+        with_sw = Layout(layout.shape, layout.stride, swizzle=sw)
+        if to_F2_matrix(with_sw) == M:
+            return with_sw
+
+    raise NotImplementedError(
+        "from_F2_matrix() cannot express this matrix as Layout with at most "
+        "one Swizzle. The matrix may require a Triton-style LinearLayout with "
+        "multi-swizzle bit interactions; that decomposition is not implemented "
+        "here. Pass a different shape, or factor the matrix manually."
+    )
+
+
+def _affine_from_columns(col_values, shape_list, bits_per_mode):
+    """Try to interpret a list of column values as a plain affine Layout.
+
+    For each mode of size ``s`` with ``log2(s)`` bits, the affine
+    contribution of those bits is ``stride * (1, 2, 4, ..., 2^(log2(s)-1))``.
+    Returns a Layout if the column values match this pattern, or None.
+    """
+    strides = []
+    bit_idx = 0
+    for s, n_bits in zip(shape_list, bits_per_mode):
+        if n_bits == 0:
+            # size-1 mode -- stride is unconstrained but conventionally 0
+            strides.append(0)
+            continue
+        d = col_values[bit_idx]
+        for b in range(n_bits):
+            expected = d * (1 << b)
+            if col_values[bit_idx + b] != expected:
+                return None
+        strides.append(d)
+        bit_idx += n_bits
+    if len(shape_list) == 1:
+        return Layout(shape_list[0], strides[0])
+    return Layout(tuple(shape_list), tuple(strides))
+
+
+def _candidate_swizzles(n_offset_bits: int):
+    """Yield Swizzle candidates whose XOR connections fit within n_offset_bits.
+
+    Order: smaller ``bits`` first (cheaper / more constrained), then base,
+    then |shift| (with positive shift before negative).
+    """
+    for bits in range(1, n_offset_bits):
+        for base in range(0, n_offset_bits - bits):
+            # |shift| must be at least 1, and the partner bits must fit.
+            max_shift = n_offset_bits - bits - base
+            for shift_abs in range(1, max_shift + 1):
+                for sign in (1, -1):
+                    shift = sign * shift_abs
+                    # Negative shift moves dst above base; ensure dst fits.
+                    if shift < 0 and base - shift + bits > n_offset_bits:
+                        continue
+                    yield Swizzle(bits, base, shift)
