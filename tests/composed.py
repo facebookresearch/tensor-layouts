@@ -309,6 +309,83 @@ def test_logical_product_rejects_swizzle_inner_composed_layout():
         logical_product(composed, Layout(2, 1))
 
 
+def test_complement_rejects_swizzle_inner_composed_layout():
+    """complement(F6) raises rather than silently returning a degenerate layout."""
+    composed = ComposedLayout(Layout(32, 1), Swizzle(2, 1, 3), preoffset=-4)
+    with pytest.raises(NotImplementedError, match="complement"):
+        complement(composed)
+
+
+def test_coalesce_rejects_swizzle_inner_composed_layout():
+    """coalesce(F6) raises rather than silently returning the input unchanged."""
+    composed = ComposedLayout(Layout(32, 1), Swizzle(2, 1, 3), preoffset=-4)
+    with pytest.raises(NotImplementedError, match="coalesce"):
+        coalesce(composed)
+
+
+def test_logical_divide_rejects_swizzle_inner_composed_layout():
+    """logical_divide(F6, ...) raises with its own op name (not 'coalesce')."""
+    composed = ComposedLayout(Layout(32, 1), Swizzle(2, 1, 3), preoffset=-4)
+    with pytest.raises(NotImplementedError, match="logical_divide"):
+        logical_divide(composed, Layout(4, 1))
+
+
+def test_swizzle_inner_composed_layout_still_supports_basic_queries():
+    """Operations that the inverse-and-cancel round trip needs MUST work on F6.
+
+    Anchors the support boundary: if any of these starts raising we've
+    over-tightened the guards and broken the algebra.
+    """
+    composed = ComposedLayout(Layout(32, 1), Swizzle(2, 1, 3), preoffset=-4)
+
+    # Domain queries
+    assert size(composed) == 32
+    assert cosize(composed) == 32
+    assert rank(composed) == 1
+    assert depth(composed) == 0  # scalar shape -> depth 0, matches Layout(32, 1)
+
+    # __call__ at explicit indices (negative outputs are expected on F6)
+    assert composed(0) == -4
+    assert composed(4) == 0
+
+    # Inverse round-trip: right_inverse(F3) should give an F6, and
+    # composing F3 with that F6 should be identity on F3's domain.
+    f3 = ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), preoffset=4)
+    inv = right_inverse(f3)
+    assert isinstance(inv, ComposedLayout)
+    assert isinstance(inv.inner, Swizzle)
+    for i in range(size(f3)):
+        assert inv(f3(i)) == i
+
+
+def test_tensor_rejects_layout_with_negative_addresses():
+    """Attaching storage to an inverse-form layout must error at the boundary,
+    naming the inverse-form hazard so the user knows what to do."""
+    inv = ComposedLayout(Layout(32, 1), Swizzle(2, 1, 3), preoffset=-4)
+    with pytest.raises(ValueError, match="negative storage indices"):
+        Tensor(inv, offset=0, data=list(range(32)))
+
+
+def test_tensor_accepts_inverse_form_when_offset_shifts_above_zero():
+    """If the user shifts the external offset enough, the addresses become
+    non-negative and the Tensor is valid. Witnesses that the guard is about
+    actual addresses, not a structural rejection of the form."""
+    inv = ComposedLayout(Layout(32, 1), Swizzle(2, 1, 3), preoffset=-4)
+    # F6's addressed range is [-4, 27]; shifting offset by 4 puts it at [0, 31].
+    t = Tensor(inv, offset=4, data=list(range(32)))
+    assert t(0) == 0
+    assert t(4) == 4
+
+
+def test_tensor_data_setter_rejects_inverse_form_with_negative_addresses():
+    """The .data setter must apply the same negative-address check as __init__,
+    or you could bypass it by constructing algebraic-then-assigning storage."""
+    inv = ComposedLayout(Layout(32, 1), Swizzle(2, 1, 3), preoffset=-4)
+    t = Tensor(inv, offset=0)  # algebraic -- no data, no validation
+    with pytest.raises(ValueError, match="negative storage indices"):
+        t.data = list(range(32))
+
+
 def test_max_common_vector_for_swizzled_composed_layout_is_capped_by_swizzle_base():
     composed = ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), preoffset=0)
     plain = Layout(32, 1)
