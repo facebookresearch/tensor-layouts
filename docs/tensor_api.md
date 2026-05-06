@@ -131,7 +131,7 @@ t = Tensor(exact, offset=100)
 The important distinction is:
 
 - `Tensor.offset` is an **external** pointer/base offset
-- `ComposedLayout.preoffset` is an **internal** offset that lives before the
+- `ComposedLayout.offset` is an **internal** offset that lives before the
   outer map
 
 For `Tensor(ComposedLayout(...))`, addressing is therefore:

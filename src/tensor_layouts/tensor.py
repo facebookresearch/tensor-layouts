@@ -301,7 +301,7 @@ class Tensor:
         The tensor offset is external pointer/base state. For affine layouts
         with an embedded swizzle, that external offset participates in the
         pre-swizzle linear address exactly as CuTe tensor slicing requires.
-        For ComposedLayout, the layout's own preoffset remains internal and the
+        For ComposedLayout, the layout's own offset remains internal and the
         tensor offset is added only after the layout expression evaluates.
         """
         coords = args[0] if len(args) == 1 else args

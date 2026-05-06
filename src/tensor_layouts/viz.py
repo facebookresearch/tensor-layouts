@@ -280,9 +280,9 @@ def _layout_expr_with_offset(layout, offset: int):
         return layout
     if isinstance(layout, Layout):
         if layout.swizzle is None:
-            return ComposedLayout(_IDENTITY_LAYOUT, Layout(layout.shape, layout.stride), preoffset=offset)
-        return ComposedLayout(layout.swizzle, Layout(layout.shape, layout.stride), preoffset=offset)
-    return ComposedLayout(_IDENTITY_LAYOUT, layout, preoffset=offset)
+            return ComposedLayout(_IDENTITY_LAYOUT, Layout(layout.shape, layout.stride), offset=offset)
+        return ComposedLayout(layout.swizzle, Layout(layout.shape, layout.stride), offset=offset)
+    return ComposedLayout(_IDENTITY_LAYOUT, layout, offset=offset)
 
 
 def _prepare_offset_grid(
