@@ -303,6 +303,12 @@ def test_left_inverse_of_nonzero_preoffset_swizzled_composed_layout():
         assert inv(composed(i)) == i
 
 
+def test_logical_product_rejects_swizzle_inner_composed_layout():
+    composed = ComposedLayout(Layout(32, 1), Swizzle(2, 1, 3), preoffset=-4)
+    with pytest.raises(NotImplementedError, match="Swizzle in the inner slot"):
+        logical_product(composed, Layout(2, 1))
+
+
 def test_max_common_vector_for_swizzled_composed_layout_is_capped_by_swizzle_base():
     composed = ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), preoffset=0)
     plain = Layout(32, 1)

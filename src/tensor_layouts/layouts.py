@@ -3727,6 +3727,14 @@ def logical_product(layout_a: LayoutExpr, layout_b: Layout) -> LayoutExpr:
     forwarded = _forward_layout_domain(layout_a, lambda inner: logical_product(inner, layout_b))
     if forwarded is not _NO_FORWARD:
         return forwarded
+    if isinstance(layout_a, ComposedLayout) and isinstance(layout_a.inner, Swizzle):
+        # A ComposedLayout with a Swizzle inner has a 1-D integer domain and no
+        # affine stride to tile against. CuTe C++ refuses this form too (the
+        # logical_product template doesn't instantiate).
+        raise NotImplementedError(
+            "logical_product is not defined when layout_a is a ComposedLayout "
+            "with a Swizzle in the inner slot"
+        )
     if layout_b is None:
         return layout_a
     if isinstance(layout_b, int):
