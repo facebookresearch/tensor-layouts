@@ -316,11 +316,30 @@ def test_complement_rejects_swizzle_inner_composed_layout():
         complement(composed)
 
 
-def test_coalesce_rejects_swizzle_inner_composed_layout():
-    """coalesce(F6) raises rather than silently returning the input unchanged."""
+def test_coalesce_returns_swizzle_inner_composed_layout_unchanged():
+    """coalesce on the inverse-form is a no-op: the inverse-form is rank-1
+    with no multi-mode structure to merge and no size-1 modes to filter,
+    so the only correct answer is the input itself.
+
+    Functional check: same outputs over the full domain.
+    """
     composed = ComposedLayout(Layout(32, 1), Swizzle(2, 1, 3), offset=-4)
-    with pytest.raises(NotImplementedError, match="coalesce"):
-        coalesce(composed)
+    result = coalesce(composed)
+    assert result is composed  # same instance: literal no-op
+    for i in range(size(composed)):
+        assert result(i) == composed(i)
+
+
+def test_coalesce_with_profile_also_handles_swizzle_inner_composed_layout():
+    """The mode-profile coalesce path must also accept the inverse-form.
+
+    A user-supplied profile shouldn't change the answer -- the inverse-form
+    is rank-1, so any rank-respecting profile is a no-op.
+    """
+    composed = ComposedLayout(Layout(32, 1), Swizzle(2, 1, 3), offset=-4)
+    result = coalesce(composed, profile=(32,))
+    for i in range(size(composed)):
+        assert result(i) == composed(i)
 
 
 def test_logical_divide_rejects_swizzle_inner_composed_layout():

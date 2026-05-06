@@ -256,16 +256,17 @@ to identity). It is **structurally allowed but semantically narrow**:
 | Operation | Status |
 |-----------|--------|
 | `__call__(c)`, `size`, `shape`, `cosize`, `rank`, `depth` | supported |
-| `flatten` | no-op (returns the input) |
+| `flatten`, `coalesce` | no-op (returns the input -- rank-1, no structure to merge) |
 | `right_inverse`, `left_inverse`, `compose` (with the forward) | supported |
-| `coalesce` | **NotImplementedError** |
 | `complement` | **NotImplementedError** |
 | `logical_product`, `logical_divide` | **NotImplementedError** |
 
-The four unsupported operations would all delegate to the inner layout, but
-`Swizzle` does not satisfy the Layout interface CuTe expects. CuTe C++ refuses
-this form too -- the corresponding templates fail to instantiate -- so
-tensor-layouts matches by raising a clear `NotImplementedError`. See
+The three unsupported operations all need a sensible answer for `complement`
+of a 1-D non-affine layout, which requires a semantic decision -- not just
+plumbing. CuTe C++ refuses these forms too: their templates delegate to the
+inner layout, and `Swizzle` doesn't satisfy the Layout interface, so they
+fail to instantiate. tensor-layouts matches by raising a clear
+`NotImplementedError`. See
 [`scripts/survey_composed_layout_cpp.py`](../scripts/survey_composed_layout_cpp.py)
 and the report at
 [`notes/composed_layout_cpp_survey.md`](../notes/composed_layout_cpp_survey.md)
