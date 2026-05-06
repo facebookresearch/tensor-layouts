@@ -65,6 +65,21 @@ void print_offsets(char const* name, Layout const& layout) {
   std::cout << "\n";
 }
 
+// Variant for layouts where size() is not defined (e.g., the
+// ComposedLayout<Layout, Offset, Swizzle> form produced by inverting a
+// swizzle-fronted ComposedLayout with nonzero preoffset).
+template <class Layout>
+void print_offsets_n(char const* name, Layout const& layout, int n) {
+  std::cout << name << "=";
+  for (int i = 0; i < n; ++i) {
+    if (i) {
+      std::cout << ",";
+    }
+    std::cout << layout(i);
+  }
+  std::cout << "\n";
+}
+
 int main() {
   auto compose_nested_tuple_tiler = composition(
       make_layout(make_shape(make_shape(_2{}, _3{}), _8{}),
@@ -247,6 +262,16 @@ int main() {
   auto swizzled_composed_linv = left_inverse(swizzled_composed);
   print_offsets("left_inverse_swizzled_composed_offsets", swizzled_composed_linv);
 
+  // size() is not defined for ComposedLayout<Layout, Offset, Swizzle>, so we
+  // pass the codomain extent (32) explicitly. Same for left_inverse below.
+  auto swizzled_composed_rinv_nonzero = right_inverse(swizzled_composed_nonzero);
+  print_offsets_n("right_inverse_swizzled_composed_nonzero_offsets",
+                  swizzled_composed_rinv_nonzero, 32);
+
+  auto swizzled_composed_linv_nonzero = left_inverse(swizzled_composed_nonzero);
+  print_offsets_n("left_inverse_swizzled_composed_nonzero_offsets",
+                  swizzled_composed_linv_nonzero, 32);
+
   auto swizzled_common_vec =
       max_common_vector(swizzled_composed, make_layout(_32{}, _1{}));
   std::cout << "max_common_vector_swizzled_composed=" << swizzled_common_vec << "\n";
@@ -416,6 +441,14 @@ PYTHON_POINTWISE_CASES = {
     "left_inverse_swizzled_composed_offsets": lambda: ",".join(
         str(left_inverse(ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), preoffset=0))(i))
         for i in range(size(left_inverse(ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), preoffset=0))))
+    ),
+    "right_inverse_swizzled_composed_nonzero_offsets": lambda: ",".join(
+        str(right_inverse(ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), preoffset=4))(i))
+        for i in range(size(right_inverse(ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), preoffset=4))))
+    ),
+    "left_inverse_swizzled_composed_nonzero_offsets": lambda: ",".join(
+        str(left_inverse(ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), preoffset=4))(i))
+        for i in range(size(left_inverse(ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), preoffset=4))))
     ),
     "tensor_composed_values": lambda: ",".join(
         str(Tensor(ComposedLayout(Swizzle(2, 1, 3), Layout(16, 1), preoffset=4), data=list(range(256)))[i])

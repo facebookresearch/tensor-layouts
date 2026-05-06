@@ -709,6 +709,11 @@ class ComposedLayout:
     The inner layout defines the logical domain (shape, size, rank, depth).
     The preoffset remains inside the composition, before the outer nonlinear
     map, which is why ComposedLayout intentionally does not expose .stride.
+
+    The inner slot may also hold a Swizzle. This form arises when inverting a
+    swizzle-fronted ComposedLayout with nonzero preoffset (see right_inverse
+    / left_inverse and CuTe swizzle_layout.hpp:348-358); the resulting layout
+    operates on a 1-D integer domain whose extent is taken from outer.shape.
     """
 
     outer: Any
@@ -720,9 +725,9 @@ class ComposedLayout:
             raise TypeError(
                 f"ComposedLayout outer must be callable, got {type(self.outer).__name__}"
             )
-        if not is_layout(self.inner):
+        if not (is_layout(self.inner) or isinstance(self.inner, Swizzle)):
             raise TypeError(
-                f"ComposedLayout inner must be Layout or ComposedLayout, "
+                f"ComposedLayout inner must be Layout, ComposedLayout, or Swizzle, "
                 f"got {type(self.inner).__name__}"
             )
         if not is_int(self.preoffset):
@@ -732,6 +737,8 @@ class ComposedLayout:
 
     @property
     def shape(self):
+        if isinstance(self.inner, Swizzle):
+            return self.outer.shape
         return self.inner.shape
 
     def __repr__(self) -> str:
@@ -792,6 +799,8 @@ def _forward_layout_domain(layout, transform):
     transformed inner result is affine. ComposedLayout always stays composed.
     """
     if isinstance(layout, ComposedLayout):
+        if isinstance(layout.inner, Swizzle):
+            return _NO_FORWARD
         return ComposedLayout(layout.outer, transform(layout.inner), preoffset=layout.preoffset)
     if isinstance(layout, Layout) and layout.swizzle is not None:
         inner_result = transform(_affine_inner(layout))
@@ -877,6 +886,8 @@ def cosize(obj: LayoutExpr) -> int:
     if hasattr(obj, "layout") and not is_layout(obj):
         return cosize(obj.layout)
     if isinstance(obj, ComposedLayout):
+        if isinstance(obj.inner, Swizzle):
+            return cosize(obj.outer)
         return cosize(obj.inner)
     if is_int(obj.shape):
         return obj._calculate_max_offset(obj.shape, obj.stride) + 1
@@ -927,6 +938,10 @@ def mode(obj: Any, idx):
             return ()
         return obj[idx]
     if isinstance(obj, ComposedLayout):
+        if isinstance(obj.inner, Swizzle):
+            if idx != 0:
+                raise IndexError(f"Index {idx} out of range for swizzle-inner ComposedLayout")
+            return obj
         return ComposedLayout(obj.outer, mode(obj.inner, idx), preoffset=obj.preoffset)
     if isinstance(obj, Layout):
         if is_int(obj.shape):
@@ -1163,6 +1178,8 @@ def flatten(obj: Any) -> Any:
     if hasattr(obj, "layout") and not is_layout(obj):
         return flatten(obj.layout)
     elif isinstance(obj, ComposedLayout):
+        if isinstance(obj.inner, Swizzle):
+            return obj
         return ComposedLayout(obj.outer, flatten(obj.inner), preoffset=obj.preoffset)
     elif isinstance(obj, Layout):
         if obj.swizzle is not None:
@@ -1707,6 +1724,8 @@ def complement(layout: Layout, cosize_bound: Any = None) -> Layout:
     # in CuTe; only the inner controls the codomain image, so the complement
     # is the inner's complement. Matches CuTe C++ layout_composed.hpp:395-409.
     if isinstance(layout, ComposedLayout):
+        if isinstance(layout.inner, Swizzle):
+            return complement(layout.outer, cosize_bound)
         return complement(layout.inner, cosize_bound)
 
     # Short-circuit unit layout AND zero-sized layouts (no elements to span)
@@ -2240,6 +2259,14 @@ def _slice_for_composition(crd, layout: LayoutExpr):
     sliced contribution must remain inside a nonlinear inner expression.
     """
     if isinstance(layout, ComposedLayout):
+        if isinstance(layout.inner, Swizzle):
+            # Rank-1 integer domain — no further recursion possible. The caller
+            # should slice on the outer if a sub-domain view is needed.
+            if not coords_all_none(crd):
+                raise NotImplementedError(
+                    "Slicing a ComposedLayout with a Swizzle in the inner slot is not supported"
+                )
+            return (layout, 0)
         inner_slice, delta = _slice_for_composition(crd, layout.inner)
         return (ComposedLayout(layout.outer, inner_slice, preoffset=layout.preoffset + delta), 0)
 
