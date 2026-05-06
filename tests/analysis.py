@@ -1498,6 +1498,121 @@ if __name__ == "__main__":
     raise SystemExit(subprocess.call([sys.executable, "-m", "pytest", __file__, "-v"]))
 
 
+## from_F2_matrix and to/from round-trip
+
+
+def test_to_F2_matrix_accepts_composed_layout_with_swizzle_outer():
+    """ComposedLayout(Swizzle, Layout, offset=0) gives the same matrix as
+    the equivalent Layout-with-embedded-swizzle. Both are F2-linear."""
+    embedded = Layout((8, 8), (8, 1), swizzle=Swizzle(3, 0, 3))
+    composed = ComposedLayout(Swizzle(3, 0, 3), Layout((8, 8), (8, 1)), offset=0)
+    assert to_F2_matrix(composed) == to_F2_matrix(embedded)
+
+
+def test_to_F2_matrix_accepts_composed_layout_with_layout_outer():
+    """ComposedLayout(Layout, Layout, offset=0) collapses via compose() and
+    matches the F2 matrix of the collapsed result."""
+    composed = ComposedLayout(Layout(16, 2), Layout(8, 1), offset=0)
+    collapsed = compose(Layout(16, 2), Layout(8, 1))
+    assert to_F2_matrix(composed) == to_F2_matrix(collapsed)
+
+
+def test_to_F2_matrix_rejects_composed_layout_with_offset():
+    """A nonzero offset is an affine translation, not F2-linear; reject it
+    with a clear error rather than silently returning a misleading matrix."""
+    cl = ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), offset=4)
+    with pytest.raises(ValueError, match="nonzero offset"):
+        to_F2_matrix(cl)
+
+
+def test_to_F2_matrix_rejects_inverse_form_composed_layout():
+    """The inverse-form ComposedLayout(Layout, offset, Swizzle) -- whose
+    forward IS F2-linear -- gets rejected with guidance to invert in GF(2)
+    on the matrix of the forward layout."""
+    inv = ComposedLayout(Layout(32, 1), Swizzle(2, 1, 3), offset=-4)
+    with pytest.raises(ValueError, match="inverse-form"):
+        to_F2_matrix(inv)
+
+
+def test_from_F2_matrix_round_trips_identity():
+    """The simplest case: identity matrix -> identity-stride layout."""
+    L = Layout(4, 1)
+    M = to_F2_matrix(L)
+    assert from_F2_matrix(M, L.shape) == L
+
+
+def test_from_F2_matrix_round_trips_row_major():
+    """Multi-mode layout: matrix encodes the bit reordering between modes."""
+    L = Layout((4, 8), (8, 1))
+    M = to_F2_matrix(L)
+    assert from_F2_matrix(M, L.shape) == L
+
+
+def test_from_F2_matrix_round_trips_col_major():
+    L = Layout((4, 8), (1, 4))
+    M = to_F2_matrix(L)
+    assert from_F2_matrix(M, L.shape) == L
+
+
+def test_from_F2_matrix_round_trips_swizzled_layout():
+    """The interesting case: swizzle-extraction recovers the Swizzle from a
+    matrix that is otherwise affine-after-XOR."""
+    L = Layout((8, 8), (8, 1), swizzle=Swizzle(3, 0, 3))
+    M = to_F2_matrix(L)
+    assert from_F2_matrix(M, L.shape) == L
+
+
+def test_from_F2_matrix_round_trips_negative_shift_swizzle():
+    L = Layout((8, 8), (1, 8), swizzle=Swizzle(2, 0, -3))
+    M = to_F2_matrix(L)
+    assert from_F2_matrix(M, L.shape) == L
+
+
+def test_from_F2_matrix_round_trips_stride_2():
+    L = Layout(4, 2)
+    M = to_F2_matrix(L)
+    assert from_F2_matrix(M, L.shape) == L
+
+
+def test_from_F2_matrix_round_trips_composed_swizzle_outer():
+    """Going through the ComposedLayout entry of to_F2_matrix and reconstructing
+    via from_F2_matrix yields the equivalent embedded-swizzle Layout (the
+    canonical Layout form for a Sw o L that is F2-linear)."""
+    cl = ComposedLayout(Swizzle(3, 0, 3), Layout((8, 8), (8, 1)), offset=0)
+    M = to_F2_matrix(cl)
+    reconstructed = from_F2_matrix(M, (8, 8))
+    # cl and reconstructed are functionally equal; reconstructed is the
+    # embedded-swizzle Layout form.
+    assert isinstance(reconstructed, Layout)
+    assert to_F2_matrix(reconstructed) == M
+
+
+def test_from_F2_matrix_rejects_wrong_shape():
+    """Mismatched bit count between shape and matrix columns must error
+    with a clear message, not silently produce a wrong layout."""
+    M = to_F2_matrix(Layout((4, 8), (8, 1)))  # 5 coord bits
+    with pytest.raises(ValueError, match="coord bits"):
+        from_F2_matrix(M, 8)  # 3 coord bits
+
+
+def test_from_F2_matrix_rejects_non_power_of_2_shape():
+    M = [[1, 0], [0, 1]]
+    with pytest.raises(ValueError, match="power of 2"):
+        from_F2_matrix(M, 6)
+
+
+def test_from_F2_matrix_rejects_non_binary_entries():
+    M = [[1, 0], [0, 2]]
+    with pytest.raises(ValueError, match="not 0 or 1"):
+        from_F2_matrix(M, 4)
+
+
+def test_from_F2_matrix_rejects_non_rectangular():
+    M = [[1, 0], [0]]
+    with pytest.raises(ValueError, match="not rectangular"):
+        from_F2_matrix(M, 4)
+
+
 ## image, is_injective, is_surjective, is_bijective
 
 

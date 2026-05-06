@@ -429,13 +429,18 @@ def test_affine_only_boundaries_reject_composed_layout():
     with pytest.raises(TypeError, match="ComposedLayout|affine"):
         as_affine_layout(composed)
     with pytest.raises(TypeError, match="ComposedLayout|affine"):
-        to_F2_matrix(composed)
-    with pytest.raises(TypeError, match="ComposedLayout|affine"):
         contiguity(composed)
     with pytest.raises(TypeError, match="ComposedLayout|affine"):
         mode_contiguity(composed)
     with pytest.raises(TypeError, match="ComposedLayout|affine"):
         slice_contiguity(composed, (None,))
+    # to_F2_matrix() now accepts ComposedLayout when it is F2-linear (zero
+    # offset, no Swizzle in the inner slot). It rejects with ValueError --
+    # not TypeError -- in the cases that aren't F2-linear; see
+    # tests/analysis.py for those boundary tests. The form here IS F2-linear
+    # (Layout outer over swizzled-Layout inner, offset 0), so it succeeds.
+    M = to_F2_matrix(composed)
+    assert len(M) > 0 and len(M[0]) > 0
 
 
 def test_slice_on_swizzled_composed_decays_when_y_or_z_misses():
