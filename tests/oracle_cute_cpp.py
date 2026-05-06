@@ -306,13 +306,11 @@ int main() {
                         composition(Swizzle<2,1,3>{}, make_layout(_32{}, _1{})));
   auto F8 = composition(make_layout(_32{}, _2{}), Int<0>{}, swizzled_composed);
 
-  // complement(ComposedLayout) -- always trivial Layout(1, 0) in CuTe.
+  // complement(ComposedLayout) -- only F2 is still pinned. F3..F8 used
+  // to agree with CuTe trivially (Layout(1, 0)) because both stacks
+  // used the same wrong cosize bound; we have since fixed cosize and
+  // the divergence is documented on the Python side.
   std::cout << "complement_F2=" << complement(swizzled_composed) << "\n";
-  std::cout << "complement_F3=" << complement(swizzled_composed_nonzero) << "\n";
-  std::cout << "complement_F4=" << complement(F4) << "\n";
-  std::cout << "complement_F5=" << complement(F5) << "\n";
-  std::cout << "complement_F7=" << complement(F7) << "\n";
-  std::cout << "complement_F8=" << complement(F8) << "\n";
 
   // coalesce(ComposedLayout) -- preserves evaluation; pin pointwise.
   print_offsets("coalesce_F2_offsets", coalesce(swizzled_composed));
@@ -383,34 +381,21 @@ PYTHON_CASES = {
     "complement_composed_layout": lambda: complement(
         ComposedLayout(Swizzle(2, 0, 2), Layout(8, 2))
     ),
-    # Survey-driven complement pins. CuTe returns Layout(1, 0) for every
-    # ComposedLayout form -- pinned here so we notice if our implementation
-    # diverges from CuTe in the future.
+    # complement_F2 is the only ComposedLayout complement we still pin
+    # against CuTe: F2's max+1 (=32) happens to match CuTe's wrong cosize
+    # for this form (=cosize(inner)=32), so complement(F2) agrees.
+    #
+    # We previously also pinned complement_F3..F8 against CuTe's
+    # Layout(1, 0), but those agreed only because both stacks were using
+    # the same wrong cosize internally (CuTe-style "delegate to inner",
+    # which we have since fixed -- see bug-reports/cute_cosize/ and the
+    # cosize() docstring in src/tensor_layouts/layouts.py). Our
+    # complement(F3..F8) now uses the corrected cosize bound and emits a
+    # non-degenerate layout; CuTe still emits Layout(1, 0). The
+    # divergence is intentional: ours is correct, CuTe's is the bug
+    # under discussion. Pinning equality here would re-enshrine the bug.
     "complement_F2": lambda: complement(
         ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), offset=0)
-    ),
-    "complement_F3": lambda: complement(
-        ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), offset=4)
-    ),
-    "complement_F4": lambda: complement(
-        ComposedLayout(Layout(16, 2), Layout(16, 1), offset=0)
-    ),
-    "complement_F5": lambda: complement(
-        ComposedLayout(Layout(16, 2), Layout(16, 1), offset=2)
-    ),
-    "complement_F7": lambda: complement(
-        ComposedLayout(
-            Layout(32, 2),
-            Layout(32, 1, swizzle=Swizzle(2, 1, 3)),
-            offset=0,
-        )
-    ),
-    "complement_F8": lambda: complement(
-        ComposedLayout(
-            Layout(32, 2),
-            ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), offset=0),
-            offset=0,
-        )
     ),
     "max_common_vector_swizzled_composed": lambda: max_common_vector(
         ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), offset=0),
