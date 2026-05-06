@@ -732,15 +732,19 @@ class ComposedLayout:
        ``outer.shape``.
 
        **What works:** ``__call__``, ``size``, ``shape``, ``cosize``,
-       ``rank``, ``depth``, ``flatten``, ``right_inverse``, ``left_inverse``,
+       ``rank``, ``depth``, ``flatten``, ``coalesce`` (no-op: rank-1 with
+       no structure to merge), ``right_inverse``, ``left_inverse``,
        ``compose`` (so the inverse-and-cancel round trip is closed).
 
-       **What raises NotImplementedError:** ``coalesce``, ``complement``,
+       **What raises NotImplementedError:** ``complement``,
        ``logical_product``, ``logical_divide``. These ops delegate to the
-       inner layout and ``Swizzle`` does not satisfy the Layout interface.
-       CuTe C++ refuses these forms too -- the corresponding templates
-       don't instantiate. Matching CuTe's posture keeps tensor-layouts
-       honest: structurally allowed, semantically narrow, errors loud.
+       inner layout and ``Swizzle`` does not satisfy the Layout interface;
+       defining them on the inverse-form would also require a sensible
+       answer for ``complement`` of a 1-D non-affine layout, which is
+       not just a coding question. CuTe C++ refuses these forms too --
+       the corresponding templates don't instantiate. Matching CuTe's
+       posture keeps tensor-layouts honest: structurally allowed,
+       semantically narrow, errors loud.
 
        **Beware of negative offsets.** The negation in the inverse rule
        means ``__call__`` can return values below zero on early indices
@@ -1628,7 +1632,14 @@ def coalesce(obj: LayoutExpr, profile: Any = None) -> LayoutExpr:
     forwarded = _forward_layout_domain(obj, lambda inner: coalesce(inner, profile))
     if forwarded is not _NO_FORWARD:
         return forwarded
-    _reject_swizzle_inner_composed(obj, "coalesce")
+    if _is_swizzle_inner_composed(obj):
+        # Inverse-form ComposedLayout(Layout, offset, Swizzle): the inner
+        # Swizzle has no multi-mode structure to merge, and the domain is
+        # rank-1 with no size-1 modes to filter. Coalescing is a no-op.
+        # CuTe C++ refuses this form because its template delegates to the
+        # inner; we can answer it directly because we know the answer is
+        # the input.
+        return obj
     if rank(obj) == 0:
         if is_int(obj.shape):
             return Layout(1, 0) if obj.shape == 1 else obj
