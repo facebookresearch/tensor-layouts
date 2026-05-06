@@ -197,7 +197,7 @@ def test_is_affine():
     assert is_affine(t1) is True
 
     # ComposedLayout is not affine
-    composed = ComposedLayout(Swizzle(2, 0, 2), Layout(16, 1), preoffset=4)
+    composed = ComposedLayout(Swizzle(2, 0, 2), Layout(16, 1), offset=4)
     t2 = Tensor(composed)
     assert is_affine(t2) is False
 
@@ -205,7 +205,7 @@ def test_is_affine():
 def test_stride_on_composed_raises():
     from tensor_layouts import ComposedLayout, Swizzle
 
-    composed = ComposedLayout(Swizzle(2, 0, 2), Layout(16, 1), preoffset=4)
+    composed = ComposedLayout(Swizzle(2, 0, 2), Layout(16, 1), offset=4)
     t = Tensor(composed)
     with pytest.raises(TypeError, match="ComposedLayout|affine"):
         _ = t.stride

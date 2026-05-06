@@ -67,7 +67,7 @@ void print_offsets(char const* name, Layout const& layout) {
 
 // Variant for layouts where size() is not defined (e.g., the
 // ComposedLayout<Layout, Offset, Swizzle> form produced by inverting a
-// swizzle-fronted ComposedLayout with nonzero preoffset). The static_cast
+// swizzle-fronted ComposedLayout with nonzero offset). The static_cast
 // to int prevents CuTe's compile-time integer types from being printed as
 // "_0" / "_-2"; we want plain "0" / "-2" so the output matches Python's
 // str(int).
@@ -237,13 +237,13 @@ int main() {
       composition(Swizzle<2,1,3>{}, Int<0>{}, make_layout(_32{}, _1{}));
   auto layout_on_composed =
       composition(make_layout(_32{}, _2{}), swizzled_composed);
-  print_offsets("compose_layout_zero_preoffset_composed_offsets", layout_on_composed);
+  print_offsets("compose_layout_zero_offset_composed_offsets", layout_on_composed);
 
   auto swizzled_composed_nonzero =
       composition(Swizzle<2,1,3>{}, Int<4>{}, make_layout(_32{}, _1{}));
   auto exact_layout_on_composed =
       composition(make_layout(_32{}, _2{}), Int<0>{}, swizzled_composed_nonzero);
-  print_offsets("compose_layout_nonzero_preoffset_composed_offsets", exact_layout_on_composed);
+  print_offsets("compose_layout_nonzero_offset_composed_offsets", exact_layout_on_composed);
 
   auto recursive_chain = composition(
       make_layout(_16{}, _3{}), Int<0>{},
@@ -387,33 +387,33 @@ PYTHON_CASES = {
     # ComposedLayout form -- pinned here so we notice if our implementation
     # diverges from CuTe in the future.
     "complement_F2": lambda: complement(
-        ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), preoffset=0)
+        ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), offset=0)
     ),
     "complement_F3": lambda: complement(
-        ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), preoffset=4)
+        ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), offset=4)
     ),
     "complement_F4": lambda: complement(
-        ComposedLayout(Layout(16, 2), Layout(16, 1), preoffset=0)
+        ComposedLayout(Layout(16, 2), Layout(16, 1), offset=0)
     ),
     "complement_F5": lambda: complement(
-        ComposedLayout(Layout(16, 2), Layout(16, 1), preoffset=2)
+        ComposedLayout(Layout(16, 2), Layout(16, 1), offset=2)
     ),
     "complement_F7": lambda: complement(
         ComposedLayout(
             Layout(32, 2),
             Layout(32, 1, swizzle=Swizzle(2, 1, 3)),
-            preoffset=0,
+            offset=0,
         )
     ),
     "complement_F8": lambda: complement(
         ComposedLayout(
             Layout(32, 2),
-            ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), preoffset=0),
-            preoffset=0,
+            ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), offset=0),
+            offset=0,
         )
     ),
     "max_common_vector_swizzled_composed": lambda: max_common_vector(
-        ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), preoffset=0),
+        ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), offset=0),
         Layout(32, 1),
     ),
     "slice_full_rank2": lambda: Layout((4, 8), (1, 4))(None),
@@ -445,19 +445,19 @@ PYTHON_POINTWISE_CASES = {
             ),
         )
     ),
-    "compose_layout_zero_preoffset_composed_offsets": lambda: ",".join(
-        str(compose(Layout(32, 2), ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), preoffset=0))(i))
+    "compose_layout_zero_offset_composed_offsets": lambda: ",".join(
+        str(compose(Layout(32, 2), ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), offset=0))(i))
         for i in range(32)
     ),
-    "compose_layout_nonzero_preoffset_composed_offsets": lambda: ",".join(
-        str(compose(Layout(32, 2), ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), preoffset=4))(i))
+    "compose_layout_nonzero_offset_composed_offsets": lambda: ",".join(
+        str(compose(Layout(32, 2), ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), offset=4))(i))
         for i in range(32)
     ),
     "compose_recursive_chain_offsets": lambda: ",".join(
         str(
             compose(
                 Layout(16, 3),
-                ComposedLayout(Layout(16, 2), compose(Swizzle(2, 0, 2), Layout(16, 1)), preoffset=0),
+                ComposedLayout(Layout(16, 2), compose(Swizzle(2, 0, 2), Layout(16, 1)), offset=0),
             )(i)
         )
         for i in range(16)
@@ -468,7 +468,7 @@ PYTHON_POINTWISE_CASES = {
                 ComposedLayout(
                     Layout(16, 2),
                     compose(Swizzle(2, 0, 2), Layout(16, 1)),
-                    preoffset=0,
+                    offset=0,
                 ),
                 4,
             )(i)
@@ -479,7 +479,7 @@ PYTHON_POINTWISE_CASES = {
                     ComposedLayout(
                         Layout(16, 2),
                         compose(Swizzle(2, 0, 2), Layout(16, 1)),
-                        preoffset=0,
+                        offset=0,
                     ),
                     4,
                 )
@@ -492,7 +492,7 @@ PYTHON_POINTWISE_CASES = {
                 ComposedLayout(
                     Layout(16, 2),
                     compose(Swizzle(2, 0, 2), Layout(16, 1)),
-                    preoffset=0,
+                    offset=0,
                 ),
                 Layout(2, 1),
             )(i)
@@ -503,7 +503,7 @@ PYTHON_POINTWISE_CASES = {
                     ComposedLayout(
                         Layout(16, 2),
                         compose(Swizzle(2, 0, 2), Layout(16, 1)),
-                        preoffset=0,
+                        offset=0,
                     ),
                     Layout(2, 1),
                 )
@@ -511,23 +511,23 @@ PYTHON_POINTWISE_CASES = {
         )
     ),
     "right_inverse_swizzled_composed_offsets": lambda: ",".join(
-        str(right_inverse(ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), preoffset=0))(i))
-        for i in range(size(right_inverse(ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), preoffset=0))))
+        str(right_inverse(ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), offset=0))(i))
+        for i in range(size(right_inverse(ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), offset=0))))
     ),
     "left_inverse_swizzled_composed_offsets": lambda: ",".join(
-        str(left_inverse(ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), preoffset=0))(i))
-        for i in range(size(left_inverse(ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), preoffset=0))))
+        str(left_inverse(ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), offset=0))(i))
+        for i in range(size(left_inverse(ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), offset=0))))
     ),
     "right_inverse_swizzled_composed_nonzero_offsets": lambda: ",".join(
-        str(right_inverse(ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), preoffset=4))(i))
-        for i in range(size(right_inverse(ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), preoffset=4))))
+        str(right_inverse(ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), offset=4))(i))
+        for i in range(size(right_inverse(ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), offset=4))))
     ),
     "left_inverse_swizzled_composed_nonzero_offsets": lambda: ",".join(
-        str(left_inverse(ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), preoffset=4))(i))
-        for i in range(size(left_inverse(ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), preoffset=4))))
+        str(left_inverse(ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), offset=4))(i))
+        for i in range(size(left_inverse(ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), offset=4))))
     ),
     "tensor_composed_values": lambda: ",".join(
-        str(Tensor(ComposedLayout(Swizzle(2, 1, 3), Layout(16, 1), preoffset=4), data=list(range(256)))[i])
+        str(Tensor(ComposedLayout(Swizzle(2, 1, 3), Layout(16, 1), offset=4), data=list(range(256)))[i])
         for i in range(16)
     ),
     "logical_product_swizzled_tile": lambda: ",".join(
@@ -561,24 +561,24 @@ PYTHON_POINTWISE_CASES = {
             str(coalesce(L)(i)) for i in range(size(coalesce(L)))
         )
         for tag, L in [
-            ("2", ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), preoffset=0)),
-            ("3", ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), preoffset=4)),
-            ("4", ComposedLayout(Layout(16, 2), Layout(16, 1), preoffset=0)),
-            ("5", ComposedLayout(Layout(16, 2), Layout(16, 1), preoffset=2)),
+            ("2", ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), offset=0)),
+            ("3", ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), offset=4)),
+            ("4", ComposedLayout(Layout(16, 2), Layout(16, 1), offset=0)),
+            ("5", ComposedLayout(Layout(16, 2), Layout(16, 1), offset=2)),
             (
                 "7",
                 ComposedLayout(
                     Layout(32, 2),
                     Layout(32, 1, swizzle=Swizzle(2, 1, 3)),
-                    preoffset=0,
+                    offset=0,
                 ),
             ),
             (
                 "8",
                 ComposedLayout(
                     Layout(32, 2),
-                    ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), preoffset=0),
-                    preoffset=0,
+                    ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), offset=0),
+                    offset=0,
                 ),
             ),
         ]
@@ -589,24 +589,24 @@ PYTHON_POINTWISE_CASES = {
             for i in range(size(compose(L, Layout(4, 1))))
         )
         for tag, L in [
-            ("2", ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), preoffset=0)),
-            ("3", ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), preoffset=4)),
-            ("4", ComposedLayout(Layout(16, 2), Layout(16, 1), preoffset=0)),
-            ("5", ComposedLayout(Layout(16, 2), Layout(16, 1), preoffset=2)),
+            ("2", ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), offset=0)),
+            ("3", ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), offset=4)),
+            ("4", ComposedLayout(Layout(16, 2), Layout(16, 1), offset=0)),
+            ("5", ComposedLayout(Layout(16, 2), Layout(16, 1), offset=2)),
             (
                 "7",
                 ComposedLayout(
                     Layout(32, 2),
                     Layout(32, 1, swizzle=Swizzle(2, 1, 3)),
-                    preoffset=0,
+                    offset=0,
                 ),
             ),
             (
                 "8",
                 ComposedLayout(
                     Layout(32, 2),
-                    ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), preoffset=0),
-                    preoffset=0,
+                    ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), offset=0),
+                    offset=0,
                 ),
             ),
         ]
@@ -615,10 +615,10 @@ PYTHON_POINTWISE_CASES = {
     # inverse only covers the contiguous prefix (size 1 in our impl, matching
     # CuTe's behavior). Pin with explicit n=1.
     "right_inverse_F4_offsets": lambda: str(
-        right_inverse(ComposedLayout(Layout(16, 2), Layout(16, 1), preoffset=0))(0)
+        right_inverse(ComposedLayout(Layout(16, 2), Layout(16, 1), offset=0))(0)
     ),
     "right_inverse_F5_offsets": lambda: str(
-        right_inverse(ComposedLayout(Layout(16, 2), Layout(16, 1), preoffset=2))(0)
+        right_inverse(ComposedLayout(Layout(16, 2), Layout(16, 1), offset=2))(0)
     ),
 }
 

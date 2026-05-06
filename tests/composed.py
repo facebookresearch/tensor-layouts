@@ -69,17 +69,17 @@ def _assert_pointwise_equal(a, b):
 def test_composed_layout_boilerplate():
     outer = Layout(32, 2)
     inner = Layout((2, 4), (1, 2))
-    layout = ComposedLayout(outer, inner, preoffset=3)
+    layout = ComposedLayout(outer, inner, offset=3)
 
     assert layout.shape == inner.shape
     assert size(layout) == size(inner)
     assert rank(layout) == rank(inner)
     assert depth(layout) == depth(inner)
     assert cosize(layout) == cosize(inner)
-    assert repr(layout) == f"ComposedLayout({outer!r}, {inner!r}, preoffset=3)"
+    assert repr(layout) == f"ComposedLayout({outer!r}, {inner!r}, offset=3)"
     assert str(layout) == f"({outer}) o {{3}} o ({inner})"
-    assert layout == ComposedLayout(outer, inner, preoffset=3)
-    assert hash(layout) == hash(ComposedLayout(outer, inner, preoffset=3))
+    assert layout == ComposedLayout(outer, inner, offset=3)
+    assert hash(layout) == hash(ComposedLayout(outer, inner, offset=3))
     assert layout((1, 2)) == outer(3 + inner((1, 2)))
 
     # Hash must also work when outer is a Swizzle (not just Layout).
@@ -87,7 +87,7 @@ def test_composed_layout_boilerplate():
     assert hash(swz_composed) == hash(ComposedLayout(Swizzle(3, 0, 3), Layout(16, 1)))
 
     with pytest.raises(dataclasses.FrozenInstanceError):
-        layout.preoffset = 4
+        layout.offset = 4
 
 
 def test_mode_on_composed_layout_uses_inner_domain():
@@ -171,9 +171,9 @@ def test_compose_layout_with_swizzle_rhs_nonpower_stride_stays_exact():
     _assert_pointwise_equal(result, expected)
 
 
-def test_compose_layout_on_zero_preoffset_composed_layout_can_collapse():
+def test_compose_layout_on_zero_offset_composed_layout_can_collapse():
     outer = Layout(32, 2)
-    inner = ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), preoffset=0)
+    inner = ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), offset=0)
     result = compose(outer, inner)
 
     assert isinstance(result, Layout)
@@ -181,9 +181,9 @@ def test_compose_layout_on_zero_preoffset_composed_layout_can_collapse():
     _assert_pointwise_equal(result, lambda i: outer(inner(i)))
 
 
-def test_compose_layout_on_nonzero_preoffset_composed_layout_stays_exact():
+def test_compose_layout_on_nonzero_offset_composed_layout_stays_exact():
     outer = Layout(32, 2)
-    inner = ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), preoffset=4)
+    inner = ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), offset=4)
     result = compose(outer, inner)
 
     assert isinstance(result, ComposedLayout)
@@ -203,11 +203,11 @@ def test_compose_swizzled_layout_outer_preserves_exactness():
 def test_logical_divide_forwards_through_composed_layout():
     composed = compose(Layout(16, 2), compose(Swizzle(2, 0, 2), Layout(16, 1)))
     result = logical_divide(composed, 4)
-    expected = ComposedLayout(composed.outer, logical_divide(composed.inner, 4), preoffset=0)
+    expected = ComposedLayout(composed.outer, logical_divide(composed.inner, 4), offset=0)
 
     assert isinstance(result, ComposedLayout)
     assert result.outer == composed.outer
-    assert result.preoffset == 0
+    assert result.offset == 0
     _assert_pointwise_equal(result, expected)
 
 
@@ -235,7 +235,7 @@ def test_slice_and_offset_on_composed_layout_keeps_offset_internal():
 
 
 def test_tensor_accepts_composed_layout_with_storage():
-    composed = ComposedLayout(Swizzle(2, 0, 2), Layout(16, 1), preoffset=4)
+    composed = ComposedLayout(Swizzle(2, 0, 2), Layout(16, 1), offset=4)
     tensor = Tensor(composed, offset=100, data=list(range(256)))
 
     for i in range(size(composed)):
@@ -260,13 +260,13 @@ def test_tensor_slice_on_composed_layout_keeps_external_offset():
 
 
 def test_tensor_stride_rejects_composed_layout():
-    tensor = Tensor(ComposedLayout(Swizzle(2, 0, 2), Layout(16, 1), preoffset=4))
+    tensor = Tensor(ComposedLayout(Swizzle(2, 0, 2), Layout(16, 1), offset=4))
     with pytest.raises(TypeError, match="ComposedLayout|affine"):
         _ = tensor.stride
 
 
-def test_right_inverse_of_zero_preoffset_swizzled_composed_layout():
-    composed = ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), preoffset=0)
+def test_right_inverse_of_zero_offset_swizzled_composed_layout():
+    composed = ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), offset=0)
     inv = right_inverse(composed)
 
     assert isinstance(inv, Layout)
@@ -274,8 +274,8 @@ def test_right_inverse_of_zero_preoffset_swizzled_composed_layout():
         assert composed(inv(i)) == i
 
 
-def test_left_inverse_of_zero_preoffset_swizzled_composed_layout():
-    composed = ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), preoffset=0)
+def test_left_inverse_of_zero_offset_swizzled_composed_layout():
+    composed = ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), offset=0)
     inv = left_inverse(composed)
 
     assert isinstance(inv, Layout)
@@ -283,8 +283,8 @@ def test_left_inverse_of_zero_preoffset_swizzled_composed_layout():
         assert inv(composed(i)) == i
 
 
-def test_right_inverse_of_nonzero_preoffset_swizzled_composed_layout():
-    composed = ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), preoffset=4)
+def test_right_inverse_of_nonzero_offset_swizzled_composed_layout():
+    composed = ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), offset=4)
     inv = right_inverse(composed)
 
     assert isinstance(inv, ComposedLayout)
@@ -293,8 +293,8 @@ def test_right_inverse_of_nonzero_preoffset_swizzled_composed_layout():
         assert composed(inv(i)) == i
 
 
-def test_left_inverse_of_nonzero_preoffset_swizzled_composed_layout():
-    composed = ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), preoffset=4)
+def test_left_inverse_of_nonzero_offset_swizzled_composed_layout():
+    composed = ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), offset=4)
     inv = left_inverse(composed)
 
     assert isinstance(inv, ComposedLayout)
@@ -304,28 +304,28 @@ def test_left_inverse_of_nonzero_preoffset_swizzled_composed_layout():
 
 
 def test_logical_product_rejects_swizzle_inner_composed_layout():
-    composed = ComposedLayout(Layout(32, 1), Swizzle(2, 1, 3), preoffset=-4)
+    composed = ComposedLayout(Layout(32, 1), Swizzle(2, 1, 3), offset=-4)
     with pytest.raises(NotImplementedError, match="Swizzle in the inner slot"):
         logical_product(composed, Layout(2, 1))
 
 
 def test_complement_rejects_swizzle_inner_composed_layout():
     """complement(F6) raises rather than silently returning a degenerate layout."""
-    composed = ComposedLayout(Layout(32, 1), Swizzle(2, 1, 3), preoffset=-4)
+    composed = ComposedLayout(Layout(32, 1), Swizzle(2, 1, 3), offset=-4)
     with pytest.raises(NotImplementedError, match="complement"):
         complement(composed)
 
 
 def test_coalesce_rejects_swizzle_inner_composed_layout():
     """coalesce(F6) raises rather than silently returning the input unchanged."""
-    composed = ComposedLayout(Layout(32, 1), Swizzle(2, 1, 3), preoffset=-4)
+    composed = ComposedLayout(Layout(32, 1), Swizzle(2, 1, 3), offset=-4)
     with pytest.raises(NotImplementedError, match="coalesce"):
         coalesce(composed)
 
 
 def test_logical_divide_rejects_swizzle_inner_composed_layout():
     """logical_divide(F6, ...) raises with its own op name (not 'coalesce')."""
-    composed = ComposedLayout(Layout(32, 1), Swizzle(2, 1, 3), preoffset=-4)
+    composed = ComposedLayout(Layout(32, 1), Swizzle(2, 1, 3), offset=-4)
     with pytest.raises(NotImplementedError, match="logical_divide"):
         logical_divide(composed, Layout(4, 1))
 
@@ -336,7 +336,7 @@ def test_swizzle_inner_composed_layout_still_supports_basic_queries():
     Anchors the support boundary: if any of these starts raising we've
     over-tightened the guards and broken the algebra.
     """
-    composed = ComposedLayout(Layout(32, 1), Swizzle(2, 1, 3), preoffset=-4)
+    composed = ComposedLayout(Layout(32, 1), Swizzle(2, 1, 3), offset=-4)
 
     # Domain queries
     assert size(composed) == 32
@@ -350,7 +350,7 @@ def test_swizzle_inner_composed_layout_still_supports_basic_queries():
 
     # Inverse round-trip: right_inverse(F3) should give an F6, and
     # composing F3 with that F6 should be identity on F3's domain.
-    f3 = ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), preoffset=4)
+    f3 = ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), offset=4)
     inv = right_inverse(f3)
     assert isinstance(inv, ComposedLayout)
     assert isinstance(inv.inner, Swizzle)
@@ -361,7 +361,7 @@ def test_swizzle_inner_composed_layout_still_supports_basic_queries():
 def test_tensor_rejects_layout_with_negative_addresses():
     """Attaching storage to an inverse-form layout must error at the boundary,
     naming the inverse-form hazard so the user knows what to do."""
-    inv = ComposedLayout(Layout(32, 1), Swizzle(2, 1, 3), preoffset=-4)
+    inv = ComposedLayout(Layout(32, 1), Swizzle(2, 1, 3), offset=-4)
     with pytest.raises(ValueError, match="negative storage indices"):
         Tensor(inv, offset=0, data=list(range(32)))
 
@@ -370,7 +370,7 @@ def test_tensor_accepts_inverse_form_when_offset_shifts_above_zero():
     """If the user shifts the external offset enough, the addresses become
     non-negative and the Tensor is valid. Witnesses that the guard is about
     actual addresses, not a structural rejection of the form."""
-    inv = ComposedLayout(Layout(32, 1), Swizzle(2, 1, 3), preoffset=-4)
+    inv = ComposedLayout(Layout(32, 1), Swizzle(2, 1, 3), offset=-4)
     # F6's addressed range is [-4, 27]; shifting offset by 4 puts it at [0, 31].
     t = Tensor(inv, offset=4, data=list(range(32)))
     assert t(0) == 0
@@ -380,14 +380,14 @@ def test_tensor_accepts_inverse_form_when_offset_shifts_above_zero():
 def test_tensor_data_setter_rejects_inverse_form_with_negative_addresses():
     """The .data setter must apply the same negative-address check as __init__,
     or you could bypass it by constructing algebraic-then-assigning storage."""
-    inv = ComposedLayout(Layout(32, 1), Swizzle(2, 1, 3), preoffset=-4)
+    inv = ComposedLayout(Layout(32, 1), Swizzle(2, 1, 3), offset=-4)
     t = Tensor(inv, offset=0)  # algebraic -- no data, no validation
     with pytest.raises(ValueError, match="negative storage indices"):
         t.data = list(range(32))
 
 
 def test_max_common_vector_for_swizzled_composed_layout_is_capped_by_swizzle_base():
-    composed = ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), preoffset=0)
+    composed = ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), offset=0)
     plain = Layout(32, 1)
 
     assert max_common_vector(composed, plain) == 2
@@ -577,15 +577,15 @@ def test_generative_compose_double_swizzle():
                 )
 
 
-def test_generative_compose_with_preoffsets():
-    """ComposedLayout with various preoffsets evaluates correctly."""
+def test_generative_compose_with_offsets():
+    """ComposedLayout with various offsets evaluates correctly."""
     for swz in _SMALL_SWIZZLES[:2]:
         for inner in _SMALL_AFFINE_LAYOUTS[:3]:
             for po in _SMALL_PREOFFSETS:
-                composed = ComposedLayout(swz, inner, preoffset=po)
+                composed = ComposedLayout(swz, inner, offset=po)
                 for i in range(size(composed)):
                     assert composed(i) == swz(po + inner(i)), (
-                        f"Mismatch at i={i} for ComposedLayout({swz}, {inner}, preoffset={po})"
+                        f"Mismatch at i={i} for ComposedLayout({swz}, {inner}, offset={po})"
                     )
 
 
@@ -779,7 +779,7 @@ def test_footprint_on_composed_layout():
 
 
 def test_bank_conflicts_on_composed_layout():
-    composed = ComposedLayout(Swizzle(2, 0, 2), Layout((4, 2), (1, 4)), preoffset=0)
+    composed = ComposedLayout(Swizzle(2, 0, 2), Layout((4, 2), (1, 4)), offset=0)
     result = bank_conflicts(
         composed,
         element_bytes=4,
@@ -800,7 +800,7 @@ def test_bank_conflicts_on_composed_layout():
 
 
 def test_coalescing_efficiency_on_composed_layout():
-    composed = ComposedLayout(Swizzle(2, 0, 2), Layout((4, 2), (1, 4)), preoffset=4)
+    composed = ComposedLayout(Swizzle(2, 0, 2), Layout((4, 2), (1, 4)), offset=4)
     result = coalescing_efficiency(
         composed,
         element_bytes=4,
@@ -815,7 +815,7 @@ def test_coalescing_efficiency_on_composed_layout():
 
 
 def test_segment_analysis_on_composed_layout():
-    composed = ComposedLayout(Swizzle(2, 0, 2), Layout((4, 2), (1, 4)), preoffset=4)
+    composed = ComposedLayout(Swizzle(2, 0, 2), Layout((4, 2), (1, 4)), offset=4)
     result = segment_analysis(
         composed,
         element_bytes=4,
@@ -836,7 +836,7 @@ def test_segment_analysis_on_composed_layout():
 
 
 def test_per_group_bank_conflicts_on_composed_layout():
-    composed = ComposedLayout(Swizzle(2, 0, 2), Layout((4, 2), (1, 4)), preoffset=4)
+    composed = ComposedLayout(Swizzle(2, 0, 2), Layout((4, 2), (1, 4)), offset=4)
     result = per_group_bank_conflicts(
         composed,
         element_bytes=4,
@@ -871,7 +871,7 @@ def test_per_group_bank_conflicts_on_composed_layout():
 
 
 def test_per_group_coalescing_on_composed_layout():
-    composed = ComposedLayout(Swizzle(2, 0, 2), Layout((4, 2), (1, 4)), preoffset=4)
+    composed = ComposedLayout(Swizzle(2, 0, 2), Layout((4, 2), (1, 4)), offset=4)
     result = per_group_coalescing(
         composed,
         element_bytes=4,
@@ -932,19 +932,19 @@ def test_functionally_equal_on_composed_layout():
 
 def test_cycles_on_composed_layout():
     # cycles requires a dense injective permutation; use an identity-sized composed layout
-    composed = ComposedLayout(Swizzle(2, 0, 2), Layout(16, 1), preoffset=0)
+    composed = ComposedLayout(Swizzle(2, 0, 2), Layout(16, 1), offset=0)
     result = cycles(composed)
     assert isinstance(result, list)
 
 
 def test_fixed_points_on_composed_layout():
-    composed = ComposedLayout(Swizzle(2, 0, 2), Layout(16, 1), preoffset=0)
+    composed = ComposedLayout(Swizzle(2, 0, 2), Layout(16, 1), offset=0)
     result = fixed_points(composed)
     assert isinstance(result, (list, set))
 
 
 def test_order_on_composed_layout():
-    composed = ComposedLayout(Swizzle(2, 0, 2), Layout(16, 1), preoffset=0)
+    composed = ComposedLayout(Swizzle(2, 0, 2), Layout(16, 1), offset=0)
     result = order(composed)
     assert isinstance(result, int)
     assert result >= 1

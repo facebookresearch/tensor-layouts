@@ -703,11 +703,11 @@ class ComposedLayout:
     """An exact layout-expression node for compositions that are not affine.
 
     Semantics:
-        ComposedLayout(outer, inner, preoffset)(coord) ==
-            outer(preoffset + inner(coord))
+        ComposedLayout(outer, inner, offset)(coord) ==
+            outer(offset + inner(coord))
 
     The inner layout defines the logical domain (shape, size, rank, depth).
-    The preoffset remains inside the composition, before the outer nonlinear
+    The offset remains inside the composition, before the outer nonlinear
     map, which is why ComposedLayout intentionally does not expose .stride.
 
     Supported inner shapes
@@ -724,7 +724,7 @@ class ComposedLayout:
        and from nesting two compositions.
 
     2. **Swizzle inner** -- the *inverse-form* shape, structurally
-       ``ComposedLayout(outer=Layout, inner=Swizzle, preoffset)``. This form
+       ``ComposedLayout(outer=Layout, inner=Swizzle, offset)``. This form
        arises only as the result of ``right_inverse`` / ``left_inverse``
        applied to an offset-bearing swizzle-fronted ``ComposedLayout`` (see
        CuTe ``swizzle_layout.hpp:348-358``); the inverse swaps the slots and
@@ -745,7 +745,7 @@ class ComposedLayout:
        **Beware of negative offsets.** The negation in the inverse rule
        means ``__call__`` can return values below zero on early indices
        (``F6(0) = -4`` for ``ComposedLayout(Layout(32,1), Swizzle(2,1,3),
-       preoffset=-4)``). The inverse-form is intended for composition with
+       offset=-4)``). The inverse-form is intended for composition with
        its forward layout, where the negative term cancels; using it as
        direct buffer addressing is wrong. ``Tensor`` rejects storage that
        would receive negative addresses; see ``tensor.py``
@@ -754,7 +754,7 @@ class ComposedLayout:
 
     outer: Any
     inner: "LayoutExpr"
-    preoffset: int = 0
+    offset: int = 0
 
     def __post_init__(self):
         if not callable(self.outer):
@@ -766,9 +766,9 @@ class ComposedLayout:
                 f"ComposedLayout inner must be Layout, ComposedLayout, or Swizzle, "
                 f"got {type(self.inner).__name__}"
             )
-        if not is_int(self.preoffset):
+        if not is_int(self.offset):
             raise TypeError(
-                f"ComposedLayout preoffset must be int, got {type(self.preoffset).__name__}"
+                f"ComposedLayout offset must be int, got {type(self.offset).__name__}"
             )
 
     @property
@@ -778,11 +778,11 @@ class ComposedLayout:
         return self.inner.shape
 
     def __repr__(self) -> str:
-        return f"ComposedLayout({self.outer!r}, {self.inner!r}, preoffset={self.preoffset!r})"
+        return f"ComposedLayout({self.outer!r}, {self.inner!r}, offset={self.offset!r})"
 
     def __str__(self) -> str:
-        if self.preoffset:
-            return f"({self.outer}) o {{{self.preoffset}}} o ({self.inner})"
+        if self.offset:
+            return f"({self.outer}) o {{{self.offset}}} o ({self.inner})"
         return f"({self.outer}) o ({self.inner})"
 
     def __call__(self, *args):
@@ -794,7 +794,7 @@ class ComposedLayout:
             return self
         if has_none(coords):
             return slice_and_offset(coords, self)[0]
-        return self.outer(self.preoffset + self.inner(coords))
+        return self.outer(self.offset + self.inner(coords))
 
     def __len__(self):
         return size(self)
@@ -815,14 +815,14 @@ def _affine_inner(layout: Layout) -> Layout:
     return Layout(layout.shape, layout.stride)
 
 
-def _split_zero_preoffset_swizzle(layout: LayoutExpr):
-    """Return (swizzle, inner_layout) for canonical zero-preoffset swizzle wrappers."""
+def _split_zero_offset_swizzle(layout: LayoutExpr):
+    """Return (swizzle, inner_layout) for canonical zero-offset swizzle wrappers."""
     if isinstance(layout, Layout) and layout.swizzle is not None:
         return layout.swizzle, _affine_inner(layout)
     if (
         isinstance(layout, ComposedLayout)
         and isinstance(layout.outer, Swizzle)
-        and layout.preoffset == 0
+        and layout.offset == 0
     ):
         return layout.outer, layout.inner
     return None
@@ -837,7 +837,7 @@ def _forward_layout_domain(layout, transform):
     if isinstance(layout, ComposedLayout):
         if isinstance(layout.inner, Swizzle):
             return _NO_FORWARD
-        return ComposedLayout(layout.outer, transform(layout.inner), preoffset=layout.preoffset)
+        return ComposedLayout(layout.outer, transform(layout.inner), offset=layout.offset)
     if isinstance(layout, Layout) and layout.swizzle is not None:
         inner_result = transform(_affine_inner(layout))
         if isinstance(inner_result, Layout) and inner_result.swizzle is None:
@@ -849,7 +849,7 @@ def _forward_layout_domain(layout, transform):
 def _is_swizzle_inner_composed(obj: Any) -> bool:
     """True iff obj is a ComposedLayout whose inner slot holds a Swizzle.
 
-    Structurally: ``ComposedLayout(outer=Layout, inner=Swizzle, preoffset)``.
+    Structurally: ``ComposedLayout(outer=Layout, inner=Swizzle, offset)``.
     Semantically: this form arises only as the result of ``right_inverse`` /
     ``left_inverse`` applied to an offset-bearing swizzle-fronted
     ``ComposedLayout`` (e.g. ``Sw o {+k} o L``); the inverse swaps the outer
@@ -1014,7 +1014,7 @@ def mode(obj: Any, idx):
             if idx != 0:
                 raise IndexError(f"Index {idx} out of range for swizzle-inner ComposedLayout")
             return obj
-        return ComposedLayout(obj.outer, mode(obj.inner, idx), preoffset=obj.preoffset)
+        return ComposedLayout(obj.outer, mode(obj.inner, idx), offset=obj.offset)
     if isinstance(obj, Layout):
         if is_int(obj.shape):
             if idx != 0:
@@ -1252,7 +1252,7 @@ def flatten(obj: Any) -> Any:
     elif isinstance(obj, ComposedLayout):
         if isinstance(obj.inner, Swizzle):
             return obj
-        return ComposedLayout(obj.outer, flatten(obj.inner), preoffset=obj.preoffset)
+        return ComposedLayout(obj.outer, flatten(obj.inner), offset=obj.offset)
     elif isinstance(obj, Layout):
         if obj.swizzle is not None:
             flat_inner = flatten(_affine_inner(obj))
@@ -1880,12 +1880,12 @@ def right_inverse(layout: Any) -> Any:
     if isinstance(layout, Swizzle):
         return layout
     if isinstance(layout, ComposedLayout):
-        if isinstance(layout.outer, Swizzle) and layout.preoffset == 0:
+        if isinstance(layout.outer, Swizzle) and layout.offset == 0:
             return compose(right_inverse(layout.inner), layout.outer)
         return ComposedLayout(
             right_inverse(layout.inner),
             right_inverse(layout.outer),
-            preoffset=-layout.preoffset,
+            offset=-layout.offset,
         )
     if isinstance(layout, Layout) and layout.swizzle is not None:
         return compose(right_inverse(_affine_inner(layout)), layout.swizzle)
@@ -1952,12 +1952,12 @@ def left_inverse(layout: Any) -> Any:
     if isinstance(layout, Swizzle):
         return layout
     if isinstance(layout, ComposedLayout):
-        if isinstance(layout.outer, Swizzle) and layout.preoffset == 0:
+        if isinstance(layout.outer, Swizzle) and layout.offset == 0:
             return compose(left_inverse(layout.inner), layout.outer)
         return ComposedLayout(
             left_inverse(layout.inner),
             left_inverse(layout.outer),
-            preoffset=-layout.preoffset,
+            offset=-layout.offset,
         )
     if isinstance(layout, Layout) and layout.swizzle is not None:
         return compose(left_inverse(_affine_inner(layout)), layout.swizzle)
@@ -2080,8 +2080,8 @@ def max_common_layout(layout_a: LayoutExpr, layout_b: LayoutExpr) -> LayoutExpr:
         max_common_layout(Layout(8, 1), Layout((4,2), (1,4))) -> 4:1
     """
     if (
-        _split_zero_preoffset_swizzle(layout_a) is not None
-        or _split_zero_preoffset_swizzle(layout_b) is not None
+        _split_zero_offset_swizzle(layout_a) is not None
+        or _split_zero_offset_swizzle(layout_b) is not None
     ):
         vec = max_common_vector(layout_a, layout_b)
         inv_b = right_inverse(layout_b)
@@ -2142,8 +2142,8 @@ def max_common_vector(layout_a: LayoutExpr, layout_b: LayoutExpr) -> int:
         max_common_vector(Layout((4,2), (2,1)), Layout(8,1)) -> 1
         max_common_vector(Layout(8, 1), Layout((4,2), (1,4))) -> 4
     """
-    split_a = _split_zero_preoffset_swizzle(layout_a)
-    split_b = _split_zero_preoffset_swizzle(layout_b)
+    split_a = _split_zero_offset_swizzle(layout_a)
+    split_b = _split_zero_offset_swizzle(layout_b)
     if split_a is not None:
         swizzle_a, inner_a = split_a
         if split_b is not None:
@@ -2161,7 +2161,7 @@ def max_common_vector(layout_a: LayoutExpr, layout_b: LayoutExpr) -> int:
 
 def _swizzle_bit_decomposition(swizzle: "Swizzle", yz_pre: int) -> "Layout":
     """Affine layout that encodes the swizzle's per-bit effect on its YZ window
-    given a fixed YZ-portion of the preoffset.
+    given a fixed YZ-portion of the offset.
 
     Builds the equivalent of CuTe C++'s "swizzle_layout" (cute/swizzle_layout.hpp
     lines 289-290): one size-2 mode per swizzlable bit position, with a stride
@@ -2203,7 +2203,7 @@ def _swizzle_bit_decomposition(swizzle: "Swizzle", yz_pre: int) -> "Layout":
 
 
 def _try_decay_swizzle_composed(composed: "ComposedLayout"):
-    """If a ComposedLayout(Swizzle, affine_layout, preoffset) is reducible on
+    """If a ComposedLayout(Swizzle, affine_layout, offset) is reducible on
     its inner's image, decay it to a plain (Layout, offset) pair.
 
     Mirrors CuTe C++'s slice_and_offset decay path in cute/swizzle_layout.hpp
@@ -2225,8 +2225,8 @@ def _try_decay_swizzle_composed(composed: "ComposedLayout"):
         return None  # only collapse when the inner is plain affine
 
     yz_mask = swizzle.yyy_msk | swizzle.zzz_msk
-    yz_pre = composed.preoffset & yz_mask
-    anti_yz_pre = composed.preoffset & ~yz_mask
+    yz_pre = composed.offset & yz_mask
+    anti_yz_pre = composed.offset & ~yz_mask
 
     # Reducibility: OR the YZ-projection of the inner's image. If the swizzle
     # would flip any of those bits, both Y and Z are hit -> can't decay.
@@ -2314,7 +2314,7 @@ def slice_and_offset(crd, layout: LayoutExpr):
     # tensor's base offset INSIDE the embedded swizzle (see
     # tensor.py::_tensor_address) so a downstream Tensor that wraps this
     # sliced layout still needs the swizzle to participate in the combined
-    # address. ComposedLayout's preoffset is internal and self-contained,
+    # address. ComposedLayout's offset is internal and self-contained,
     # which is why decay is safe in that case (handled above).
     return (sublayout, offset)
 
@@ -2340,7 +2340,7 @@ def _slice_for_composition(crd, layout: LayoutExpr):
                 )
             return (layout, 0)
         inner_slice, delta = _slice_for_composition(crd, layout.inner)
-        return (ComposedLayout(layout.outer, inner_slice, preoffset=layout.preoffset + delta), 0)
+        return (ComposedLayout(layout.outer, inner_slice, offset=layout.offset + delta), 0)
 
     sliced_shape = slice_modes(crd, layout.shape)
     sliced_stride = slice_modes(crd, layout.stride)
@@ -2358,7 +2358,7 @@ def _slice_for_composition(crd, layout: LayoutExpr):
         return (sublayout, offset)
 
     exact = ComposedLayout(
-        layout.swizzle, Layout(sublayout.shape, sublayout.stride), preoffset=offset
+        layout.swizzle, Layout(sublayout.shape, sublayout.stride), offset=offset
     )
     return (exact, 0)
 
@@ -3083,15 +3083,15 @@ def _normalize_compose_tiler_element(elem):
 
 
 def _compose_into_composed_lhs(layout_a: "ComposedLayout", layout_b: Any) -> "ComposedLayout":
-    """compose(ComposedLayout(outer, inner, preoffset), B).
+    """compose(ComposedLayout(outer, inner, offset), B).
 
-    The outer/preoffset are external to the data domain, so composition
+    The outer/offset are external to the data domain, so composition
     pushes through to the inner: outer ∘ (inner ∘ B).
     """
     return ComposedLayout(
         layout_a.outer,
         compose(layout_a.inner, layout_b),
-        preoffset=layout_a.preoffset,
+        offset=layout_a.offset,
     )
 
 
@@ -3169,12 +3169,12 @@ def _compose_layout_with_layout(layout_a: "Layout", layout_b: "Layout") -> Any:
 
 
 def _compose_with_composed_rhs(layout_a: "Layout", layout_b: "ComposedLayout") -> Any:
-    """compose(Layout, ComposedLayout(outer, inner, preoffset)).
+    """compose(Layout, ComposedLayout(outer, inner, offset)).
 
-    With zero preoffset and an outer that's either a Swizzle or another
+    With zero offset and an outer that's either a Swizzle or another
     affine layout, the composition associates: A ∘ (outer ∘ inner) =
     (A ∘ outer) ∘ inner.  Otherwise we keep the outer ComposedLayout
-    intact because preoffset is base-pointer state that mustn't migrate
+    intact because offset is base-pointer state that mustn't migrate
     into the data layout.
     """
     if not isinstance(layout_a, Layout):
@@ -3182,7 +3182,7 @@ def _compose_with_composed_rhs(layout_a: "Layout", layout_b: "ComposedLayout") -
             "When composing with ComposedLayout, first argument must be Layout, "
             f"Swizzle, or ComposedLayout, got {type(layout_a).__name__}"
         )
-    if layout_b.preoffset == 0 and (
+    if layout_b.offset == 0 and (
         isinstance(layout_b.outer, Swizzle) or is_layout(layout_b.outer)
     ):
         return compose(compose(layout_a, layout_b.outer), layout_b.inner)
@@ -3824,7 +3824,7 @@ def logical_product(layout_a: LayoutExpr, layout_b: Layout) -> LayoutExpr:
         return Layout(shapes, strides)
 
     # Swizzled-tile fast path: when layout_b is ComposedLayout(Swizzle, inner)
-    # with zero preoffset, do the affine product on the inner first and then
+    # with zero offset, do the affine product on the inner first and then
     # transfer the swizzle to the new strides. The generic fallback below
     # would silently drop the swizzle (composing it through the complement
     # produces a Layout with embedded swizzle, but the final tuple-Layout
@@ -3833,7 +3833,7 @@ def logical_product(layout_a: LayoutExpr, layout_b: Layout) -> LayoutExpr:
     if (
         isinstance(layout_b, ComposedLayout)
         and isinstance(layout_b.outer, Swizzle)
-        and layout_b.preoffset == 0
+        and layout_b.offset == 0
         and isinstance(layout_b.inner, Layout)
         and layout_b.inner.swizzle is None
     ):

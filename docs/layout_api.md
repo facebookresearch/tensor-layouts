@@ -133,16 +133,16 @@ exact = compose(Layout(16, 2), swizzled)     # now a ComposedLayout
 Semantics:
 
 ```python
-ComposedLayout(outer, inner, preoffset)(coord) == outer(preoffset + inner(coord))
+ComposedLayout(outer, inner, offset)(coord) == outer(offset + inner(coord))
 ```
 
 This mirrors CuTe C++'s `LayoutA o Offset o LayoutB` model:
 
 - `inner` defines the logical domain
-- `preoffset` stays **inside** the composition, before the outer map
+- `offset` stays **inside** the composition, before the outer map
 - `outer` can be affine or nonlinear (for example a `Swizzle`)
 
-The practical reason for `preoffset` is slicing. Once a fixed coordinate has
+The practical reason for `offset` is slicing. Once a fixed coordinate has
 been pushed under a nonlinear outer map, that fixed contribution can no longer
 be treated as an ordinary pointer offset.
 
@@ -181,10 +181,10 @@ base = Layout((8, 8), (8, 1))
 inner = compose(Swizzle(3, 0, 3), base)
 
 compose(Swizzle(1, 0, 3), inner)
-# ComposedLayout(Swizzle(1, 0, 3), inner, preoffset=0)
+# ComposedLayout(Swizzle(1, 0, 3), inner, offset=0)
 
 compose(Layout((4, 4), (4, 1)), inner)
-# ComposedLayout(Layout((4, 4), (4, 1)), inner, preoffset=0)
+# ComposedLayout(Layout((4, 4), (4, 1)), inner, offset=0)
 ```
 
 That is the key semantic change: the library now prefers **exactness** over an
@@ -208,7 +208,7 @@ type(exact).__name__
 
 ![Exact composed layout](images/composed_exact.png)
 
-### Example: why slicing needs `preoffset`
+### Example: why slicing needs `offset`
 
 ```python
 exact = compose(
@@ -223,7 +223,7 @@ print(offset)
 
 The slice returns:
 
-- a new `ComposedLayout` whose internal `preoffset` captures the fixed column
+- a new `ComposedLayout` whose internal `offset` captures the fixed column
 - external offset `0`
 
 That differs from plain affine slicing, where `slice_and_offset` can usually
@@ -241,13 +241,13 @@ enumerate the image directly.
 ### Inverse-form: `ComposedLayout(Layout, offset, Swizzle)`
 
 `right_inverse` and `left_inverse` of a swizzle-fronted ComposedLayout with a
-nonzero `preoffset` produce a structurally distinct shape: the Swizzle ends up
+nonzero `offset` produce a structurally distinct shape: the Swizzle ends up
 in the **inner** slot, and the offset is **negated**.
 
 ```python
-F3 = ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), preoffset=4)
+F3 = ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), offset=4)
 right_inverse(F3)
-# ComposedLayout(Layout(32, 1), Swizzle(2, 1, 3), preoffset=-4)
+# ComposedLayout(Layout(32, 1), Swizzle(2, 1, 3), offset=-4)
 ```
 
 This shape exists so the algebra is closed (inverse and forward compose back

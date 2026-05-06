@@ -380,7 +380,7 @@ def test_draw_layout_composed_values_match_layout():
 @requires_viz
 def test_draw_layout_composed_tensor_uses_tensor_addresses():
     tensor = Tensor(
-        ComposedLayout(Swizzle(2, 0, 2), Layout((4, 4), (4, 1)), preoffset=4),
+        ComposedLayout(Swizzle(2, 0, 2), Layout((4, 4), (4, 1)), offset=4),
         offset=100,
     )
     fig = _build_layout_figure(tensor)
@@ -494,7 +494,7 @@ def test_draw_slice_smoke():
 
 
 @requires_viz
-def test_draw_slice_composed_uses_internal_preoffset_in_title_and_values():
+def test_draw_slice_composed_uses_internal_offset_in_title_and_values():
     composed = compose(
         Layout(16, 2),
         compose(Swizzle(2, 0, 2), Layout((4, 4), (4, 1))),

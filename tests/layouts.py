@@ -2243,7 +2243,7 @@ def test_max_common_layout_partial():
 def test_max_common_swizzled_vs_plain_is_representation_invariant():
     swizzle = Swizzle(2, 1, 3)
     embedded = compose(swizzle, Layout(32, 1))
-    composed = ComposedLayout(swizzle, Layout(32, 1), preoffset=0)
+    composed = ComposedLayout(swizzle, Layout(32, 1), offset=0)
     plain = Layout(32, 1)
 
     assert max_common_vector(embedded, plain) == 2
@@ -2262,7 +2262,7 @@ def test_max_common_swizzled_vs_plain_is_representation_invariant():
 def test_max_common_identical_swizzles_match_across_representations():
     swizzle = Swizzle(2, 0, 2)
     embedded = compose(swizzle, Layout((4, 4), (1, 4)))
-    composed = ComposedLayout(swizzle, Layout((4, 4), (1, 4)), preoffset=0)
+    composed = ComposedLayout(swizzle, Layout((4, 4), (1, 4)), offset=0)
 
     for lhs in (embedded, composed):
         for rhs in (embedded, composed):

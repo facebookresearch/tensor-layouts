@@ -103,7 +103,7 @@ def example_double_swizzle() -> None:
 
 
 def example_slicing_and_tensor(exact: LayoutExpr) -> None:
-    _banner("4. Slicing keeps composed preoffset inside the layout")
+    _banner("4. Slicing keeps composed offset inside the layout")
 
     sub, offset = slice_and_offset((2, None), exact)
     print("slice_and_offset((2, None), exact)")
