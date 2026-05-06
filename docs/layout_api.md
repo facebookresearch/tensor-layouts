@@ -238,6 +238,76 @@ domain layout. It is **not** the exact image span of the outer nonlinear map.
 If you need real addressed bounds, use a Tensor with storage validation or
 enumerate the image directly.
 
+### Inverse-form: `ComposedLayout(Layout, offset, Swizzle)`
+
+`right_inverse` and `left_inverse` of a swizzle-fronted ComposedLayout with a
+nonzero `preoffset` produce a structurally distinct shape: the Swizzle ends up
+in the **inner** slot, and the offset is **negated**.
+
+```python
+F3 = ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), preoffset=4)
+right_inverse(F3)
+# ComposedLayout(Layout(32, 1), Swizzle(2, 1, 3), preoffset=-4)
+```
+
+This shape exists so the algebra is closed (inverse and forward compose back
+to identity). It is **structurally allowed but semantically narrow**:
+
+| Operation | Status |
+|-----------|--------|
+| `__call__(c)`, `size`, `shape`, `cosize`, `rank`, `depth` | supported |
+| `flatten` | no-op (returns the input) |
+| `right_inverse`, `left_inverse`, `compose` (with the forward) | supported |
+| `coalesce` | **NotImplementedError** |
+| `complement` | **NotImplementedError** |
+| `logical_product`, `logical_divide` | **NotImplementedError** |
+
+The four unsupported operations would all delegate to the inner layout, but
+`Swizzle` does not satisfy the Layout interface CuTe expects. CuTe C++ refuses
+this form too -- the corresponding templates fail to instantiate -- so
+tensor-layouts matches by raising a clear `NotImplementedError`. See
+[`scripts/survey_composed_layout_cpp.py`](../scripts/survey_composed_layout_cpp.py)
+and the report at
+[`notes/composed_layout_cpp_survey.md`](../notes/composed_layout_cpp_survey.md)
+for the differential evidence.
+
+#### Negative offsets and `Tensor` storage
+
+The negated offset means the layout can emit values below zero on early
+indices:
+
+```python
+inv = right_inverse(F3)
+inv(0)   # -4
+inv(1)   # -3
+inv(2)   # -2
+inv(3)   # -1
+inv(4)   #  0
+```
+
+These negative values are intermediate algebraic quantities; they cancel when
+the inverse is composed back with the forward layout. Using the inverse as a
+direct buffer index is wrong -- it would write before the buffer's base
+pointer.
+
+`Tensor` enforces this at the address boundary. Attaching storage to a layout
+whose addressed range goes negative raises `ValueError` at construction with
+a message that names the inverse-form hazard explicitly:
+
+```python
+Tensor(inv, offset=0, data=list(range(32)))
+# ValueError: Layout addresses negative storage indices [-4, 27] for offset=0
+# and layout (Layout(32, 1)) o {-4} o (Swizzle(2,1,3)). Layouts produced by
+# right_inverse / left_inverse on offset-bearing ComposedLayouts can emit
+# negative offsets; the inverse-form is intended for composition with the
+# forward layout, not for direct buffer indexing. Compose it with the forward
+# layout (or shift `offset=` to make every address non-negative) before
+# attaching storage.
+```
+
+If you genuinely need to materialize the inverse's image, compose it with the
+forward layout first; the negative term will cancel.
+
 ### Notebook note
 
 The existing notebooks still mostly exercise the canonical

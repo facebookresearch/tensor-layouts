@@ -114,7 +114,24 @@ def _storage_rank(data) -> int | None:
 
 
 def _validate_storage(layout: LayoutExpr, offset: int, data) -> None:
-    """Validate that storage covers every index addressed by (offset, layout)."""
+    """Validate that storage covers every index addressed by (offset, layout).
+
+    Two failure modes are distinguished so the error pinpoints the cause:
+
+    1. **Negative addresses** -- the layout emits an offset below zero. Two
+       legitimate sources of this:
+
+       - A layout with a negative stride (e.g. ``Layout(4, -1)``), where the
+         user is expected to supply an ``offset=`` that shifts the addressed
+         range to be non-negative.
+       - The inverse-form ``ComposedLayout(Layout, offset, Swizzle)`` produced
+         by ``right_inverse`` / ``left_inverse`` on an offset-bearing
+         ``ComposedLayout``. That form is intended for composition with the
+         forward layout (the negative offset cancels), not for direct buffer
+         indexing.
+
+    2. **Out-of-bounds upper address** -- the storage is simply too small.
+    """
     storage_rank = _storage_rank(data)
     if storage_rank is not None and storage_rank != 1:
         raise TypeError(
@@ -122,7 +139,18 @@ def _validate_storage(layout: LayoutExpr, offset: int, data) -> None:
             f"got {type(data).__name__} with rank {storage_rank}"
         )
     min_offset, max_offset = _address_bounds(layout, offset)
-    if min_offset < 0 or max_offset >= len(data):
+    if min_offset < 0:
+        raise ValueError(
+            f"Layout addresses negative storage indices in addressed range "
+            f"[{min_offset}, {max_offset}] for offset={offset} and layout "
+            f"{layout}. Either: (a) the layout has a negative stride and "
+            f"needs an `offset=` that shifts every address to >= 0; or "
+            f"(b) the layout is the inverse-form ComposedLayout produced by "
+            f"right_inverse / left_inverse on an offset-bearing "
+            f"ComposedLayout, which is meant for composition with the "
+            f"forward layout, not for direct buffer indexing."
+        )
+    if max_offset >= len(data):
         raise ValueError(
             f"Storage length {len(data)} does not cover addressed range "
             f"[{min_offset}, {max_offset}] for offset={offset} and layout {layout}"

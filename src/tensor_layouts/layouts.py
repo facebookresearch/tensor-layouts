@@ -710,10 +710,46 @@ class ComposedLayout:
     The preoffset remains inside the composition, before the outer nonlinear
     map, which is why ComposedLayout intentionally does not expose .stride.
 
-    The inner slot may also hold a Swizzle. This form arises when inverting a
-    swizzle-fronted ComposedLayout with nonzero preoffset (see right_inverse
-    / left_inverse and CuTe swizzle_layout.hpp:348-358); the resulting layout
-    operates on a 1-D integer domain whose extent is taken from outer.shape.
+    Supported inner shapes
+    ----------------------
+
+    Two shapes for ``(outer, inner)`` are supported, with very different
+    expressiveness:
+
+    1. **Layout (or ComposedLayout) inner** -- the canonical case. All
+       layout-algebra operations are defined: ``coalesce``, ``complement``,
+       ``flatten``, ``logical_product``, ``logical_divide``, ``compose``,
+       ``right_inverse``, ``left_inverse``, etc. This is what arises from
+       slicing a swizzled layout (``ComposedLayout(Swizzle, Layout, k)``)
+       and from nesting two compositions.
+
+    2. **Swizzle inner** -- the *inverse-form* shape, structurally
+       ``ComposedLayout(outer=Layout, inner=Swizzle, preoffset)``. This form
+       arises only as the result of ``right_inverse`` / ``left_inverse``
+       applied to an offset-bearing swizzle-fronted ``ComposedLayout`` (see
+       CuTe ``swizzle_layout.hpp:348-358``); the inverse swaps the slots and
+       negates the offset. Its logical domain is 1-D with extent taken from
+       ``outer.shape``.
+
+       **What works:** ``__call__``, ``size``, ``shape``, ``cosize``,
+       ``rank``, ``depth``, ``flatten``, ``right_inverse``, ``left_inverse``,
+       ``compose`` (so the inverse-and-cancel round trip is closed).
+
+       **What raises NotImplementedError:** ``coalesce``, ``complement``,
+       ``logical_product``, ``logical_divide``. These ops delegate to the
+       inner layout and ``Swizzle`` does not satisfy the Layout interface.
+       CuTe C++ refuses these forms too -- the corresponding templates
+       don't instantiate. Matching CuTe's posture keeps tensor-layouts
+       honest: structurally allowed, semantically narrow, errors loud.
+
+       **Beware of negative offsets.** The negation in the inverse rule
+       means ``__call__`` can return values below zero on early indices
+       (``F6(0) = -4`` for ``ComposedLayout(Layout(32,1), Swizzle(2,1,3),
+       preoffset=-4)``). The inverse-form is intended for composition with
+       its forward layout, where the negative term cancels; using it as
+       direct buffer addressing is wrong. ``Tensor`` rejects storage that
+       would receive negative addresses; see ``tensor.py``
+       ``_validate_storage``.
     """
 
     outer: Any
@@ -808,6 +844,42 @@ def _forward_layout_domain(layout, transform):
             return Layout(inner_result.shape, inner_result.stride, swizzle=layout.swizzle)
         return ComposedLayout(layout.swizzle, inner_result)
     return _NO_FORWARD
+
+
+def _is_swizzle_inner_composed(obj: Any) -> bool:
+    """True iff obj is a ComposedLayout whose inner slot holds a Swizzle.
+
+    Structurally: ``ComposedLayout(outer=Layout, inner=Swizzle, preoffset)``.
+    Semantically: this form arises only as the result of ``right_inverse`` /
+    ``left_inverse`` applied to an offset-bearing swizzle-fronted
+    ``ComposedLayout`` (e.g. ``Sw o {+k} o L``); the inverse swaps the outer
+    and inner slots and negates the offset, putting the Swizzle on the inner
+    side.
+
+    Most layout-algebra operations are not defined on this form -- CuTe C++
+    refuses to instantiate ``cosize``, ``coalesce``, ``complement``,
+    ``logical_product``, ``logical_divide`` because they delegate to the
+    inner layout, and ``Swizzle`` does not satisfy the Layout interface.
+    tensor-layouts matches by raising ``NotImplementedError``. The form
+    remains usable for ``__call__``, ``size``, ``shape``, ``rank``,
+    ``depth``, ``flatten``, and round-tripping through ``right_inverse`` /
+    ``left_inverse`` / ``compose`` so that the inverse-and-cancel algebra
+    continues to work.
+    """
+    return isinstance(obj, ComposedLayout) and isinstance(obj.inner, Swizzle)
+
+
+def _reject_swizzle_inner_composed(obj: Any, op_name: str) -> None:
+    """Raise NotImplementedError if obj is the F6 inverse-form."""
+    if _is_swizzle_inner_composed(obj):
+        raise NotImplementedError(
+            f"{op_name} is not defined on a ComposedLayout with a Swizzle "
+            f"in the inner slot (the inverse-form produced by "
+            f"right_inverse/left_inverse on an offset-bearing swizzle-fronted "
+            f"ComposedLayout). CuTe C++ refuses this form too. The inverse "
+            f"is intended for composition with the forward layout, not for "
+            f"direct algebraic manipulation. Got: {obj}"
+        )
 
 
 def compute_col_major_strides(shape: IntOrIntTuple) -> IntOrIntTuple:
@@ -1556,6 +1628,7 @@ def coalesce(obj: LayoutExpr, profile: Any = None) -> LayoutExpr:
     forwarded = _forward_layout_domain(obj, lambda inner: coalesce(inner, profile))
     if forwarded is not _NO_FORWARD:
         return forwarded
+    _reject_swizzle_inner_composed(obj, "coalesce")
     if rank(obj) == 0:
         if is_int(obj.shape):
             return Layout(1, 0) if obj.shape == 1 else obj
@@ -1724,8 +1797,7 @@ def complement(layout: Layout, cosize_bound: Any = None) -> Layout:
     # in CuTe; only the inner controls the codomain image, so the complement
     # is the inner's complement. Matches CuTe C++ layout_composed.hpp:395-409.
     if isinstance(layout, ComposedLayout):
-        if isinstance(layout.inner, Swizzle):
-            return complement(layout.outer, cosize_bound)
+        _reject_swizzle_inner_composed(layout, "complement")
         return complement(layout.inner, cosize_bound)
 
     # Short-circuit unit layout AND zero-sized layouts (no elements to span)
@@ -3283,6 +3355,10 @@ def logical_divide(layout: LayoutExpr, tiler: Any) -> LayoutExpr:
     forwarded = _forward_layout_domain(layout, lambda inner: logical_divide(inner, tiler))
     if forwarded is not _NO_FORWARD:
         return forwarded
+    # logical_divide internally calls coalesce/complement on `layout`, both of
+    # which reject the Swizzle-inner form. Guard explicitly so the error
+    # surfaces against the user's actual call site rather than a callee.
+    _reject_swizzle_inner_composed(layout, "logical_divide")
     if isinstance(tiler, Layout):
         # Layout tiler: use CuTe formula
         # logical_divide(A, B) =
@@ -3727,14 +3803,7 @@ def logical_product(layout_a: LayoutExpr, layout_b: Layout) -> LayoutExpr:
     forwarded = _forward_layout_domain(layout_a, lambda inner: logical_product(inner, layout_b))
     if forwarded is not _NO_FORWARD:
         return forwarded
-    if isinstance(layout_a, ComposedLayout) and isinstance(layout_a.inner, Swizzle):
-        # A ComposedLayout with a Swizzle inner has a 1-D integer domain and no
-        # affine stride to tile against. CuTe C++ refuses this form too (the
-        # logical_product template doesn't instantiate).
-        raise NotImplementedError(
-            "logical_product is not defined when layout_a is a ComposedLayout "
-            "with a Swizzle in the inner slot"
-        )
+    _reject_swizzle_inner_composed(layout_a, "logical_product")
     if layout_b is None:
         return layout_a
     if isinstance(layout_b, int):
