@@ -67,7 +67,10 @@ void print_offsets(char const* name, Layout const& layout) {
 
 // Variant for layouts where size() is not defined (e.g., the
 // ComposedLayout<Layout, Offset, Swizzle> form produced by inverting a
-// swizzle-fronted ComposedLayout with nonzero preoffset).
+// swizzle-fronted ComposedLayout with nonzero preoffset). The static_cast
+// to int prevents CuTe's compile-time integer types from being printed as
+// "_0" / "_-2"; we want plain "0" / "-2" so the output matches Python's
+// str(int).
 template <class Layout>
 void print_offsets_n(char const* name, Layout const& layout, int n) {
   std::cout << name << "=";
@@ -75,7 +78,7 @@ void print_offsets_n(char const* name, Layout const& layout, int n) {
     if (i) {
       std::cout << ",";
     }
-    std::cout << layout(i);
+    std::cout << static_cast<int>(layout(i));
   }
   std::cout << "\n";
 }
@@ -289,6 +292,50 @@ int main() {
     std::cout << composed_tensor(i);
   }
   std::cout << "\n";
+
+  // ----- Survey-driven oracle pins -----
+  //
+  // Forms: F4 = ComposedLayout(Layout(16,2), 0, Layout(16,1))
+  //        F5 = ComposedLayout(Layout(16,2), 2, Layout(16,1))
+  //        F7 = ComposedLayout(Layout(32,2), 0, ComposedLayout(Swizzle(2,1,3), 0, Layout(32,1)))
+  //        F8 = ComposedLayout(Layout(32,2), 0, F2)  -- nested ComposedLayout
+  // F2/F3 are swizzled_composed and swizzled_composed_nonzero above.
+  auto F4 = composition(make_layout(_16{}, _2{}), Int<0>{}, make_layout(_16{}, _1{}));
+  auto F5 = composition(make_layout(_16{}, _2{}), Int<2>{}, make_layout(_16{}, _1{}));
+  auto F7 = composition(make_layout(_32{}, _2{}), Int<0>{},
+                        composition(Swizzle<2,1,3>{}, make_layout(_32{}, _1{})));
+  auto F8 = composition(make_layout(_32{}, _2{}), Int<0>{}, swizzled_composed);
+
+  // complement(ComposedLayout) -- always trivial Layout(1, 0) in CuTe.
+  std::cout << "complement_F2=" << complement(swizzled_composed) << "\n";
+  std::cout << "complement_F3=" << complement(swizzled_composed_nonzero) << "\n";
+  std::cout << "complement_F4=" << complement(F4) << "\n";
+  std::cout << "complement_F5=" << complement(F5) << "\n";
+  std::cout << "complement_F7=" << complement(F7) << "\n";
+  std::cout << "complement_F8=" << complement(F8) << "\n";
+
+  // coalesce(ComposedLayout) -- preserves evaluation; pin pointwise.
+  print_offsets("coalesce_F2_offsets", coalesce(swizzled_composed));
+  print_offsets("coalesce_F3_offsets", coalesce(swizzled_composed_nonzero));
+  print_offsets("coalesce_F4_offsets", coalesce(F4));
+  print_offsets("coalesce_F5_offsets", coalesce(F5));
+  print_offsets("coalesce_F7_offsets", coalesce(F7));
+  print_offsets("coalesce_F8_offsets", coalesce(F8));
+
+  // compose(ComposedLayout, Layout(4,1)) -- truncate the inner.
+  auto B4 = make_layout(_4{}, _1{});
+  print_offsets("compose_F2_layout4_offsets", composition(swizzled_composed, B4));
+  print_offsets("compose_F3_layout4_offsets", composition(swizzled_composed_nonzero, B4));
+  print_offsets("compose_F4_layout4_offsets", composition(F4, B4));
+  print_offsets("compose_F5_layout4_offsets", composition(F5, B4));
+  print_offsets("compose_F7_layout4_offsets", composition(F7, B4));
+  print_offsets("compose_F8_layout4_offsets", composition(F8, B4));
+
+  // right_inverse on Layout-outer ComposedLayouts -- degenerate (size-1)
+  // because the outer Layout(16,2) has a stride gap. Use print_offsets_n with
+  // n=1 since the inverse's effective domain is the contiguous prefix.
+  print_offsets_n("right_inverse_F4_offsets", right_inverse(F4), 1);
+  print_offsets_n("right_inverse_F5_offsets", right_inverse(F5), 1);
 }
 """
 
@@ -335,6 +382,35 @@ PYTHON_CASES = {
     "complement_shape_bound": lambda: complement(Layout(2, 1), (3, 4)),
     "complement_composed_layout": lambda: complement(
         ComposedLayout(Swizzle(2, 0, 2), Layout(8, 2))
+    ),
+    # Survey-driven complement pins. CuTe returns Layout(1, 0) for every
+    # ComposedLayout form -- pinned here so we notice if our implementation
+    # diverges from CuTe in the future.
+    "complement_F2": lambda: complement(
+        ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), preoffset=0)
+    ),
+    "complement_F3": lambda: complement(
+        ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), preoffset=4)
+    ),
+    "complement_F4": lambda: complement(
+        ComposedLayout(Layout(16, 2), Layout(16, 1), preoffset=0)
+    ),
+    "complement_F5": lambda: complement(
+        ComposedLayout(Layout(16, 2), Layout(16, 1), preoffset=2)
+    ),
+    "complement_F7": lambda: complement(
+        ComposedLayout(
+            Layout(32, 2),
+            Layout(32, 1, swizzle=Swizzle(2, 1, 3)),
+            preoffset=0,
+        )
+    ),
+    "complement_F8": lambda: complement(
+        ComposedLayout(
+            Layout(32, 2),
+            ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), preoffset=0),
+            preoffset=0,
+        )
     ),
     "max_common_vector_swizzled_composed": lambda: max_common_vector(
         ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), preoffset=0),
@@ -477,6 +553,73 @@ PYTHON_POINTWISE_CASES = {
         )
         for j in range(4)
     },
+    # Survey-driven coalesce/compose pins. Compare evaluations rather than
+    # repr because CuTe and ours print ComposedLayouts with different
+    # parenthesisation; the eval semantics are what we actually care about.
+    **{
+        f"coalesce_F{tag}_offsets": lambda L=L: ",".join(
+            str(coalesce(L)(i)) for i in range(size(coalesce(L)))
+        )
+        for tag, L in [
+            ("2", ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), preoffset=0)),
+            ("3", ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), preoffset=4)),
+            ("4", ComposedLayout(Layout(16, 2), Layout(16, 1), preoffset=0)),
+            ("5", ComposedLayout(Layout(16, 2), Layout(16, 1), preoffset=2)),
+            (
+                "7",
+                ComposedLayout(
+                    Layout(32, 2),
+                    Layout(32, 1, swizzle=Swizzle(2, 1, 3)),
+                    preoffset=0,
+                ),
+            ),
+            (
+                "8",
+                ComposedLayout(
+                    Layout(32, 2),
+                    ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), preoffset=0),
+                    preoffset=0,
+                ),
+            ),
+        ]
+    },
+    **{
+        f"compose_F{tag}_layout4_offsets": lambda L=L: ",".join(
+            str(compose(L, Layout(4, 1))(i))
+            for i in range(size(compose(L, Layout(4, 1))))
+        )
+        for tag, L in [
+            ("2", ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), preoffset=0)),
+            ("3", ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), preoffset=4)),
+            ("4", ComposedLayout(Layout(16, 2), Layout(16, 1), preoffset=0)),
+            ("5", ComposedLayout(Layout(16, 2), Layout(16, 1), preoffset=2)),
+            (
+                "7",
+                ComposedLayout(
+                    Layout(32, 2),
+                    Layout(32, 1, swizzle=Swizzle(2, 1, 3)),
+                    preoffset=0,
+                ),
+            ),
+            (
+                "8",
+                ComposedLayout(
+                    Layout(32, 2),
+                    ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), preoffset=0),
+                    preoffset=0,
+                ),
+            ),
+        ]
+    },
+    # Degenerate right_inverse: outer Layout(16,2) has a stride gap, so the
+    # inverse only covers the contiguous prefix (size 1 in our impl, matching
+    # CuTe's behavior). Pin with explicit n=1.
+    "right_inverse_F4_offsets": lambda: str(
+        right_inverse(ComposedLayout(Layout(16, 2), Layout(16, 1), preoffset=0))(0)
+    ),
+    "right_inverse_F5_offsets": lambda: str(
+        right_inverse(ComposedLayout(Layout(16, 2), Layout(16, 1), preoffset=2))(0)
+    ),
 }
 
 
