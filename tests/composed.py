@@ -283,6 +283,26 @@ def test_left_inverse_of_zero_preoffset_swizzled_composed_layout():
         assert inv(composed(i)) == i
 
 
+def test_right_inverse_of_nonzero_preoffset_swizzled_composed_layout():
+    composed = ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), preoffset=4)
+    inv = right_inverse(composed)
+
+    assert isinstance(inv, ComposedLayout)
+    assert isinstance(inv.inner, Swizzle)
+    for i in range(cosize(composed)):
+        assert composed(inv(i)) == i
+
+
+def test_left_inverse_of_nonzero_preoffset_swizzled_composed_layout():
+    composed = ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), preoffset=4)
+    inv = left_inverse(composed)
+
+    assert isinstance(inv, ComposedLayout)
+    assert isinstance(inv.inner, Swizzle)
+    for i in range(size(composed)):
+        assert inv(composed(i)) == i
+
+
 def test_max_common_vector_for_swizzled_composed_layout_is_capped_by_swizzle_base():
     composed = ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), preoffset=0)
     plain = Layout(32, 1)
