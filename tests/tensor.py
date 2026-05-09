@@ -1309,13 +1309,103 @@ def test_copy_rank3():
                 assert dst[b, h, w] == src[b, h, w]
 
 
-# =============================================================================
-# Tensor Storage
-# =============================================================================
+def test_to_list_data_backed_uses_flat_logical_order():
+    """to_list returns data values in natural flat logical order."""
+    layout = Layout((2, 3), (1, 2))
+    t = Tensor(layout, data=list("ABCDEF"))
 
-# ============================================================================
+    assert t.to_list() == [t[i] for i in range(size(layout))]
+    assert t.to_list() == ["A", "B", "C", "D", "E", "F"]
+
+
+def test_to_list_algebraic_returns_offsets():
+    """Algebraic tensors expose offsets through to_list."""
+    layout = Layout((2, 3), (3, 1))
+    t = Tensor(layout, offset=10)
+
+    assert t.to_list() == [10, 13, 11, 14, 12, 15]
+
+
+def test_to_list_preserves_base_offset():
+    """to_list includes Tensor base offsets in algebraic mode."""
+    t = Tensor(Layout(4, -1), offset=3)
+
+    assert t.to_list() == [3, 2, 1, 0]
+
+
+def test_copy_from_different_layouts_returns_self_and_remaps_values():
+    """copy_from performs the canonical layout-aware flat logical copy."""
+    row_major = Layout((4, 8), (8, 1))
+    col_major = Layout((4, 8), (1, 4))
+
+    src = Tensor(row_major, data=list(range(32)))
+    dst = Tensor(col_major, data=[0] * 32)
+
+    assert dst.copy_from(src) is dst
+
+    for i in range(4):
+        for j in range(8):
+            assert dst[i, j] == src[i, j]
+
+
+def test_copy_from_same_storage_alias_is_snapshot_safe():
+    """copy_from snapshots source values before writing overlapping storage."""
+    buf = list(range(6))
+    row_major = Layout((2, 3), (3, 1))
+    col_major = Layout((2, 3), (1, 2))
+    src = Tensor(row_major, data=buf)
+    dst = Tensor(col_major, data=buf)
+
+    expected = src.to_list()
+    dst.copy_from(src)
+
+    assert dst.to_list() == expected
+
+
+def test_copy_from_algebraic_source_copies_offsets():
+    """Storage-free sources still provide their algebraic offset values."""
+    src = Tensor(Layout((2, 3), (3, 1)), offset=10)
+    dst = Tensor(Layout((2, 3), (1, 2)), data=[0] * 6)
+
+    dst.copy_from(src)
+
+    assert dst.to_list() == src.to_list()
+
+
+def test_copy_from_same_tensor_is_noop():
+    """Self-copy validates the destination and returns without redundant writes."""
+    t = Tensor(Layout(4), data=[0, 1, 2, 3])
+
+    assert t.copy_from(t) is t
+    assert t.to_list() == [0, 1, 2, 3]
+
+
+def test_copy_from_rejects_size_mismatch():
+    dst = Tensor(Layout(4), data=[0] * 4)
+    src = Tensor(Layout(5), data=list(range(5)))
+
+    with pytest.raises(ValueError, match="same logical size"):
+        dst.copy_from(src)
+
+
+def test_copy_from_rejects_storage_free_destination():
+    dst = Tensor(Layout(4))
+    src = Tensor(Layout(4), data=list(range(4)))
+
+    with pytest.raises(TypeError, match="no storage"):
+        dst.copy_from(src)
+
+
+def test_copy_from_rejects_non_tensor_source():
+    dst = Tensor(Layout(4), data=[0] * 4)
+
+    with pytest.raises(TypeError, match="Tensor source"):
+        dst.copy_from([1, 2, 3, 4])
+
+
+# =============================================================================
 # Tensor Storage
-# ============================================================================
+# =============================================================================
 
 
 def test_construction_with_data():

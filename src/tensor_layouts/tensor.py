@@ -269,6 +269,55 @@ class Tensor:
             raise TypeError("Cannot create a view of a Tensor with no storage")
         return Tensor(layout, offset=self._offset, data=self._data)
 
+    def to_list(self) -> list:
+        """Return tensor values in natural flat logical order.
+
+        The result is ordered by flat indices ``0 .. size(layout)-1`` using
+        the same flat 1D evaluation as ``tensor[i]``. For a data-backed Tensor
+        this returns data values; for an algebraic Tensor it returns the
+        corresponding memory offsets.
+        """
+        return [self[i] for i in range(size(self._layout))]
+
+    def copy_from(self, src: "Tensor") -> "Tensor":
+        """Copy values from ``src`` into this Tensor in flat logical order.
+
+        Source and destination layouts may differ as long as they contain the
+        same number of logical elements. Values are snapshotted before any
+        destination writes, so copying is safe even when both Tensors alias the
+        same backing storage through different layouts.
+
+        Returns:
+            ``self`` to allow fluent use.
+
+        Raises:
+            TypeError: If ``src`` is not a Tensor or this Tensor has no storage.
+            ValueError: If source and destination have different logical sizes.
+        """
+        if not isinstance(src, Tensor):
+            raise TypeError(f"copy_from expects a Tensor source, got {type(src).__name__}")
+        if self._data is None:
+            raise TypeError("Cannot copy into a Tensor with no storage")
+
+        dst_size = size(self._layout)
+        src_size = size(src._layout)
+        if dst_size != src_size:
+            raise ValueError(
+                "copy_from requires source and destination to have the same logical size; "
+                f"got destination size {dst_size} and source size {src_size}"
+            )
+        if self is src or (
+            self._data is src._data
+            and self._offset == src._offset
+            and self._layout == src._layout
+        ):
+            return self
+
+        values = [src[i] for i in range(src_size)]
+        for i, value in enumerate(values):
+            self[i] = value
+        return self
+
     def __repr__(self) -> str:
         if self._offset:
             return f"Tensor({self._layout}, offset={self._offset})"

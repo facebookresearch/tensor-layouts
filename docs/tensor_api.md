@@ -213,9 +213,14 @@ def copy(src: Tensor, dst: Tensor):
         dst[i] = src[i]
 ```
 
+For production code, prefer the built-in `dst.copy_from(src)` helper. It
+performs the same flat logical copy, skips exact self-copies, and snapshots
+source values before writing, so it is safe even when source and destination
+share the same backing storage through different layouts.
+
 Because `src` and `dst` can have different layouts (e.g. row-major vs
-column-major), `copy` automatically remaps elements through each tensor's
-layout function:
+column-major), flat logical copying automatically remaps elements through each
+tensor's layout function:
 
 ```python
 row_major = Layout((4, 8), (8, 1))
@@ -224,12 +229,16 @@ col_major = Layout((4, 8), (1, 4))
 src = Tensor(row_major, data=list(range(32)))
 dst = Tensor(col_major, data=[0] * 32)
 
-for i in range(size(row_major)):
-    dst[i] = src[i]
+dst.copy_from(src)
 
 # Same logical element at every coordinate:
 assert src[2, 5] == dst[2, 5]
 ```
+
+`tensor.to_list()` is the read-side equivalent: it materializes values in the
+same natural flat logical order. For algebraic tensors without storage, those
+values are the computed offsets. `copy_from()` follows the same read semantics,
+so a storage-free source copies its offsets as values.
 
 To slice mode 0 (the old `tensor[i]` behavior), use `tensor[i, :]`
 explicitly.
@@ -429,3 +438,5 @@ hashes, and collisions when only data differs are harmless.
 | Method | Returns | Description |
 |--------|---------|-------------|
 | `view(layout)` | `Tensor` | New Tensor sharing storage with a different layout |
+| `to_list()` | `list` | Values in natural flat logical order; algebraic tensors return offsets |
+| `copy_from(src)` | `Tensor` | Copy values from another Tensor with the same logical size, snapshot-safe for aliased storage |
