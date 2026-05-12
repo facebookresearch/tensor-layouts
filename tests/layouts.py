@@ -348,6 +348,34 @@ def test_cosize_negative_stride_matches_cute():
     assert cosize(Layout((2, 4), (4, -1))) == 8
     assert cosize(Layout((2, 2), (-1, -2))) == 4
 
+def test_cosize_swizzled_layout_caches_on_instance():
+    """Second cosize() call on a swizzled Layout returns the cached value.
+
+    Whitebox: poison the cache slot and observe that the next cosize()
+    call returns the poisoned value, proving the cache is read on the
+    hot path. Sister test to the ComposedLayout cache test in
+    tests/composed.py.
+    """
+    sw = Swizzle(2, 0, 2)
+    L = Layout(5, 1, swizzle=sw)
+    expected = cosize(L)
+    assert L._cached_cosize == expected
+
+    L._cached_cosize = expected + 999
+    assert cosize(L) == expected + 999
+
+    L._cached_cosize = None
+    assert cosize(L) == expected
+
+
+def test_cosize_unswizzled_layout_does_not_populate_cache():
+    """Unswizzled layouts go through the O(1) affine path -- no cache use."""
+    L = Layout(16, 1)
+    assert L._cached_cosize is None
+    _ = cosize(L)
+    assert L._cached_cosize is None
+
+
 def test_cosize_swizzled_layout_enumerates_image():
     """Embedded swizzle on a non-power-of-2 affine image enlarges cosize.
 
@@ -368,6 +396,52 @@ def test_cosize_swizzled_layout_enumerates_image():
     assert cosize(L_np2) == 6          # non-power-of-2: needs enumeration
     # And cross-check against the actual image.
     assert cosize(L_np2) == max(L_np2(i) for i in range(5)) + 1
+
+def test_cosize_swizzled_layout_matches_composed_form():
+    """Embedded-swizzle Layout and ComposedLayout(Sw, L, 0) must agree on cosize.
+
+    The two forms denote the same layout-expression and must yield the
+    same cosize. Before the embedded-form fix, they disagreed on
+    non-power-of-2 shapes (embedded path missed the swizzle; composed
+    path enumerated correctly).
+    """
+    cases = [
+        (3, Swizzle(1, 0, 1)),
+        (5, Swizzle(2, 0, 2)),
+        (6, Swizzle(2, 0, 3)),
+        (10, Swizzle(2, 0, 4)),
+    ]
+    for shape, swiz in cases:
+        embedded = Layout(shape, 1, swizzle=swiz)
+        composed = ComposedLayout(swiz, Layout(shape, 1), offset=0)
+        assert cosize(embedded) == cosize(composed), (
+            f"cross-form cosize disagreement for shape={shape}, swizzle={swiz}: "
+            f"embedded={cosize(embedded)}, composed={cosize(composed)}"
+        )
+        # And both should agree with the brute-force image max + 1.
+        actual = max(embedded(i) for i in range(shape)) + 1
+        assert cosize(embedded) == actual
+
+
+def test_complement_consumes_corrected_swizzled_cosize():
+    """complement() uses cosize() as the codomain bound; the embedded-swizzle
+    fix must propagate so complement of a swizzled non-power-of-2 layout
+    uses the corrected (larger) bound, not the buggy underreported one.
+
+    For Layout(5, 1, swizzle=Swizzle(2, 0, 2)) the corrected cosize is 6.
+    complement under that bound is (cosize / size : size) = (6 / 5 : 5),
+    which compose-evaluates to a layout whose codomain extent fills the
+    full 6-cell range.
+    """
+    sw = Swizzle(2, 0, 2)
+    L = Layout(5, 1, swizzle=sw)
+    assert cosize(L) == 6
+    c = complement(L)
+    # complement's resulting layout maps within [0, cosize/size) -- size 1
+    # for this shape ratio, stride 5 (the size of the input). With the buggy
+    # cosize=5 the ratio would have been 1, giving a degenerate complement.
+    assert size(c) == 2
+    assert c.stride == 5
 
 
 def test_layout_squeeze():

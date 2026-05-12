@@ -529,6 +529,9 @@ class Layout:
 
     def __init__(self, *args, swizzle: "Swizzle | None" = None):
         self._swizzle = swizzle
+        # Lazy cache for the swizzled-cosize enumeration. Kept None for
+        # unswizzled layouts; populated on first cosize() call.
+        self._cached_cosize: "int | None" = None
 
         if len(args) == 0:
             self._shape = ()
@@ -1018,10 +1021,12 @@ def cosize(obj: LayoutExpr) -> int:
     # this -- mirrors the ComposedLayout fix in 5fbd19f for the embedded
     # form. For the common power-of-2 case both formulas agree.
     if isinstance(obj, Layout) and obj.swizzle is not None:
+        if obj._cached_cosize is not None:
+            return obj._cached_cosize
         n = size(obj)
-        if n == 0:
-            return 0
-        return max(obj(i) for i in range(n)) + 1
+        v = 0 if n == 0 else max(obj(i) for i in range(n)) + 1
+        obj._cached_cosize = v
+        return v
     if is_int(obj.shape):
         return _affine_max_offset(obj.shape, obj.stride) + 1
     if len(obj.shape) == 0:
