@@ -550,6 +550,44 @@ def _group_access_offsets(layout: LayoutExpr, start_thread: int = 0,
     return offsets, min(offsets)
 
 
+def _coalescing_for_thread_range(
+    layout: LayoutExpr, start: int, end: int, *,
+    element_bytes: int, cache_line_bytes: int,
+) -> dict:
+    """Compute coalescing efficiency for the thread range [start, end).
+
+    Shared kernel for ``coalescing_efficiency`` (single warp) and
+    ``per_group_coalescing`` (one call per group). Counts the cache lines
+    touched by the range, normalizing addresses so the minimum accessed
+    offset is 0 (translation-invariant; matches the rebasing convention
+    in ``_group_access_offsets``).
+
+    Returns the per-range result dict
+    ``{transactions, efficiency, cache_lines}`` used directly by both
+    callers.
+    """
+    offsets, min_offset = _group_access_offsets(layout, start, end)
+    cache_lines: set = set()
+    unique_offsets: set = set()
+    for offset in offsets:
+        rebased = offset - min_offset
+        unique_offsets.add(rebased)
+        byte_addr = rebased * element_bytes
+        cache_line = byte_addr // cache_line_bytes
+        cache_lines.add(cache_line)
+
+    transactions = len(cache_lines)
+    useful_bytes = len(unique_offsets) * element_bytes
+    transferred_bytes = transactions * cache_line_bytes
+    efficiency = useful_bytes / transferred_bytes if transferred_bytes > 0 else 0.0
+
+    return {
+        'transactions': transactions,
+        'efficiency': efficiency,
+        'cache_lines': sorted(cache_lines),
+    }
+
+
 def coalescing_efficiency(layout: LayoutExpr, *, element_bytes: int,
                           warp_size: int = 32,
                           cache_line_bytes: int = 128):
@@ -600,30 +638,10 @@ def coalescing_efficiency(layout: LayoutExpr, *, element_bytes: int,
     """
     layout = as_layout_expr(layout)
     thread_count, _ = _tv_dimensions(layout)
-    n = min(thread_count, warp_size)
-
-    # Find which cache lines are touched and count unique offsets within the
-    # accessed footprint, rebased so the minimum address is 0.
-    offsets, min_offset = _group_access_offsets(layout, 0, n)
-    cache_lines = set()
-    unique_offsets = set()
-    for offset in offsets:
-        rebased = offset - min_offset
-        unique_offsets.add(rebased)
-        byte_addr = rebased * element_bytes
-        cache_line = byte_addr // cache_line_bytes
-        cache_lines.add(cache_line)
-
-    transactions = len(cache_lines)
-    useful_bytes = len(unique_offsets) * element_bytes
-    transferred_bytes = transactions * cache_line_bytes
-    efficiency = useful_bytes / transferred_bytes if transferred_bytes > 0 else 0.0
-
-    return {
-        'transactions': transactions,
-        'efficiency': efficiency,
-        'cache_lines': sorted(cache_lines),
-    }
+    return _coalescing_for_thread_range(
+        layout, 0, min(thread_count, warp_size),
+        element_bytes=element_bytes, cache_line_bytes=cache_line_bytes,
+    )
 
 
 def segment_analysis(layout: LayoutExpr, *, element_bytes: int,
@@ -900,40 +918,22 @@ def per_group_coalescing(layout: LayoutExpr, *, element_bytes: int,
     layout = as_layout_expr(layout)
     if group_size <= 0:
         raise ValueError(f"group_size must be positive, got {group_size}")
-    thread_count, value_count = _tv_dimensions(layout)
+    thread_count, _ = _tv_dimensions(layout)
     num_groups = (thread_count + group_size - 1) // group_size
 
     groups = []
     worst_idx = 0
     worst_eff = float('inf')
-
     for g in range(num_groups):
         start = g * group_size
         end = min(start + group_size, thread_count)
-
-        offsets, min_offset = _group_access_offsets(layout, start, end)
-        cache_lines = set()
-        unique_offsets = set()
-        for offset in offsets:
-            rebased = offset - min_offset
-            unique_offsets.add(rebased)
-            byte_addr = rebased * element_bytes
-            cache_line = byte_addr // cache_line_bytes
-            cache_lines.add(cache_line)
-
-        transactions = len(cache_lines)
-        useful_bytes = len(unique_offsets) * element_bytes
-        transferred_bytes = transactions * cache_line_bytes
-        efficiency = useful_bytes / transferred_bytes if transferred_bytes > 0 else 0.0
-
-        result = {
-            'transactions': transactions,
-            'efficiency': efficiency,
-            'cache_lines': sorted(cache_lines),
-        }
+        result = _coalescing_for_thread_range(
+            layout, start, end,
+            element_bytes=element_bytes, cache_line_bytes=cache_line_bytes,
+        )
         groups.append(result)
-        if efficiency < worst_eff:
-            worst_eff = efficiency
+        if result['efficiency'] < worst_eff:
+            worst_eff = result['efficiency']
             worst_idx = g
 
     return {
