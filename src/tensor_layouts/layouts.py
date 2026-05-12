@@ -58,7 +58,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Iterable as IterableType
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Union
 
 # Tuple of int | tuple
@@ -766,6 +766,13 @@ class ComposedLayout:
     outer: Any
     inner: "LayoutExpr"
     offset: int = 0
+    # Lazy O(1) cache for cosize. Populated by cosize() on first call via
+    # object.__setattr__ (frozen dataclass blocks normal assignment).
+    # Excluded from init/repr/eq/hash so two equal ComposedLayouts with
+    # different cache states still compare equal and hash the same.
+    _cached_cosize: "int | None" = field(
+        default=None, init=False, repr=False, compare=False, hash=False
+    )
 
     def __post_init__(self):
         if not callable(self.outer):
@@ -994,10 +1001,15 @@ def cosize(obj: LayoutExpr) -> int:
         return cosize(obj.layout)
     if isinstance(obj, ComposedLayout):
         # O(n) enumeration -- no closed form for non-affine layouts.
+        # Result is memoized on the instance because the layout is frozen
+        # (its (outer, inner, offset) tuple is immutable, so cosize never
+        # changes after construction).
+        if obj._cached_cosize is not None:
+            return obj._cached_cosize
         n = size(obj)
-        if n == 0:
-            return 0
-        return max(obj(i) for i in range(n)) + 1
+        v = 0 if n == 0 else max(obj(i) for i in range(n)) + 1
+        object.__setattr__(obj, "_cached_cosize", v)
+        return v
     if is_int(obj.shape):
         return _affine_max_offset(obj.shape, obj.stride) + 1
     if len(obj.shape) == 0:
