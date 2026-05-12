@@ -32,6 +32,8 @@ cache line size, warp width).
 Import explicitly; these are not re-exported from the top-level package.
 """
 
+from math import gcd
+
 from .layouts import *  # noqa: F401,F403
 from .atoms import MMAAtom
 
@@ -1048,7 +1050,6 @@ def order(layout: LayoutExpr) -> int:
         # (unless it has fixed points only, then order = 1)
     """
     layout = as_layout_expr(layout)
-    from math import gcd
 
     cycle_list = cycles(layout)
     if not cycle_list:
