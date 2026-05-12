@@ -348,6 +348,27 @@ def test_cosize_negative_stride_matches_cute():
     assert cosize(Layout((2, 4), (4, -1))) == 8
     assert cosize(Layout((2, 2), (-1, -2))) == 4
 
+def test_cosize_swizzled_layout_enumerates_image():
+    """Embedded swizzle on a non-power-of-2 affine image enlarges cosize.
+
+    For Layout(5, 1) the affine image is [0, 5). With Swizzle(2, 0, 2)
+    the swizzle XORs bits [2,4) into bits [0,2); for inputs in [4, 5) this
+    flips bit 0 to produce values in [4, 7). The actual image is
+    {0,1,2,3,5}, so the true cosize is 6, not 5. Without the embedded-
+    swizzle enumeration, the affine path would underreport cosize as 5.
+
+    For power-of-2 affine images (the common CuTe case) the enumerated
+    answer agrees with the affine fast path, e.g. Layout(16, 1) + same
+    swizzle still has cosize 16.
+    """
+    sw = Swizzle(2, 0, 2)
+    L_p2 = Layout(16, 1, swizzle=sw)
+    assert cosize(L_p2) == 16          # power-of-2: agrees with affine path
+    L_np2 = Layout(5, 1, swizzle=sw)
+    assert cosize(L_np2) == 6          # non-power-of-2: needs enumeration
+    # And cross-check against the actual image.
+    assert cosize(L_np2) == max(L_np2(i) for i in range(5)) + 1
+
 
 def test_layout_squeeze():
     L0 = Layout((), ())
