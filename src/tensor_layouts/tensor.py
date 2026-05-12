@@ -395,8 +395,13 @@ class Tensor:
                 normalized.append(None)
                 has_free = True
             elif isinstance(key, (int, tuple)):
+                if self._tuple_contains_slice(key):
+                    raise TypeError(
+                        f"slice objects are not allowed inside hierarchical "
+                        f"coordinate tuples; got slice in key at position {i}: {key!r}"
+                    )
                 normalized.append(key)
-                if self._has_nested_none(key):
+                if self._contains_free_coordinates(key):
                     has_free = True
             else:
                 raise TypeError(f"Invalid slice key at position {i}: {key}")
@@ -415,27 +420,32 @@ class Tensor:
         return Tensor(sub, self._offset + offset, data=self._data)
 
     @staticmethod
-    def _has_nested_none(key) -> bool:
-        """Check if a key contains None inside a nested tuple."""
-        if not isinstance(key, tuple):
-            return False
-        for item in key:
-            if item is None:
-                return True
-            if isinstance(item, tuple) and Tensor._has_nested_none(item):
-                return True
-        return False
-
-    @staticmethod
     def _contains_free_coordinates(key) -> bool:
         """Return True when a key contains slicing markers.
 
         Assignment only accepts fully-fixed coordinates, so ``None`` and any
         ``slice`` object are rejected wherever they appear, including inside
         hierarchical coordinate tuples.
+
+        Also used in ``_slice_multi`` to detect partial hierarchical slicing
+        (a coordinate tuple containing one or more ``None``).
         """
         if key is None or isinstance(key, slice):
             return True
         if isinstance(key, tuple):
             return any(Tensor._contains_free_coordinates(item) for item in key)
+        return False
+
+    @staticmethod
+    def _tuple_contains_slice(key) -> bool:
+        """True iff a key is or recursively contains a ``slice`` object.
+
+        Used to reject ``slice`` objects inside hierarchical coordinate tuples
+        in ``_slice_multi``: only ``None`` (and ``int``) are valid sub-elements
+        there; ``slice`` is only meaningful as a bare per-mode key.
+        """
+        if isinstance(key, slice):
+            return True
+        if isinstance(key, tuple):
+            return any(Tensor._tuple_contains_slice(item) for item in key)
         return False
