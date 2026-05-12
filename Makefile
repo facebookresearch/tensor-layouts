@@ -24,4 +24,5 @@ lint:
 examples:
 	python3 examples/layouts.py
 	python3 examples/tensor.py
+	python3 examples/composed.py
 	python3 examples/viz.py
