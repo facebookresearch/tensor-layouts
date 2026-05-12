@@ -978,3 +978,41 @@ def test_order_on_composed_layout():
     result = order(composed)
     assert isinstance(result, int)
     assert result >= 1
+
+def test_cosize_composed_layout_caches_on_instance():
+    """Second cosize() call returns the cached value, not a recomputation.
+
+    Verified by sentinel: poison the cache slot on the instance and observe
+    that the next cosize() call returns the poisoned value, proving the
+    cache is read on the hot path. This is whitebox but pins down the
+    optimization in regression tests.
+    """
+    composed = ComposedLayout(Swizzle(2, 0, 2), Layout(16, 1), offset=0)
+    expected = cosize(composed)
+    assert composed._cached_cosize == expected
+
+    # Poison and confirm the next call reads the cache.
+    object.__setattr__(composed, "_cached_cosize", expected + 999)
+    assert cosize(composed) == expected + 999
+
+    # Reset cache and confirm we get the real value back.
+    object.__setattr__(composed, "_cached_cosize", None)
+    assert cosize(composed) == expected
+
+
+def test_cosize_cache_does_not_affect_equality_or_hash():
+    """The cache slot must be excluded from __eq__ / __hash__.
+
+    Two ComposedLayouts with the same (outer, inner, offset) but different
+    cache states must still compare equal and hash the same -- otherwise
+    they would lose dict-key compatibility after one is queried for cosize.
+    """
+    a = ComposedLayout(Swizzle(2, 0, 2), Layout(16, 1), offset=0)
+    b = ComposedLayout(Swizzle(2, 0, 2), Layout(16, 1), offset=0)
+    # Populate cache on `a` only.
+    _ = cosize(a)
+    assert a._cached_cosize is not None
+    assert b._cached_cosize is None
+    assert a == b
+    assert hash(a) == hash(b)
+
