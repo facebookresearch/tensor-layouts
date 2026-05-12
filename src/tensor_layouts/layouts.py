@@ -61,11 +61,6 @@ from collections.abc import Iterable as IterableType
 from dataclasses import dataclass
 from typing import Any, Union
 
-try:
-    from typing import Self
-except ImportError:
-    from typing_extensions import Self
-
 # Tuple of int | tuple
 IntOrIntTuple = Union[int, tuple["IntOrIntTuple", ...]]
 
@@ -650,7 +645,7 @@ class Layout:
             return self._swizzle(linear_offset)
         return linear_offset
 
-    def squeeze(self) -> Self:
+    def squeeze(self) -> "Layout":
         """Removes all dimensions of size 1 and their corresponding strides."""
         new_shape, new_stride = self.filter_shapes(self.shape, self.stride, 1)
         return Layout(new_shape, new_stride, swizzle=self._swizzle)
