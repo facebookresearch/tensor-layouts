@@ -156,7 +156,7 @@ affine-only code paths:
 | `is_layout(x)` | True for both `Layout` and `ComposedLayout` |
 | `is_affine(x)` | True only for `Layout` (structural; also accepts anything with `.layout`) |
 | `as_layout_expr(x)` | Accept generic layout consumers |
-| `as_affine_layout(x)` | Reject `ComposedLayout` with a clear error |
+| `as_affine_layout(x)` | Convert to affine `Layout`; asserts `is_affine` (use `as_layout_expr` to accept `ComposedLayout`) |
 
 `ComposedLayout` intentionally does **not** expose `.stride`. If you need a
 stride tree, you are in an affine-only path and should say so explicitly.

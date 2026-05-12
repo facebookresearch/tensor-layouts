@@ -230,8 +230,26 @@ def as_layout_expr(obj):
 
 
 def as_affine_layout(obj):
-    """Convert an object to an affine Layout, rejecting composed layouts."""
-    return as_layout(obj)
+    """Convert obj to an affine Layout, asserting affinity at the boundary.
+
+    Like ``as_layout()`` but explicit about the contract: callers that need
+    direct ``.shape`` / ``.stride`` access (analysis, viz, ``Tensor.stride``,
+    affine algebra) should use this so the precondition is documented at the
+    call site. Use ``as_layout_expr()`` instead if your caller can handle a
+    ``ComposedLayout``.
+
+    Raises ``TypeError`` if ``obj`` cannot be coerced to an affine ``Layout``.
+    The ``is_affine`` post-check is belt-and-suspenders: today ``as_layout()``
+    already guarantees the result, but the explicit assertion documents the
+    contract and protects against future loosening.
+    """
+    layout = as_layout(obj)
+    if not is_affine(layout):
+        raise TypeError(
+            f"as_affine_layout: not affine after conversion: {layout!r} "
+            f"(use as_layout_expr() to accept ComposedLayout)"
+        )
+    return layout
 
 
 def is_scalar(x) -> bool:
