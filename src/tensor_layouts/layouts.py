@@ -1010,6 +1010,18 @@ def cosize(obj: LayoutExpr) -> int:
         v = 0 if n == 0 else max(obj(i) for i in range(n)) + 1
         object.__setattr__(obj, "_cached_cosize", v)
         return v
+    # Layout with embedded swizzle: the swizzle is a bit-permutation that
+    # can map an affine offset to a value above the affine max when the
+    # affine image is not a full power-of-2 range. Example: image of
+    # Layout(5, 1) is [0, 5); Sw o Layout(5, 1) for Swizzle(2, 0, 2) hits
+    # 5 because XOR flips bit 2 above the affine max. Enumerate to capture
+    # this -- mirrors the ComposedLayout fix in 5fbd19f for the embedded
+    # form. For the common power-of-2 case both formulas agree.
+    if isinstance(obj, Layout) and obj.swizzle is not None:
+        n = size(obj)
+        if n == 0:
+            return 0
+        return max(obj(i) for i in range(n)) + 1
     if is_int(obj.shape):
         return _affine_max_offset(obj.shape, obj.stride) + 1
     if len(obj.shape) == 0:
