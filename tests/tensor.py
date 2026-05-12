@@ -1137,6 +1137,22 @@ def test_tensor_slice_with_none():
     assert Ts_none.offset == Ts_colon.offset
     assert Ts_none.layout == Ts_colon.layout
 
+def test_tensor_slice_rejects_slice_inside_coordinate_tuple():
+    """slice objects nested in a coordinate tuple are an error.
+
+    Inside a hierarchical coordinate tuple only ``int`` and ``None`` are
+    valid; ``slice`` is meaningful only as a bare per-mode key. Without an
+    explicit reject, an embedded slice silently slipped through to
+    slice_and_offset.
+    """
+    layout = Layout(((2, 4), 8), ((1, 16), 2))
+    T = Tensor(layout)
+    # Top-level slice is fine: T[:, 1] selects column 1.
+    _ = T[:, 1]
+    # slice nested inside a coordinate tuple is rejected.
+    with pytest.raises(TypeError, match="slice.*coordinate tuple"):
+        T[(slice(None), 0), 1]
+
 
 def test_tensor_full_slice_matches_explicit_full_slice():
     """A bare full slice returns the whole tensor view."""
