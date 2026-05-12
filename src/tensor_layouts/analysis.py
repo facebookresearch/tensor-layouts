@@ -637,6 +637,8 @@ def coalescing_efficiency(layout: LayoutExpr, *, element_bytes: int,
         # {'transactions': 32, ...}
     """
     layout = as_layout_expr(layout)
+    if warp_size <= 0:
+        raise ValueError(f"warp_size must be positive, got {warp_size}")
     thread_count, _ = _tv_dimensions(layout)
     return _coalescing_for_thread_range(
         layout, 0, min(thread_count, warp_size),
@@ -684,6 +686,8 @@ def segment_analysis(layout: LayoutExpr, *, element_bytes: int,
             first_alignment: alignment of first_byte_addr to segment_bytes
     """
     layout = as_layout_expr(layout)
+    if warp_size <= 0:
+        raise ValueError(f"warp_size must be positive, got {warp_size}")
     thread_count, value_count = _tv_dimensions(layout)
     n = min(thread_count, warp_size)
 
