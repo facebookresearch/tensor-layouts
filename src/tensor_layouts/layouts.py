@@ -599,12 +599,6 @@ class Layout:
         """The swizzle function applied after computing linear offset, or None."""
         return self._swizzle
 
-    @staticmethod
-    def _calculate_max_offset(shape: Any, stride: Any) -> int:
-        if is_tuple(shape):
-            return sum(Layout._calculate_max_offset(s, d) for s, d in zip(shape, stride))
-        return (shape - 1) * abs(stride)
-
     def __call__(self, *args):
         """Map a logical coordinate to a linear index, or slice the layout.
 
@@ -985,10 +979,23 @@ def cosize(obj: LayoutExpr) -> int:
             return 0
         return max(obj(i) for i in range(n)) + 1
     if is_int(obj.shape):
-        return obj._calculate_max_offset(obj.shape, obj.stride) + 1
+        return _affine_max_offset(obj.shape, obj.stride) + 1
     if len(obj.shape) == 0:
         return 1
-    return obj._calculate_max_offset(obj.shape, obj.stride) + 1
+    return _affine_max_offset(obj.shape, obj.stride) + 1
+
+
+def _affine_max_offset(shape: Any, stride: Any) -> int:
+    """Maximum linear offset reachable by an affine (shape, stride) pair.
+
+    Computes ``sum_i (s_i - 1) * |d_i|`` recursively across nested modes.
+    Used by ``cosize`` for affine ``Layout``; ``cosize == max_offset + 1``.
+    Strides are taken in absolute value so the result reports the affine
+    span regardless of stride sign.
+    """
+    if is_tuple(shape):
+        return sum(_affine_max_offset(s, d) for s, d in zip(shape, stride))
+    return (shape - 1) * abs(stride)
 
 
 def rank(obj: Any) -> int:
