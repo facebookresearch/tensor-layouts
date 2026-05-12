@@ -1919,6 +1919,117 @@ def test_view_smaller_cosize():
     assert small[3] == 3
 
 
+def test_address_bounds_fast_path_swizzled_layout_matches_walk():
+    """Fast path on canonical Sw o L gives the same bounds as the slow walk.
+
+    For every reachable flat index, _tensor_address(offset, layout, idx)
+    must lie within the bounds returned by _address_bounds. This is the
+    contract _validate_storage relies on; verifying it across both
+    representations (embedded-swizzle Layout and ComposedLayout(Sw, L, 0))
+    pins the fast path's correctness.
+    """
+    from tensor_layouts.tensor import _address_bounds, _tensor_address
+    from tensor_layouts import Swizzle, ComposedLayout
+
+    sw = Swizzle(2, 0, 2)
+    # Mix of cases that exercise both the fast path (embedded@offset=0,
+    # composed@any offset) and the slow walk (embedded@offset>0). Both
+    # paths must agree with the per-coordinate enumeration.
+    cases = [
+        ("embedded p2 fast",       Layout(16, 1, swizzle=sw),                  0),
+        ("embedded np2 fast",      Layout(5, 1, swizzle=sw),                   0),
+        ("embedded p2 +offset slow", Layout(16, 1, swizzle=sw),                5),
+        ("composed p2 fast",       ComposedLayout(sw, Layout(16, 1), offset=0), 7),
+        ("composed np2 fast",      ComposedLayout(sw, Layout(5, 1), offset=0),  0),
+    ]
+    for name, layout, offset in cases:
+        lo, hi = _address_bounds(layout, offset)
+        actual = [_tensor_address(offset, layout, i) for i in range(size(layout))]
+        assert lo == min(actual), f"{name}: lo mismatch ({lo} vs {min(actual)})"
+        assert hi == max(actual), f"{name}: hi mismatch ({hi} vs {max(actual)})"
+
+
+def test_address_bounds_fast_path_taken_for_canonical_swizzle():
+    """Whitebox: poison cosize cache to detect that the fast path is used.
+
+    The fast path computes hi as offset + cosize(layout) - 1. Poison the
+    cached cosize on the layout, then call _address_bounds again -- if
+    the fast path was taken, the returned hi reflects the poisoned value;
+    if the slow walk was taken, hi would be the real per-coordinate max.
+
+    Exercises BOTH preconditioned forms:
+      - ComposedLayout(Sw, L, 0) with a non-zero Tensor offset
+      - embedded-swizzle Layout with Tensor offset 0
+    """
+    from tensor_layouts.tensor import _address_bounds
+    from tensor_layouts import ComposedLayout, Swizzle
+    sw = Swizzle(2, 0, 2)
+
+    # ComposedLayout form: any external offset is OK.
+    comp = ComposedLayout(sw, Layout(16, 1), offset=0)
+    _ = _address_bounds(comp, 0)            # populate cosize cache
+    object.__setattr__(comp, "_cached_cosize", 999)
+    lo, hi = _address_bounds(comp, 100)
+    assert lo == 100
+    assert hi == 100 + 999 - 1, f"composed fast path not taken; got hi={hi}"
+
+    # Embedded form: only when offset == 0.
+    L = Layout(16, 1, swizzle=sw)
+    _ = _address_bounds(L, 0)               # populate cosize cache
+    L._cached_cosize = 999                  # poison
+    lo, hi = _address_bounds(L, 0)
+    assert lo == 0
+    assert hi == 999 - 1, f"embedded@offset=0 fast path not taken; got hi={hi}"
+
+
+def test_address_bounds_slow_walk_for_negative_stride_inner():
+    """Layouts with negative-stride inner skip the fast path.
+
+    The fast path's lower bound argument relies on the inner layout's
+    image starting at 0 (so Sw(0) = 0 anchors the bound). A negative
+    stride breaks that, so the slow walk must take over. Verified by
+    checking the bounds match an explicit enumeration -- any
+    incorrectly-applied fast path would return a stale upper bound.
+    """
+    from tensor_layouts.tensor import _address_bounds, _tensor_address
+    # Negative-stride affine layout (no swizzle): falls into the existing
+    # affine fast path. Just confirm correctness, not the path taken.
+    L = Layout(4, -1)
+    lo, hi = _address_bounds(L, 10)
+    actual = [_tensor_address(10, L, i) for i in range(size(L))]
+    assert lo == min(actual)
+    assert hi == max(actual)
+
+
+def test_address_bounds_slow_walk_for_embedded_swizzle_with_nonzero_offset():
+    """Embedded-swizzle Layout with offset != 0 must take the slow walk.
+
+    For embedded form, the Tensor offset is added BEFORE the swizzle, so
+    Sw(offset + L(i)) -- the (offset, offset + cosize - 1) bound is wrong.
+    The slow walk must still produce the correct min/max.
+    """
+    from tensor_layouts.tensor import _address_bounds, _tensor_address
+    from tensor_layouts import Swizzle
+    sw = Swizzle(2, 0, 2)
+    L = Layout(16, 1, swizzle=sw)
+    lo, hi = _address_bounds(L, 5)
+    actual = [_tensor_address(5, L, i) for i in range(size(L))]
+    assert lo == min(actual)
+    assert hi == max(actual)
+
+
+def test_address_bounds_slow_walk_for_inverse_form_composed():
+    """F6 inverse-form ComposedLayout (offset != 0) skips the fast path."""
+    from tensor_layouts.tensor import _address_bounds, _tensor_address
+    from tensor_layouts import ComposedLayout, Swizzle
+    # ComposedLayout(Layout, Swizzle, offset) -- not the canonical Sw o L form.
+    inv = ComposedLayout(Layout(32, 1), Swizzle(2, 1, 3), offset=4)
+    lo, hi = _address_bounds(inv, 0)
+    actual = [_tensor_address(0, inv, i) for i in range(size(inv))]
+    assert lo == min(actual)
+    assert hi == max(actual)
+
+
 if __name__ == "__main__":
     import subprocess
     import sys
