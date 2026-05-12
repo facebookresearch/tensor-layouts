@@ -414,6 +414,54 @@ def gap_profile(layout: LayoutExpr) -> dict:
 # Bank conflict analysis
 # =============================================================================
 
+def _bank_conflicts_for_thread_range(
+    layout: LayoutExpr, *,
+    thread_count: int, value_count: int, start: int, end: int,
+    element_bytes: int, num_banks: int, bank_width_bytes: int,
+) -> dict:
+    """Compute bank conflicts for the contiguous thread range [start, end).
+
+    Shared kernel for ``bank_conflicts`` (single group) and
+    ``per_group_bank_conflicts`` (one call per group). Walks each thread's
+    accesses across all value modes, maps them to (bank, word_address) pairs,
+    and computes the worst-case serialization factor (``max_ways``).
+
+    Returns the per-range result dict
+    ``{conflict_free, max_ways, bank_to_threads}`` used directly by both
+    callers.
+    """
+    # Map each thread to (bank, word_address). A bank conflict occurs when
+    # threads access different 4-byte words in the same bank; threads hitting
+    # the same word get a broadcast (no conflict on NVIDIA).
+    thread_banks: dict = {}  # bank -> [(thread_id, word_address), ...]
+    for t in range(start, end):
+        for v in range(value_count):
+            flat_idx = v * thread_count + t
+            offset = layout(flat_idx)
+            byte_addr = offset * element_bytes
+            word_addr = byte_addr // bank_width_bytes
+            bank = word_addr % num_banks
+            thread_banks.setdefault(bank, []).append((t, word_addr))
+
+    # Conflict factor per bank = number of distinct addresses touched in it.
+    max_ways = 1
+    bank_to_threads: dict = {}
+    for bank, accesses in thread_banks.items():
+        bank_to_threads[bank] = [t for t, _ in accesses]
+        addr_groups: dict = {}
+        for t, addr in accesses:
+            addr_groups.setdefault(addr, []).append(t)
+        ways = len(addr_groups)
+        if ways > max_ways:
+            max_ways = ways
+
+    return {
+        'conflict_free': max_ways <= 1,
+        'max_ways': max_ways,
+        'bank_to_threads': bank_to_threads,
+    }
+
+
 def bank_conflicts(layout: LayoutExpr, *, element_bytes: int,
                    num_banks: int = 32, bank_width_bytes: int = 4,
                    group_size: int = 32):
@@ -464,45 +512,13 @@ def bank_conflicts(layout: LayoutExpr, *, element_bytes: int,
     if group_size <= 0:
         raise ValueError(f"group_size must be positive, got {group_size}")
     thread_count, value_count = _tv_dimensions(layout)
-    n = min(thread_count, group_size)
-
-    # Map each thread to (bank, word_address)
-    # A bank conflict occurs when threads access different 4-byte words in the
-    # same bank.  Two threads accessing the same word get a broadcast (no conflict).
-    thread_banks = {}  # bank -> [(thread_id, word_address), ...]
-    for t in range(n):
-        for v in range(value_count):
-            flat_idx = v * thread_count + t
-            offset = layout(flat_idx)
-            byte_addr = offset * element_bytes
-            word_addr = byte_addr // bank_width_bytes
-            bank = word_addr % num_banks
-            thread_banks.setdefault(bank, []).append((t, word_addr))
-
-    # Compute conflicts per bank
-    # Two threads conflict if they hit the same bank but different addresses.
-    # If they hit the same address, it's a broadcast (no conflict on NVIDIA).
-    max_ways = 1
-    bank_to_threads = {}
-    for bank, accesses in thread_banks.items():
-        thread_ids = [t for t, _ in accesses]
-        bank_to_threads[bank] = thread_ids
-
-        # Group by address within this bank
-        addr_groups = {}
-        for t, addr in accesses:
-            addr_groups.setdefault(addr, []).append(t)
-
-        # Conflict factor = number of distinct addresses in this bank
-        ways = len(addr_groups)
-        if ways > max_ways:
-            max_ways = ways
-
-    return {
-        'conflict_free': max_ways <= 1,
-        'max_ways': max_ways,
-        'bank_to_threads': bank_to_threads,
-    }
+    return _bank_conflicts_for_thread_range(
+        layout,
+        thread_count=thread_count, value_count=value_count,
+        start=0, end=min(thread_count, group_size),
+        element_bytes=element_bytes,
+        num_banks=num_banks, bank_width_bytes=bank_width_bytes,
+    )
 
 
 # =============================================================================
@@ -835,40 +851,19 @@ def per_group_bank_conflicts(layout: LayoutExpr, *, element_bytes: int,
     groups = []
     worst_idx = 0
     worst_ways = 0
-
     for g in range(num_groups):
         start = g * group_size
         end = min(start + group_size, thread_count)
-
-        thread_banks = {}
-        for t in range(start, end):
-            for v in range(value_count):
-                flat_idx = v * thread_count + t
-                offset = layout(flat_idx)
-                byte_addr = offset * element_bytes
-                word_addr = byte_addr // bank_width_bytes
-                bank = word_addr % num_banks
-                thread_banks.setdefault(bank, []).append((t, word_addr))
-
-        max_ways = 1
-        bank_to_threads = {}
-        for bank, accesses in thread_banks.items():
-            bank_to_threads[bank] = [t for t, _ in accesses]
-            addr_groups = {}
-            for t, addr in accesses:
-                addr_groups.setdefault(addr, []).append(t)
-            ways = len(addr_groups)
-            if ways > max_ways:
-                max_ways = ways
-
-        result = {
-            'conflict_free': max_ways <= 1,
-            'max_ways': max_ways,
-            'bank_to_threads': bank_to_threads,
-        }
+        result = _bank_conflicts_for_thread_range(
+            layout,
+            thread_count=thread_count, value_count=value_count,
+            start=start, end=end,
+            element_bytes=element_bytes,
+            num_banks=num_banks, bank_width_bytes=bank_width_bytes,
+        )
         groups.append(result)
-        if max_ways > worst_ways:
-            worst_ways = max_ways
+        if result['max_ways'] > worst_ways:
+            worst_ways = result['max_ways']
             worst_idx = g
 
     return {
