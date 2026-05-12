@@ -826,15 +826,22 @@ LayoutExpr = Layout | ComposedLayout
 _NO_FORWARD = object()
 
 
-def _affine_inner(layout: Layout) -> Layout:
-    """Return the affine portion of a possibly swizzled Layout."""
+def _strip_swizzle(layout: Layout) -> Layout:
+    """Return the underlying affine ``Layout`` with any embedded swizzle removed.
+
+    A ``Layout`` may carry an embedded ``Swizzle`` (a non-linear post-processor
+    on the linear offset). Many algebra operations -- ``flatten``,
+    ``right_inverse`` / ``left_inverse``, ``compose`` against the affine layer,
+    domain-only transforms -- need to reason about the affine map alone and
+    re-attach the swizzle afterwards.
+    """
     return Layout(layout.shape, layout.stride)
 
 
 def _split_zero_offset_swizzle(layout: LayoutExpr):
     """Return (swizzle, inner_layout) for canonical zero-offset swizzle wrappers."""
     if isinstance(layout, Layout) and layout.swizzle is not None:
-        return layout.swizzle, _affine_inner(layout)
+        return layout.swizzle, _strip_swizzle(layout)
     if (
         isinstance(layout, ComposedLayout)
         and isinstance(layout.outer, Swizzle)
@@ -855,7 +862,7 @@ def _forward_layout_domain(layout, transform):
             return _NO_FORWARD
         return ComposedLayout(layout.outer, transform(layout.inner), offset=layout.offset)
     if isinstance(layout, Layout) and layout.swizzle is not None:
-        inner_result = transform(_affine_inner(layout))
+        inner_result = transform(_strip_swizzle(layout))
         if isinstance(inner_result, Layout) and inner_result.swizzle is None:
             return Layout(inner_result.shape, inner_result.stride, swizzle=layout.swizzle)
         return ComposedLayout(layout.swizzle, inner_result)
@@ -1303,7 +1310,7 @@ def flatten(obj: Any) -> Any:
         return ComposedLayout(obj.outer, flatten(obj.inner), offset=obj.offset)
     elif isinstance(obj, Layout):
         if obj.swizzle is not None:
-            flat_inner = flatten(_affine_inner(obj))
+            flat_inner = flatten(_strip_swizzle(obj))
             return Layout(flat_inner.shape, flat_inner.stride, swizzle=obj.swizzle)
         flat_shape = _flatten(obj.shape)
         flat_stride = _flatten(obj.stride)
@@ -1943,7 +1950,7 @@ def right_inverse(layout: Any) -> Any:
             offset=-layout.offset,
         )
     if isinstance(layout, Layout) and layout.swizzle is not None:
-        return compose(right_inverse(_affine_inner(layout)), layout.swizzle)
+        return compose(right_inverse(_strip_swizzle(layout)), layout.swizzle)
     if isinstance(layout, int):
         return Layout(layout)
 
@@ -2015,7 +2022,7 @@ def left_inverse(layout: Any) -> Any:
             offset=-layout.offset,
         )
     if isinstance(layout, Layout) and layout.swizzle is not None:
-        return compose(left_inverse(_affine_inner(layout)), layout.swizzle)
+        return compose(left_inverse(_strip_swizzle(layout)), layout.swizzle)
     if isinstance(layout, int):
         return Layout(layout)
 
@@ -3177,7 +3184,7 @@ def _compose_swizzled_layout_lhs(layout_a: "Layout", layout_b: Any) -> Any:
     Strip the embedded swizzle, recurse on the affine inner, then re-attach
     the swizzle in the cheapest representation that still composes.
     """
-    inner_composed = compose(_affine_inner(layout_a), layout_b)
+    inner_composed = compose(_strip_swizzle(layout_a), layout_b)
     if isinstance(inner_composed, Layout) and inner_composed.swizzle is None:
         return Layout(inner_composed.shape, inner_composed.stride, swizzle=layout_a.swizzle)
     return ComposedLayout(layout_a.swizzle, inner_composed)
