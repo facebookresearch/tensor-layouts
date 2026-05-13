@@ -554,7 +554,7 @@ PYTHON_POINTWISE_CASES = {
                 "7",
                 ComposedLayout(
                     Layout(32, 2),
-                    Layout(32, 1, swizzle=Swizzle(2, 1, 3)),
+                    ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), offset=0),
                     offset=0,
                 ),
             ),
@@ -582,7 +582,7 @@ PYTHON_POINTWISE_CASES = {
                 "7",
                 ComposedLayout(
                     Layout(32, 2),
-                    Layout(32, 1, swizzle=Swizzle(2, 1, 3)),
+                    ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), offset=0),
                     offset=0,
                 ),
             ),

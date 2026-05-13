@@ -1501,12 +1501,12 @@ if __name__ == "__main__":
 ## from_F2_matrix and to/from round-trip
 
 
-def test_to_F2_matrix_accepts_composed_layout_with_swizzle_outer():
-    """ComposedLayout(Swizzle, Layout, offset=0) gives the same matrix as
-    the equivalent Layout-with-embedded-swizzle. Both are F2-linear."""
-    embedded = Layout((8, 8), (8, 1), swizzle=Swizzle(3, 0, 3))
-    composed = ComposedLayout(Swizzle(3, 0, 3), Layout((8, 8), (8, 1)), offset=0)
-    assert to_F2_matrix(composed) == to_F2_matrix(embedded)
+# Removed: test_to_F2_matrix_accepts_composed_layout_with_swizzle_outer.
+# Path X retires the embedded-swizzle Layout form; the ``Layout(.., swizzle=...)``
+# kwarg is removed in C3. The cross-form-equivalence claim becomes vacuous
+# (only one form exists). Coverage of ComposedLayout(Sw, L) is preserved by
+# test_from_F2_matrix_round_trips_composed_swizzle_outer below.
+
 
 
 def test_to_F2_matrix_accepts_composed_layout_with_layout_outer():
@@ -1556,16 +1556,25 @@ def test_from_F2_matrix_round_trips_col_major():
 
 def test_from_F2_matrix_round_trips_swizzled_layout():
     """The interesting case: swizzle-extraction recovers the Swizzle from a
-    matrix that is otherwise affine-after-XOR."""
-    L = Layout((8, 8), (8, 1), swizzle=Swizzle(3, 0, 3))
+    matrix that is otherwise affine-after-XOR.
+
+    Representation-tolerant (Path X): ``from_F2_matrix`` may return an
+    embedded-swizzle Layout (legacy) or a ComposedLayout(Sw, L) (Path X);
+    the contract is that round-tripping the matrix is identity.
+    """
+    L = ComposedLayout(Swizzle(3, 0, 3), Layout((8, 8), (8, 1)), offset=0)
     M = to_F2_matrix(L)
-    assert from_F2_matrix(M, L.shape) == L
+    R = from_F2_matrix(M, (8, 8))
+    assert isinstance(R, (Layout, ComposedLayout))
+    assert to_F2_matrix(R) == M
 
 
 def test_from_F2_matrix_round_trips_negative_shift_swizzle():
-    L = Layout((8, 8), (1, 8), swizzle=Swizzle(2, 0, -3))
+    L = ComposedLayout(Swizzle(2, 0, -3), Layout((8, 8), (1, 8)), offset=0)
     M = to_F2_matrix(L)
-    assert from_F2_matrix(M, L.shape) == L
+    R = from_F2_matrix(M, (8, 8))
+    assert isinstance(R, (Layout, ComposedLayout))
+    assert to_F2_matrix(R) == M
 
 
 def test_from_F2_matrix_round_trips_stride_2():
@@ -1576,14 +1585,16 @@ def test_from_F2_matrix_round_trips_stride_2():
 
 def test_from_F2_matrix_round_trips_composed_swizzle_outer():
     """Going through the ComposedLayout entry of to_F2_matrix and reconstructing
-    via from_F2_matrix yields the equivalent embedded-swizzle Layout (the
-    canonical Layout form for a Sw o L that is F2-linear)."""
+    via from_F2_matrix yields a layout functionally equal to the original.
+
+    Representation-tolerant (Path X): the reconstructed layout may be an
+    embedded-swizzle Layout (legacy) or a ComposedLayout (Path X); the
+    contract is that the F2 matrix round-trips.
+    """
     cl = ComposedLayout(Swizzle(3, 0, 3), Layout((8, 8), (8, 1)), offset=0)
     M = to_F2_matrix(cl)
     reconstructed = from_F2_matrix(M, (8, 8))
-    # cl and reconstructed are functionally equal; reconstructed is the
-    # embedded-swizzle Layout form.
-    assert isinstance(reconstructed, Layout)
+    assert isinstance(reconstructed, (Layout, ComposedLayout))
     assert to_F2_matrix(reconstructed) == M
 
 

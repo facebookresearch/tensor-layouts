@@ -159,8 +159,10 @@ def test_compose_layout_with_swizzle_rhs_keeps_representable_fast_path():
     swizzle = Swizzle(2, 0, 2)
     result = compose(outer, swizzle)
 
-    assert isinstance(result, Layout)
-    assert result.swizzle is not None
+    # Representation-tolerant: today the representable case decays to an
+    # embedded-swizzle Layout, post-Path-X it returns a ComposedLayout.
+    # Pointwise equivalence is the contract that matters.
+    assert isinstance(result, (Layout, ComposedLayout))
     _assert_pointwise_equal(result, lambda i: outer(swizzle(i)))
 
 
@@ -179,8 +181,10 @@ def test_compose_layout_on_zero_offset_composed_layout_can_collapse():
     inner = ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), offset=0)
     result = compose(outer, inner)
 
-    assert isinstance(result, Layout)
-    assert result.swizzle is not None
+    # Representation-tolerant (Path X): both Layout-with-embedded-swizzle and
+    # ComposedLayout(Sw, L) are acceptable representations of the same
+    # function; only pointwise equivalence is contractual.
+    assert isinstance(result, (Layout, ComposedLayout))
     _assert_pointwise_equal(result, lambda i: outer(inner(i)))
 
 
@@ -198,8 +202,10 @@ def test_compose_swizzled_layout_outer_preserves_exactness():
     inner = Layout(8, 2)
     result = compose(outer, inner)
 
-    assert isinstance(result, Layout)
-    assert result.swizzle == outer.swizzle
+    # Representation-tolerant (Path X): the outer's swizzle must be preserved
+    # in some form (embedded or composed); pointwise equivalence is the
+    # contract that matters.
+    assert isinstance(result, (Layout, ComposedLayout))
     _assert_pointwise_equal(result, lambda i: outer(inner(i)))
 
 
@@ -451,11 +457,12 @@ def test_slice_on_swizzled_composed_decays_when_y_or_z_misses():
     composed = ComposedLayout(Swizzle(2, 0, 2), Layout((4, 4), (1, 4)))
 
     # Each j fixes the Z bits to a different constant; the surviving 4-coord
-    # mode only walks Y bits, so decay is safe.
+    # mode only walks Y bits, so decay is safe. Sub must be a plain affine
+    # Layout (no swizzle wrapper); under Path X this is the only swizzle-free
+    # form.
     for j in range(4):
         sub, off = slice_and_offset((None, j), composed)
         assert isinstance(sub, Layout)
-        assert sub.swizzle is None
         for i in range(4):
             assert off + sub(i) == composed(i, j)
 
@@ -485,8 +492,9 @@ def test_slice_on_swizzled_layout_decays_to_canonical_form():
     is the real check; the chosen representation is implementation detail.
     """
     sw_layout = compose(Swizzle(3, 0, 3), Layout((8, 8), (8, 1)))
-    assert isinstance(sw_layout, Layout)
-    assert sw_layout.swizzle is not None
+    # Representation-tolerant (Path X): canonical Sw o L may live as either
+    # an embedded-swizzle Layout or a ComposedLayout; both are acceptable.
+    assert isinstance(sw_layout, (Layout, ComposedLayout))
 
     # The slice may decay to a plain Layout (when the swizzle is affine on
     # the surviving inner image) or remain a ComposedLayout(Sw, sub, k).
@@ -509,9 +517,10 @@ def test_logical_product_with_swizzled_tile_transfers_swizzle():
     tile = ComposedLayout(swizzle, Layout((4, 4), (1, 4)))
     result = logical_product(layout_a, tile)
 
-    # The swizzle must survive — the old code dropped it.
-    assert isinstance(result, Layout)
-    assert result.swizzle is not None
+    # The swizzle must survive — the old code dropped it. Representation
+    # is implementation-defined (embedded Layout today, ComposedLayout under
+    # Path X); pointwise equivalence is the contract.
+    assert isinstance(result, (Layout, ComposedLayout))
 
     # Pointwise check against CuTe's defining formula.
     comp = complement(layout_a, size(layout_a) * cosize(tile))
@@ -1025,4 +1034,3 @@ def test_cosize_cache_does_not_affect_equality_or_hash():
     assert b._cached_cosize is None
     assert a == b
     assert hash(a) == hash(b)
-
