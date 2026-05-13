@@ -35,24 +35,40 @@ When storage is present:
 When storage is absent, the Tensor is purely algebraic and ``tensor[i, j]``
 returns the integer offset (the original behavior).
 
-IMPORTANT: For swizzled layouts, the base offset is a *linear* offset that
-gets added to the linear coordinate-to-offset result BEFORE swizzling.
-This is critical for correct slicing behavior: slicing accumulates linear
-offset, and the swizzle is applied at the final call.
+Address semantics: ``tensor[coord]`` evaluates to
+``offset + layout(coord)``, matching CuTe's ``Tensor = (Engine, Layout)``
+where the engine pointer is shifted by an integer base. For swizzled
+layouts (both ``Layout(..., swizzle=Sw)`` and ``ComposedLayout(Sw, L, k)``)
+the swizzle is applied INSIDE ``layout(coord)``; the Tensor's external
+offset is added linearly afterwards.
+
+Slicing chains preserve correctness because slicing an embedded-swizzle
+Layout with non-trivial coords produces a ``ComposedLayout(Sw, sub_L,
+offset=delta)`` (Form B) -- the slice's contribution is folded into the
+ComposedLayout's own offset slot, where the swizzle is applied to it
+inside ``__call__``. The Tensor's external offset never re-enters the
+swizzle's domain.
 """
+
+import warnings
 
 from .layouts import *
 from .layouts import _split_zero_offset_swizzle
 
 
 def _tensor_address(offset: int, layout: LayoutExpr, coords) -> int:
-    """Resolve a tensor address from an external offset and a layout expression."""
+    """Resolve a tensor address from an external offset and a layout expression.
+
+    Always computes ``offset + layout(coord)``: the layout is evaluated
+    first (any embedded swizzle is applied inside that call), then the
+    Tensor's external offset is added linearly. This matches CuTe and
+    matches the ComposedLayout addressing convention.
+    """
     if isinstance(layout, Layout):
         linear_result = crd2offset(coords, layout.shape, layout.stride)
-        total_linear = offset + linear_result
         if layout.swizzle is not None:
-            return layout.swizzle(total_linear)
-        return total_linear
+            return offset + layout.swizzle(linear_result)
+        return offset + linear_result
     return offset + layout(coords)
 
 
@@ -236,6 +252,30 @@ class Tensor:
     def __init__(self, layout: LayoutExpr, offset: int = 0, data=None):
         self._layout = as_layout_expr(layout)
         self._offset = offset
+        if (
+            offset != 0
+            and isinstance(self._layout, Layout)
+            and self._layout.swizzle is not None
+        ):
+            # The addressing semantics for Tensor over an embedded-swizzle
+            # Layout with a nonzero external offset CHANGED in this release.
+            # Previously the offset was folded into the swizzle's input
+            # (Sw(offset + L(coord))); it is now added linearly after the
+            # swizzle (offset + Sw(L(coord))), matching CuTe and matching
+            # the existing ComposedLayout behavior. If a caller depended on
+            # the old fold-into-domain semantic, the equivalent today is
+            # `Tensor(ComposedLayout(Sw, L, offset=k), offset=0)`.
+            warnings.warn(
+                "Tensor(swizzled Layout, offset!=0): addressing changed in "
+                "this release. The external offset is now added AFTER the "
+                "swizzle (offset + Sw(L(coord))), matching CuTe. Previously "
+                "it was folded into the swizzle's input domain "
+                "(Sw(offset + L(coord))). To recover the old semantic, "
+                "construct with `Tensor(ComposedLayout(swizzle, layout, "
+                "offset=k), offset=0)`.",
+                UserWarning,
+                stacklevel=2,
+            )
         if data is not None:
             _validate_storage(self._layout, self._offset, data)
         self._data = data

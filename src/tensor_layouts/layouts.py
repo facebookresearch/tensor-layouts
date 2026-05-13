@@ -2452,13 +2452,27 @@ def slice_and_offset(crd, layout: LayoutExpr):
         swizzle=layout.swizzle,
     )
     offset = crd2offset(crd, layout.shape, layout.stride)
-    # Layout-with-embedded-swizzle is intentionally NOT decayed here even
-    # though CuTe C++ would: tensor-layouts' Tensor model applies the
-    # tensor's base offset INSIDE the embedded swizzle (see
-    # tensor.py::_tensor_address) so a downstream Tensor that wraps this
-    # sliced layout still needs the swizzle to participate in the combined
-    # address. ComposedLayout's offset is internal and self-contained,
-    # which is why decay is safe in that case (handled above).
+
+    # For embedded-swizzle Layout with a non-trivial slice (full slice is
+    # exempt and keeps its swizzle on the sub-Layout), fold the slice's
+    # contribution into a ComposedLayout(Sw, sub_L, offset=delta) -- Form B.
+    # The swizzle is then applied to (delta + sub_L(coord)) inside
+    # ComposedLayout.__call__, and the residue handed back to the Tensor is
+    # zero. This matches CuTe (slice_and_offset on a swizzled layout
+    # accumulates into the Sw-fronted ComposedLayout's own offset) and
+    # matches the Tensor address rule (offset + Sw(L(coord))).
+    if layout.swizzle is not None and not coords_all_none(crd):
+        exact = ComposedLayout(
+            layout.swizzle, Layout(sublayout.shape, sublayout.stride), offset=offset
+        )
+        # Attempt the same affine-decay CuTe does when the restricted slice
+        # makes the swizzle affine on the surviving inner image.
+        decayed = _try_decay_swizzle_composed(exact)
+        if decayed is not None:
+            decayed_layout, base_offset = decayed
+            return (decayed_layout, base_offset)
+        return (exact, 0)
+
     return (sublayout, offset)
 
 

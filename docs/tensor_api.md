@@ -103,12 +103,16 @@ Tensor(layout, data=torch.arange(32).reshape(4, 8))   # error: storage is 2D
 `tensor(i, j)` always returns the **memory offset** (an integer),
 regardless of whether storage is present.
 
-For canonical swizzled `Layout` objects, the swizzle is applied to the total
-linear offset:
+The Tensor's external offset is added linearly AFTER the layout's call:
 
 ```
-tensor(i, j) = swizzle(base_offset + crd2offset((i, j), shape, stride))
+tensor(coord) == tensor.offset + tensor.layout(coord)
 ```
+
+For a swizzled layout the swizzle is applied inside `tensor.layout(coord)`;
+the external offset is a pointer-style shift that does not enter the
+swizzle's domain. This matches CuTe's
+``Tensor = (Engine, Layout)`` model.
 
 This is unaffected by storage — use `__call__` when you need the raw
 offset, and `__getitem__` when you want the data element.
@@ -128,22 +132,22 @@ exact = compose(
 t = Tensor(exact, offset=100)
 ```
 
-The important distinction is:
+The two offsets play different roles:
 
-- `Tensor.offset` is an **external** pointer/base offset
+- `Tensor.offset` is an **external** pointer/base offset, added linearly
+  AFTER the layout's call (it does not participate in any swizzle).
 - `ComposedLayout.offset` is an **internal** offset that lives before the
-  outer map
+  outer map, so it DOES interact with any swizzle in the outer slot.
 
-For `Tensor(ComposedLayout(...))`, addressing is therefore:
+For both `Tensor(Layout(.., swizzle=Sw))` and
+`Tensor(ComposedLayout(Sw, L, k))`, addressing is therefore:
 
 ```python
 tensor(coord) == tensor.offset + tensor.layout(coord)
 ```
 
-not "push `tensor.offset` under the outer nonlinear map".
-
-That is different from the canonical embedded-swizzle `Layout` fast path,
-where the tensor offset still participates in the pre-swizzle linear address.
+The Tensor's external offset is never folded into the swizzle's input
+domain.
 
 ### Slicing with composed layouts
 
@@ -419,7 +423,7 @@ hashes, and collisions when only data differs are harmless.
 | Property | Type | Description |
 |----------|------|-------------|
 | `layout` | `Layout` | The underlying layout |
-| `offset` | `int` | Base offset in linear (pre-swizzle) space |
+| `offset` | `int` | External base offset, added linearly after the layout call (does not enter any swizzle) |
 | `shape` | tuple | Shorthand for `layout.shape` |
 | `stride` | tuple | Shorthand for `layout.stride` |
 | `data` | flat 1D indexable or `None` | Backing storage (read-write) |

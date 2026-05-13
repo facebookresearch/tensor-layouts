@@ -475,17 +475,27 @@ def test_slice_on_swizzled_composed_stays_composed_when_y_and_z_both_hit():
     # (We exercise this via composing through an outer to verify the bail-out.)
 
 
-def test_slice_on_swizzled_layout_does_not_decay_for_tensor_compatibility():
-    """Layout-with-embedded-swizzle slicing intentionally keeps the swizzle so
-    Tensor's pre-swizzle base offset semantics still apply (tensor.py applies
-    the tensor's own offset INSIDE the embedded swizzle).
+def test_slice_on_swizzled_layout_decays_to_canonical_form():
+    """Slicing a Layout-with-embedded-swizzle decays to a canonical form whose
+    addresses match the un-sliced layout. Under CuTe-aligned addressing the
+    Tensor's base offset is added AFTER the swizzle, so the slice's
+    contribution must be folded into the swizzle's domain (either via a
+    Form-B ComposedLayout or via affine decay when the slice restricts the
+    swizzle's input enough). Functional equivalence (slice(j) == orig(i, j))
+    is the real check; the chosen representation is implementation detail.
     """
     sw_layout = compose(Swizzle(3, 0, 3), Layout((8, 8), (8, 1)))
     assert isinstance(sw_layout, Layout)
     assert sw_layout.swizzle is not None
+
+    # The slice may decay to a plain Layout (when the swizzle is affine on
+    # the surviving inner image) or remain a ComposedLayout(Sw, sub, k).
+    # Both forms are acceptable; what matters is that the addresses match.
     sub, off = slice_and_offset((1, None), sw_layout)
-    assert isinstance(sub, Layout)
-    assert sub.swizzle is not None  # NOT decayed; preserved for Tensor offset
+    for j in range(8):
+        # sub(j) returns the offset within the sliced layout; off + that
+        # equals the un-sliced layout(1, j).
+        assert off + sub(j) == sw_layout(1, j)
 
 
 def test_logical_product_with_swizzled_tile_transfers_swizzle():

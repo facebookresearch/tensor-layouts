@@ -556,34 +556,31 @@ def test_swizzle_xor_pattern():
 
 
 def test_swizzled_slice_row():
-    """Slice row from swizzled tensor."""
+    """Slice row from swizzled tensor; addresses match un-sliced tensor.
+
+    Under CuTe-aligned addressing the offset/swizzle bookkeeping in the
+    sliced sub-Tensor is implementation-defined (may be a Form-B
+    ComposedLayout, an affine-decayed plain Layout, etc.). The contract
+    that matters is functional: row(j) == tensor(i, j).
+    """
     sw_layout = compose(Swizzle(3, 0, 3), Layout((8, 8), (8, 1)))
     tensor = Tensor(sw_layout)
 
     for i in range(8):
         row = tensor[i, :]
         assert isinstance(row, Tensor)
-        # Offset is LINEAR (before swizzle)
-        assert row.offset == i * 8
-        # Swizzle preserved
-        assert row.layout.swizzle is not None
-
-        # Critical invariant: row(j) == tensor(i, j)
         for j in range(8):
             assert row(j) == tensor(i, j), f"Mismatch at [{i}, :]({j})"
 
 
 def test_swizzled_slice_column():
-    """Slice column from swizzled tensor."""
+    """Slice column from swizzled tensor; addresses match un-sliced tensor."""
     sw_layout = compose(Swizzle(3, 0, 3), Layout((8, 8), (8, 1)))
     tensor = Tensor(sw_layout)
 
     for j in range(8):
         col = tensor[:, j]
         assert isinstance(col, Tensor)
-        assert col.offset == j
-        assert col.layout.swizzle is not None
-
         for i in range(8):
             assert col(i) == tensor(i, j), f"Mismatch at [:, {j}]({i})"
 
@@ -607,16 +604,15 @@ def test_swizzled_full_grid_exhaustive():
 
 
 def test_swizzled_hierarchical_partial_slice():
-    """Partial hierarchical slices keep swizzle semantics."""
+    """Partial hierarchical slices preserve addressing equivalence with the
+    un-sliced tensor (representation of sub.layout is implementation-
+    defined under CuTe-aligned addressing).
+    """
     sw_layout = compose(Swizzle(2, 0, 2), Layout(((2, 2), 4), ((1, 2), 4)))
     tensor = Tensor(sw_layout)
 
     sub = tensor[((None, 1), None)]
     assert isinstance(sub, Tensor)
-    assert sub.offset == 2
-    assert sub.layout.shape == (2, 4)
-    assert sub.layout.stride == (1, 4)
-    assert sub.layout.swizzle == sw_layout.swizzle
 
     for i0 in range(2):
         for j in range(4):
@@ -650,33 +646,92 @@ def test_swizzle_1_2_3():
             assert row(j) == tensor(i, j)
 
 
+def test_tensor_embedded_swizzle_offset_added_after_swizzle():
+    """CuTe-aligned addressing: Tensor(EmbSwL, offset=k)[coord] == k + Sw(L(coord)).
+
+    Regression for the semantic change in this release. Previously the
+    external offset was folded into the swizzle's input domain
+    (Sw(offset + L(coord))); it is now added linearly after the swizzle.
+    """
+    import warnings
+    sw = Swizzle(3, 0, 3)
+    L = Layout((8, 8), (8, 1))
+    embedded = compose(sw, L)               # Layout with embedded swizzle
+    assert isinstance(embedded, Layout) and embedded.swizzle is sw
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)
+        t = Tensor(embedded, offset=100)
+
+    for i in range(8):
+        for j in range(8):
+            expected = 100 + sw(L(i, j))    # offset + Sw(L(coord))  -- the new rule
+            assert t(i, j) == expected, (
+                f"Tensor(EmbSwL, offset=100)({i},{j}): got {t(i,j)} expected {expected}"
+            )
+
+
+def test_tensor_embedded_swizzle_and_composed_form_agree_under_offset():
+    """Tensor(Layout(.., swizzle=Sw), offset=k) and
+    Tensor(ComposedLayout(Sw, Layout, 0), offset=k) compute the same
+    addresses for matching layouts. Before the alignment fix the two
+    forms diverged for nonzero k.
+    """
+    import warnings
+    from tensor_layouts import ComposedLayout
+    sw = Swizzle(3, 0, 3)
+    L_plain = Layout((8, 8), (8, 1))
+    embedded = compose(sw, L_plain)
+
+    composed = ComposedLayout(sw, L_plain, offset=0)
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)
+        t_emb = Tensor(embedded, offset=42)
+    t_comp = Tensor(composed, offset=42)
+
+    for i in range(8):
+        for j in range(8):
+            assert t_emb(i, j) == t_comp(i, j), (
+                f"form parity broken at ({i},{j}): "
+                f"embedded={t_emb(i,j)} composed={t_comp(i,j)}"
+            )
+
+
 def test_swizzled_with_offset():
-    """Swizzled tensor with non-zero base offset."""
+    """Swizzled tensor with non-zero base offset; addresses match un-sliced.
+
+    Under CuTe-aligned addressing the Tensor's external offset is added
+    AFTER the swizzle (offset + Sw(L(coord))), so the offset on the
+    sliced sub-Tensor is implementation-defined (depends on decay vs
+    Form-B) and need not equal `100 + i*8`. The functional contract is
+    `row(j) == tensor(i, j)`.
+    """
+    import warnings
     sw_layout = compose(Swizzle(3, 0, 3), Layout((8, 8), (8, 1)))
-    tensor = Tensor(sw_layout, offset=100)
+    with warnings.catch_warnings():
+        # Suppress the new-semantic notice for this deliberately-exercised pattern.
+        warnings.simplefilter("ignore", UserWarning)
+        tensor = Tensor(sw_layout, offset=100)
 
     for i in range(8):
         row = tensor[i, :]
-        assert row.offset == 100 + i * 8
-
         for j in range(8):
             assert row(j) == tensor(i, j)
 
 
 def test_swizzled_sequential_slices():
-    """Sequential slicing of swizzled tensor."""
+    """Sequential slicing of swizzled tensor; final addresses match direct.
+
+    Intermediate offset/layout representations are implementation-defined
+    under CuTe-aligned addressing; the contract is that the final
+    dereference matches the un-sliced tensor for the same coords.
+    """
     sw_layout = compose(Swizzle(3, 0, 3), Layout((8, 8, 2), (8, 1, 64)))
     tensor = Tensor(sw_layout)
 
-    # Slice mode 0
     s1 = tensor[3, :, :]
-    assert s1.offset == 24
-
-    # Slice mode 1 of result
     s2 = s1[5, :]
-    assert s2.offset == 24 + 5
-
-    # Final element
     for k in range(2):
         assert s2(k) == tensor(3, 5, k)
 
@@ -1173,20 +1228,27 @@ def test_tensor_full_slice_matches_explicit_full_slice():
 
 def test_swizzled_tensor_full_slice_matches_explicit_full_slice():
     """A bare full slice preserves swizzled whole-tensor semantics."""
+    import warnings
     sw_layout = compose(Swizzle(3, 0, 3), Layout((8, 8), (8, 1)))
-    tensor = Tensor(sw_layout, offset=16)
+    with warnings.catch_warnings():
+        # Suppress the Tensor(EmbSwL, offset!=0) UserWarning for the whole
+        # test -- the deliberate pattern is exercised both by the explicit
+        # constructor below and by the slice/view paths that propagate the
+        # offset through internal Tensor() constructions.
+        warnings.simplefilter("ignore", UserWarning)
+        tensor = Tensor(sw_layout, offset=16)
 
-    full = tensor[:]
-    explicit = tensor[:, :]
+        full = tensor[:]
+        explicit = tensor[:, :]
 
-    assert isinstance(full, Tensor)
-    assert full == explicit
-    assert full.layout.swizzle == sw_layout.swizzle
-    assert full.offset == tensor.offset
+        assert isinstance(full, Tensor)
+        assert full == explicit
+        assert full.layout.swizzle == sw_layout.swizzle
+        assert full.offset == tensor.offset
 
-    for i in range(8):
-        for j in range(8):
-            assert full(i, j) == tensor(i, j)
+        for i in range(8):
+            for j in range(8):
+                assert full(i, j) == tensor(i, j)
 
 
 # =============================================================================
