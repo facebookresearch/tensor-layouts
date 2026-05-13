@@ -881,12 +881,21 @@ def test_composed_layout_repr():
 
 
 def test_composed_layout_shape():
-    """Test that swizzled Layout preserves shape."""
+    """Test that swizzled Layout preserves shape.
+
+    Path X representation-tolerant: ``compose(Sw, L)`` may now return a
+    ``ComposedLayout`` (which exposes ``.shape`` but not ``.stride``); the
+    inner affine layout is what holds ``.stride``.
+    """
     base_layout = Layout((8, 8), (8, 1))
     sw_layout = compose(Swizzle(3, 0, 3), base_layout)
 
     assert sw_layout.shape == base_layout.shape
-    assert sw_layout.stride == base_layout.stride
+    if isinstance(sw_layout, Layout):
+        assert sw_layout.stride == base_layout.stride
+    else:
+        # ComposedLayout wraps base_layout intact in its inner slot.
+        assert sw_layout.inner.stride == base_layout.stride
 
 
 ###############################################################################
