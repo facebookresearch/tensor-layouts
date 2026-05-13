@@ -518,7 +518,10 @@ def test_swizzled_construction():
     sw_layout = compose(Swizzle(3, 0, 3), Layout((8, 8), (8, 1)))
     tensor = Tensor(sw_layout)
 
-    assert tensor.layout.swizzle is not None
+    # Representation-tolerant (Path X): the swizzled construction may live
+    # as either an embedded-swizzle Layout (legacy) or a ComposedLayout.
+    from tensor_layouts import ComposedLayout as _ComposedLayout
+    assert isinstance(tensor.layout, (Layout, _ComposedLayout))
     assert rank(tensor.layout) == 2
 
 
@@ -647,17 +650,18 @@ def test_swizzle_1_2_3():
 
 
 def test_tensor_embedded_swizzle_offset_added_after_swizzle():
-    """CuTe-aligned addressing: Tensor(EmbSwL, offset=k)[coord] == k + Sw(L(coord)).
+    """CuTe-aligned addressing: Tensor(SwL, offset=k)[coord] == k + Sw(L(coord)).
 
     Regression for the semantic change in this release. Previously the
     external offset was folded into the swizzle's input domain
     (Sw(offset + L(coord))); it is now added linearly after the swizzle.
     """
     import warnings
+    from tensor_layouts import ComposedLayout as _ComposedLayout
     sw = Swizzle(3, 0, 3)
     L = Layout((8, 8), (8, 1))
-    embedded = compose(sw, L)               # Layout with embedded swizzle
-    assert isinstance(embedded, Layout) and embedded.swizzle is sw
+    embedded = compose(sw, L)               # canonical Sw o L (any representation)
+    assert isinstance(embedded, (Layout, _ComposedLayout))
 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", UserWarning)
@@ -667,35 +671,16 @@ def test_tensor_embedded_swizzle_offset_added_after_swizzle():
         for j in range(8):
             expected = 100 + sw(L(i, j))    # offset + Sw(L(coord))  -- the new rule
             assert t(i, j) == expected, (
-                f"Tensor(EmbSwL, offset=100)({i},{j}): got {t(i,j)} expected {expected}"
+                f"Tensor(SwL, offset=100)({i},{j}): got {t(i,j)} expected {expected}"
             )
 
 
-def test_tensor_embedded_swizzle_and_composed_form_agree_under_offset():
-    """Tensor(Layout(.., swizzle=Sw), offset=k) and
-    Tensor(ComposedLayout(Sw, Layout, 0), offset=k) compute the same
-    addresses for matching layouts. Before the alignment fix the two
-    forms diverged for nonzero k.
-    """
-    import warnings
-    from tensor_layouts import ComposedLayout
-    sw = Swizzle(3, 0, 3)
-    L_plain = Layout((8, 8), (8, 1))
-    embedded = compose(sw, L_plain)
-
-    composed = ComposedLayout(sw, L_plain, offset=0)
-
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", UserWarning)
-        t_emb = Tensor(embedded, offset=42)
-    t_comp = Tensor(composed, offset=42)
-
-    for i in range(8):
-        for j in range(8):
-            assert t_emb(i, j) == t_comp(i, j), (
-                f"form parity broken at ({i},{j}): "
-                f"embedded={t_emb(i,j)} composed={t_comp(i,j)}"
-            )
+# Removed: test_tensor_embedded_swizzle_and_composed_form_agree_under_offset.
+# Path X retires the embedded-swizzle Layout form; with a single
+# representation there is no longer a "two forms" parity contract to
+# verify. Address correctness is now covered by the surviving
+# canonical-form tests (Tensor(ComposedLayout(Sw, L, 0), offset=k) and the
+# new test_tensor_embedded_swizzle_offset_added_after_swizzle).
 
 
 def test_swizzled_with_offset():
@@ -1243,7 +1228,10 @@ def test_swizzled_tensor_full_slice_matches_explicit_full_slice():
 
         assert isinstance(full, Tensor)
         assert full == explicit
-        assert full.layout.swizzle == sw_layout.swizzle
+        # Pointwise correctness check below already verifies that the
+        # swizzle survives. Drop the representation-pinning
+        # ``full.layout.swizzle == sw_layout.swizzle`` since under Path X
+        # both layouts may be ComposedLayout (whose swizzle lives on .outer).
         assert full.offset == tensor.offset
 
         for i in range(8):
@@ -1897,21 +1885,14 @@ def test_address_bounds_fast_path_swizzled_layout_matches_walk():
 
     For every reachable flat index, _tensor_address(offset, layout, idx)
     must lie within the bounds returned by _address_bounds. This is the
-    contract _validate_storage relies on; verifying it across both
-    representations (embedded-swizzle Layout and ComposedLayout(Sw, L, 0))
-    pins the fast path's correctness.
+    contract _validate_storage relies on; verifying it on the canonical
+    ComposedLayout(Sw, L, 0) form pins the fast path's correctness.
     """
     from tensor_layouts.tensor import _address_bounds, _tensor_address
     from tensor_layouts import Swizzle, ComposedLayout
 
     sw = Swizzle(2, 0, 2)
-    # Mix of cases that exercise both the fast path (embedded@offset=0,
-    # composed@any offset) and the slow walk (embedded@offset>0). Both
-    # paths must agree with the per-coordinate enumeration.
     cases = [
-        ("embedded p2 fast",       Layout(16, 1, swizzle=sw),                  0),
-        ("embedded np2 fast",      Layout(5, 1, swizzle=sw),                   0),
-        ("embedded p2 +offset slow", Layout(16, 1, swizzle=sw),                5),
         ("composed p2 fast",       ComposedLayout(sw, Layout(16, 1), offset=0), 7),
         ("composed np2 fast",      ComposedLayout(sw, Layout(5, 1), offset=0),  0),
     ]
@@ -1930,9 +1911,9 @@ def test_address_bounds_fast_path_taken_for_canonical_swizzle():
     the fast path was taken, the returned hi reflects the poisoned value;
     if the slow walk was taken, hi would be the real per-coordinate max.
 
-    Exercises BOTH forms with a non-zero Tensor offset (the embedded
-    form's previous offset==0 gate was dropped after the CuTe-aligned
-    addressing fix in commit c19e378).
+    Path X: Layout is purely affine, so the canonical swizzle form is the
+    ComposedLayout. Sister test for the legacy embedded-swizzle path was
+    removed when the embedded form was retired.
     """
     from tensor_layouts.tensor import _address_bounds
     from tensor_layouts import ComposedLayout, Swizzle
@@ -1945,14 +1926,6 @@ def test_address_bounds_fast_path_taken_for_canonical_swizzle():
     lo, hi = _address_bounds(comp, 100)
     assert lo == 100
     assert hi == 100 + 999 - 1, f"composed fast path not taken; got hi={hi}"
-
-    # Embedded-swizzle Layout form -- now also fast-pathed for nonzero offset.
-    L = Layout(16, 1, swizzle=sw)
-    _ = _address_bounds(L, 0)               # populate cosize cache
-    L._cached_cosize = 999                  # poison
-    lo, hi = _address_bounds(L, 100)
-    assert lo == 100
-    assert hi == 100 + 999 - 1, f"embedded fast path not taken; got hi={hi}"
 
 
 def test_address_bounds_slow_walk_for_negative_stride_inner():
@@ -1974,26 +1947,11 @@ def test_address_bounds_slow_walk_for_negative_stride_inner():
     assert hi == max(actual)
 
 
-def test_address_bounds_fast_path_for_embedded_swizzle_with_nonzero_offset():
-    """Embedded-swizzle Layout with nonzero Tensor offset uses the fast path.
-
-    After the CuTe-aligned addressing fix (commit c19e378) the Tensor's
-    external offset is added linearly AFTER the swizzle for embedded form
-    too, so the fast-path bound (offset, offset + cosize - 1) is correct
-    for any offset (no longer gated to offset == 0). The result must still
-    match an explicit per-coordinate enumeration.
-    """
-    from tensor_layouts.tensor import _address_bounds, _tensor_address
-    from tensor_layouts import Swizzle
-    sw = Swizzle(2, 0, 2)
-    L = Layout(16, 1, swizzle=sw)
-    lo, hi = _address_bounds(L, 5)
-    actual = [_tensor_address(5, L, i) for i in range(size(L))]
-    assert lo == min(actual)
-    assert hi == max(actual)
-    # Pin the fast-path semantic explicitly: bounds == (offset, offset+cosize-1).
-    assert lo == 5
-    assert hi == 5 + cosize(L) - 1
+# Removed: test_address_bounds_fast_path_for_embedded_swizzle_with_nonzero_offset.
+# Path X retires the embedded-swizzle Layout form; the ComposedLayout
+# sibling tests above (test_address_bounds_fast_path_swizzled_layout_matches_walk,
+# test_address_bounds_fast_path_taken_for_canonical_swizzle) cover the
+# offset+cosize-1 fast-path bound for the surviving canonical form.
 
 
 def test_address_bounds_slow_walk_for_inverse_form_composed():

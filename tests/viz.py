@@ -211,7 +211,7 @@ def test_draw_layout_tensor_zero_offset():
 def test_draw_layout_swizzled_tensor():
     """Swizzled Tensor renders without error."""
     sw = Swizzle(3, 0, 3)
-    layout = Layout((8, 8), (8, 1), swizzle=sw)
+    layout = compose(sw, Layout((8, 8), (8, 1)))
     tensor = Tensor(layout, offset=0)
     fig = _build_layout_figure(tensor)
     try:
@@ -1738,4 +1738,3 @@ def test_viz_module_raises_actionable_importerror_when_matplotlib_missing():
     finally:
         sys.meta_path.pop(0)
         sys.modules.update(saved_modules)
-

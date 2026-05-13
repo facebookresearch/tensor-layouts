@@ -1384,7 +1384,7 @@ def example_tensor_slicing(output: Path):
 
     # Swizzled tensor — swizzle applied to total linear offset
     sw = Swizzle(3, 0, 3)
-    sw_layout = Layout((8, 8), (8, 1), swizzle=sw)
+    sw_layout = compose(sw, Layout((8, 8), (8, 1)))
     sw_tensor = Tensor(sw_layout, offset=0)
     draw_layout(sw_tensor, output / "tensor_swizzled.svg")
     print(f"✓ Swizzled tensor: {sw_tensor}")
