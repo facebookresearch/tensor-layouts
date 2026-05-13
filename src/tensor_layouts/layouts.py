@@ -584,11 +584,9 @@ class Layout:
         Layout(layout_a, layout_b) -- bundle two layouts as modes of a new layout
     """
 
-    def __init__(self, *args, swizzle: "Swizzle | None" = None):
-        self._swizzle = swizzle
-        # Lazy cache for the swizzled-cosize enumeration. Kept None for
-        # unswizzled layouts; populated on first cosize() call.
-        self._cached_cosize: "int | None" = None
+    def __init__(self, *args):
+        # Path X: Layout is purely affine. The legacy ``swizzle=`` kwarg
+        # and ``_cached_cosize`` slot were removed in C3.
 
         if len(args) == 0:
             self._shape = ()
@@ -637,27 +635,18 @@ class Layout:
         return (
             self.shape == other.shape
             and self.stride == other.stride
-            and self._swizzle == other._swizzle
         )
 
     def __hash__(self):
-        swizzle_hash = None
-        if self._swizzle is not None:
-            swizzle_hash = (self._swizzle.bits, self._swizzle.base, self._swizzle.shift)
-        return hash((self.shape, self.stride, swizzle_hash))
+        return hash((self.shape, self.stride))
 
     def __repr__(self):
         """Return an eval-safe constructor string: Layout((4, 2), (1, 4))."""
-        if self._swizzle is not None:
-            return f"Layout({self._shape!r}, {self._stride!r}, swizzle={self._swizzle!r})"
         return f"Layout({self._shape!r}, {self._stride!r})"
 
     def __str__(self):
         """Return human-readable CuTe notation: (4, 2) : (1, 4)."""
-        base = f"{_fmt_shape(self._shape)} : {_fmt_shape(self._stride)}"
-        if self._swizzle is not None:
-            return f"({self._swizzle}) o ({base})"
-        return base
+        return f"{_fmt_shape(self._shape)} : {_fmt_shape(self._stride)}"
 
     @property
     def shape(self) -> IntOrIntTuple:
@@ -667,11 +656,6 @@ class Layout:
     def stride(self) -> IntOrIntTuple:
         return self._stride
 
-    @property
-    def swizzle(self) -> "Swizzle | None":
-        """The swizzle function applied after computing linear offset, or None."""
-        return self._swizzle
-
     def __call__(self, *args):
         """Map a logical coordinate to a linear index, or slice the layout.
 
@@ -679,8 +663,8 @@ class Layout:
         A bare None is a full slice and returns the layout unchanged.
         Otherwise returns the integer offset.
 
-        For swizzled layouts, the swizzle function is applied after computing
-        the linear offset.
+        Path X: Layout is purely affine; swizzled forms live in
+        ``ComposedLayout``.
 
         Examples:
             Layout((4,8))((2,3)) -> 26       # coordinate to index
@@ -696,17 +680,10 @@ class Layout:
         if has_none(coords):
             sliced_shape = slice_modes(coords, self.shape)
             sliced_stride = slice_modes(coords, self.stride)
-            # Path X: Layout is purely affine; in-tree code never reaches
-            # this with a swizzled self. The legacy ``swizzle=`` kwarg is
-            # accepted at construction but does not propagate through
-            # slicing under Path X.
             if not sliced_shape:
                 return Layout((), ())
             return Layout(sliced_shape, sliced_stride)
-        linear_offset = crd2offset(coords, self.shape, self.stride)
-        if self._swizzle is not None:
-            return self._swizzle(linear_offset)
-        return linear_offset
+        return crd2offset(coords, self.shape, self.stride)
 
     def squeeze(self) -> "Layout":
         """Removes all dimensions of size 1 and their corresponding strides."""
@@ -891,22 +868,12 @@ LayoutExpr = Layout | ComposedLayout
 _NO_FORWARD = object()
 
 
-def _strip_swizzle(layout: Layout) -> Layout:
-    """Return the underlying affine ``Layout`` with any embedded swizzle removed.
-
-    A ``Layout`` may carry an embedded ``Swizzle`` (a non-linear post-processor
-    on the linear offset). Many algebra operations -- ``flatten``,
-    ``right_inverse`` / ``left_inverse``, ``compose`` against the affine layer,
-    domain-only transforms -- need to reason about the affine map alone and
-    re-attach the swizzle afterwards.
-    """
-    return Layout(layout.shape, layout.stride)
-
-
 def _split_zero_offset_swizzle(layout: LayoutExpr):
-    """Return (swizzle, inner_layout) for canonical zero-offset swizzle wrappers."""
-    if isinstance(layout, Layout) and layout.swizzle is not None:
-        return layout.swizzle, _strip_swizzle(layout)
+    """Return (swizzle, inner_layout) for canonical zero-offset swizzle wrappers.
+
+    Path X: only the ComposedLayout(Sw, L, 0) form is recognised; the
+    legacy embedded-swizzle Layout has been retired.
+    """
     if (
         isinstance(layout, ComposedLayout)
         and isinstance(layout.outer, Swizzle)
@@ -919,21 +886,14 @@ def _split_zero_offset_swizzle(layout: LayoutExpr):
 def _forward_layout_domain(layout, transform):
     """Apply a domain-only transform to the inner layout of a layout expression.
 
-    Path X: ``Layout`` is purely affine, so the legacy embedded-swizzle
-    fast path is gone. ComposedLayout always stays composed; bare Layout
-    falls through to the caller (which then applies the transform on the
-    whole affine layout).
+    Path X: ``Layout`` is purely affine. ComposedLayout always stays
+    composed; bare Layout falls through to the caller (which then applies
+    the transform on the whole affine layout).
     """
     if isinstance(layout, ComposedLayout):
         if isinstance(layout.inner, Swizzle):
             return _NO_FORWARD
         return ComposedLayout(layout.outer, transform(layout.inner), offset=layout.offset)
-    if isinstance(layout, Layout) and layout.swizzle is not None:
-        # Path X transitional: in-tree code no longer constructs embedded
-        # swizzle, but external callers may still pass a legacy form via
-        # the (still-accepted) ``swizzle=`` kwarg. Always promote to
-        # ComposedLayout rather than re-attaching the swizzle.
-        return ComposedLayout(layout.swizzle, transform(_strip_swizzle(layout)))
     return _NO_FORWARD
 
 
@@ -1083,13 +1043,8 @@ def cosize(obj: LayoutExpr) -> int:
     # 5 because XOR flips bit 2 above the affine max. Enumerate to capture
     # this -- mirrors the ComposedLayout fix in 5fbd19f for the embedded
     # form. For the common power-of-2 case both formulas agree.
-    if isinstance(obj, Layout) and obj.swizzle is not None:
-        if obj._cached_cosize is not None:
-            return obj._cached_cosize
-        n = size(obj)
-        v = 0 if n == 0 else max(obj(i) for i in range(n)) + 1
-        obj._cached_cosize = v
-        return v
+    # Path X: Layout is purely affine; the embedded-swizzle cache branch
+    # is gone. cosize is closed-form O(1) for affine layouts.
     if is_int(obj.shape):
         return _affine_max_offset(obj.shape, obj.stride) + 1
     if len(obj.shape) == 0:
@@ -3253,18 +3208,6 @@ def _compose_swizzle_lhs(swizzle: "Swizzle", layout_b: Any) -> Any:
     return ComposedLayout(swizzle, layout_b)
 
 
-def _compose_swizzled_layout_lhs(layout_a: "Layout", layout_b: Any) -> Any:
-    """compose(Layout-with-swizzle, B).
-
-    Strip the embedded swizzle, recurse on the affine inner, then re-attach
-    the swizzle in the cheapest representation that still composes.
-    """
-    inner_composed = compose(_strip_swizzle(layout_a), layout_b)
-    if isinstance(inner_composed, Layout) and inner_composed.swizzle is None:
-        return Layout(inner_composed.shape, inner_composed.stride, swizzle=layout_a.swizzle)
-    return ComposedLayout(layout_a.swizzle, inner_composed)
-
-
 def _compose_with_swizzle_rhs(layout_a: "Layout", layout_b: "Swizzle") -> Any:
     """compose(Layout, Swizzle): push through when representable, else stay exact.
 
@@ -3414,12 +3357,8 @@ def compose(layout_a: Any, layout_b: Any) -> Any:
         return _compose_into_composed_lhs(layout_a, layout_b)
     if isinstance(layout_a, Swizzle):
         return _compose_swizzle_lhs(layout_a, layout_b)
-    # Path X: Layout is purely affine, so the legacy
-    # ``isinstance(layout_a, Layout) and layout_a.swizzle is not None`` arm
-    # (handled by _compose_swizzled_layout_lhs) is unreachable for in-tree
-    # callers and is removed in C3.
 
-    # RHS dispatch: from here, layout_a is a swizzle-free affine Layout.
+    # RHS dispatch: from here, layout_a is a (purely affine) Layout.
     if isinstance(layout_b, Swizzle):
         return _compose_with_swizzle_rhs(layout_a, layout_b)
     if isinstance(layout_b, Layout):

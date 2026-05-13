@@ -50,7 +50,7 @@ inside ``__call__``. The Tensor's external offset never re-enters the
 swizzle's domain.
 """
 
-import warnings
+import warnings  # noqa: F401  -- kept for back-compat re-export via ``from .tensor import *``
 
 from .layouts import *
 from .layouts import _split_zero_offset_swizzle
@@ -59,20 +59,11 @@ from .layouts import _split_zero_offset_swizzle
 def _tensor_address(offset: int, layout: LayoutExpr, coords) -> int:
     """Resolve a tensor address from an external offset and a layout expression.
 
-    Always computes ``offset + layout(coord)``: the layout is evaluated
-    first (any embedded swizzle is applied inside that call), then the
-    Tensor's external offset is added linearly. This matches CuTe and
-    matches the ComposedLayout addressing convention.
+    Path X: Layout is purely affine; ``offset + layout(coord)`` is the
+    single uniform rule (matches CuTe's Tensor = (Engine, Layout)).
     """
     if isinstance(layout, Layout):
-        # Path X: Layout is purely affine (in-tree). The legacy embedded-swizzle
-        # arm is preserved here for backward compatibility while the
-        # ``Layout(.., swizzle=...)`` kwarg is still accepted; it is removed
-        # in C3.
-        linear_result = crd2offset(coords, layout.shape, layout.stride)
-        if layout.swizzle is not None:
-            return offset + layout.swizzle(linear_result)
-        return offset + linear_result
+        return offset + crd2offset(coords, layout.shape, layout.stride)
     return offset + layout(coords)
 
 
@@ -96,13 +87,9 @@ def _linear_offset_bounds(shape, stride) -> tuple[int, int]:
 def _address_bounds(layout: LayoutExpr, offset: int) -> tuple[int, int]:
     """Return the min/max storage indices addressed by a Tensor."""
     if is_affine(layout):
-        # Path X: Layout is purely affine. ``_split_zero_offset_swizzle``
-        # below still recognises the legacy embedded form for as long as
-        # ``Layout(.., swizzle=...)`` is accepted; the canonical Path X
-        # form is ComposedLayout(Sw, L, 0).
-        if getattr(layout, "swizzle", None) is None:
-            min_linear, max_linear = _linear_offset_bounds(layout.shape, layout.stride)
-            return offset + min_linear, offset + max_linear
+        # Path X: Layout is purely affine; bounds are closed-form.
+        min_linear, max_linear = _linear_offset_bounds(layout.shape, layout.stride)
+        return offset + min_linear, offset + max_linear
 
     # Fast path for canonical Sw o L (both the embedded-swizzle Layout
     # and the explicit ComposedLayout(Sw, L, 0) form). After the
@@ -256,30 +243,6 @@ class Tensor:
     def __init__(self, layout: LayoutExpr, offset: int = 0, data=None):
         self._layout = as_layout_expr(layout)
         self._offset = offset
-        if (
-            offset != 0
-            and isinstance(self._layout, Layout)
-            and self._layout.swizzle is not None
-        ):
-            # The addressing semantics for Tensor over an embedded-swizzle
-            # Layout with a nonzero external offset CHANGED in this release.
-            # Previously the offset was folded into the swizzle's input
-            # (Sw(offset + L(coord))); it is now added linearly after the
-            # swizzle (offset + Sw(L(coord))), matching CuTe and matching
-            # the existing ComposedLayout behavior. If a caller depended on
-            # the old fold-into-domain semantic, the equivalent today is
-            # `Tensor(ComposedLayout(Sw, L, offset=k), offset=0)`.
-            warnings.warn(
-                "Tensor(swizzled Layout, offset!=0): addressing changed in "
-                "this release. The external offset is now added AFTER the "
-                "swizzle (offset + Sw(L(coord))), matching CuTe. Previously "
-                "it was folded into the swizzle's input domain "
-                "(Sw(offset + L(coord))). To recover the old semantic, "
-                "construct with `Tensor(ComposedLayout(swizzle, layout, "
-                "offset=k), offset=0)`.",
-                UserWarning,
-                stacklevel=2,
-            )
         if data is not None:
             _validate_storage(self._layout, self._offset, data)
         self._data = data

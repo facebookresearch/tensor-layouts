@@ -1811,12 +1811,8 @@ def to_F2_matrix(layout) -> list[list[int]]:
         for i in range(n_offset_bits):
             M[i][j] = (val >> i) & 1
 
-    # Path X: Layout is purely affine; the legacy embedded-swizzle
-    # post-composition is unreachable for in-tree callers and is removed
-    # in C3.
-    if getattr(layout, "swizzle", None) is not None:
-        S = _swizzle_to_F2_matrix(layout.swizzle, n_offset_bits)
-        M = _matmul_F2(S, M)
+    # Path X: Layout is purely affine; the embedded-swizzle
+    # post-composition arm is gone.
 
     return M
 
