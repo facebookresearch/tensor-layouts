@@ -49,6 +49,7 @@ from tensor_layouts import (
     mode,
     flatten,
     coalesce,
+    TensorStorageError,
 )
 from tensor_layouts import Tensor
 
@@ -1689,7 +1690,7 @@ def test_setitem_hierarchical_fixed_coordinate_writes_to_data():
 def test_setitem_without_data_raises():
     """Writing to a tensor with no storage raises TypeError."""
     t = Tensor(Layout((4, 8), (8, 1)))
-    with pytest.raises(TypeError, match="no storage"):
+    with pytest.raises(TensorStorageError, match="no storage"):
         t[2, 3] = 42
 
 
@@ -1896,9 +1897,9 @@ def test_view_negative_stride_uses_preserved_offset():
 
 
 def test_view_no_storage_raises():
-    """View on algebraic Tensor raises TypeError."""
+    """View on algebraic Tensor raises TensorStorageError."""
     t = Tensor(Layout(8, 1))
-    with pytest.raises(TypeError):
+    with pytest.raises(TensorStorageError):
         t.view(Layout(8, 1))
 
 

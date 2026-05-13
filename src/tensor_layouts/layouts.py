@@ -64,7 +64,64 @@ from typing import Any, Union
 # Tuple of int | tuple
 IntOrIntTuple = Union[int, tuple["IntOrIntTuple", ...]]
 
+
+# =============================================================================
+# Exception taxonomy
+# =============================================================================
+#
+# These three classes give the layout algebra, ComposedLayout structural
+# restrictions, and Tensor storage state errors stable identities while
+# remaining backwards-compatible with handlers that catch the standard
+# Python base classes.
+#
+# The classes are used by raise sites throughout this package and also
+# re-exported via the package's star-import surface so user code can
+# write e.g. `except LayoutError` when it cares about the specific kind.
+
+
+class LayoutError(ValueError):
+    """A layout-algebra precondition failed.
+
+    Raised when a Layout / ComposedLayout operation is called with inputs
+    that violate the algebra's structural rules (shape/stride congruence,
+    rank mismatch, mode out of range, tiler incompatibility, swizzle mask
+    overlap, etc.). Subclasses ``ValueError`` so existing
+    ``except ValueError`` handlers continue to catch it.
+    """
+
+
+class UnsupportedComposedLayoutError(NotImplementedError):
+    """A ComposedLayout form does not support the requested operation.
+
+    Mostly the F6 inverse-form ``ComposedLayout(Layout, Swizzle, offset)``
+    produced by ``right_inverse`` / ``left_inverse`` of an offset-bearing
+    swizzle-fronted layout. Operations that delegate to the inner Layout
+    (``complement``, ``coalesce``, ``logical_product``, ``logical_divide``,
+    ``to_F2_matrix``) cannot be defined on this form because the inner
+    is a ``Swizzle`` rather than a Layout. Mirrors CuTe C++ -- those
+    templates fail to instantiate. Subclasses ``NotImplementedError`` so
+    existing handlers continue to catch it.
+    """
+
+
+class TensorStorageError(ValueError):
+    """Tensor's storage state is inconsistent with the requested operation.
+
+    Raised when a Tensor without backing storage is asked to perform an
+    operation that requires storage (assignment, view), or when a Tensor's
+    layout addresses positions outside its storage (negative indices,
+    out-of-range upper bound). Subclasses ``ValueError`` because from the
+    caller's point of view the offending input is the storage value (or
+    its absence) -- existing ``except ValueError`` handlers continue to
+    catch it.
+    """
+
+
 __all__ = [
+    # Exceptions
+    "LayoutError",
+    "UnsupportedComposedLayoutError",
+    "TensorStorageError",
     # Type alias
     "IntOrIntTuple",
     "LayoutExpr",
@@ -477,7 +534,7 @@ def _validate_nonnegative_shape(shape: Any) -> None:
     """Validate that every shape extent is nonnegative."""
     if is_int(shape):
         if shape < 0:
-            raise ValueError(f"Layout shape must contain only nonnegative extents, got {shape}")
+            raise LayoutError(f"Layout shape must contain only nonnegative extents, got {shape}")
         return
     for elem in shape:
         _validate_nonnegative_shape(elem)
@@ -570,7 +627,7 @@ class Layout:
             )
 
         if not congruent(self._shape, self._stride):
-            raise ValueError(f"Shape {self._shape} and Stride {self._stride} are not congruent")
+            raise LayoutError(f"Shape {self._shape} and Stride {self._stride} are not congruent")
 
     def __eq__(self, other):
         if self is other:
@@ -900,7 +957,7 @@ def _is_swizzle_inner_composed(obj: Any) -> bool:
 def _reject_swizzle_inner_composed(obj: Any, op_name: str) -> None:
     """Raise NotImplementedError if obj is the F6 inverse-form."""
     if _is_swizzle_inner_composed(obj):
-        raise NotImplementedError(
+        raise UnsupportedComposedLayoutError(
             f"{op_name} is not defined on a ComposedLayout with a Swizzle "
             f"in the inner slot (the inverse-form produced by "
             f"right_inverse/left_inverse on an offset-bearing swizzle-fronted "
@@ -1291,7 +1348,7 @@ def group(layout: LayoutExpr, start: int, end: int) -> LayoutExpr:
         return forwarded
     r = rank(layout)
     if start < 0 or end > r or start >= end:
-        raise ValueError(f"Invalid group range [{start}, {end}) for layout of rank {r}")
+        raise LayoutError(f"Invalid group range [{start}, {end}) for layout of rank {r}")
 
     shapes = as_list(layout.shape)
     strides = as_list(layout.stride)
@@ -1386,15 +1443,15 @@ def unflatten(obj, target_profile):
         new_shape, remaining_s = _unflatten_helper(tuple(obj.shape), target_profile)
         new_stride, remaining_d = _unflatten_helper(tuple(obj.stride), target_profile)
         if len(remaining_s) != 0:
-            raise ValueError(f"Rank mismatch: leftover shape elements {remaining_s}")
+            raise LayoutError(f"Rank mismatch: leftover shape elements {remaining_s}")
         if len(remaining_d) != 0:
-            raise ValueError(f"Rank mismatch: leftover stride elements {remaining_d}")
+            raise LayoutError(f"Rank mismatch: leftover stride elements {remaining_d}")
         return Layout(new_shape, new_stride)
 
     if is_tuple(obj):
         result, remaining = _unflatten_helper(tuple(obj), target_profile)
         if len(remaining) != 0:
-            raise ValueError(f"Rank mismatch: leftover elements {remaining}")
+            raise LayoutError(f"Rank mismatch: leftover elements {remaining}")
         return result
 
     raise TypeError(f"Cannot unflatten object of type {type(obj).__name__}")
@@ -1493,7 +1550,7 @@ def zip_transform(a: Any, b: Any, f) -> Any:
     """
     if is_tuple(a):
         if not is_tuple(b) or len(a) != len(b):
-            raise ValueError(f"Structure mismatch: {a} vs {b}")
+            raise LayoutError(f"Structure mismatch: {a} vs {b}")
         return tuple(zip_transform(ai, bi, f) for ai, bi in zip(a, b))
     return f(a, b)
 
@@ -1604,7 +1661,7 @@ def inner_product(a: Any, b: Any) -> int:
     """
     if is_tuple(a):
         if not is_tuple(b) or len(a) != len(b):
-            raise ValueError(f"Structure mismatch: {a} vs {b}")
+            raise LayoutError(f"Structure mismatch: {a} vs {b}")
         return sum(inner_product(x, y) for x, y in zip(a, b))
     else:
         if not isinstance(a, int) or not isinstance(b, int):
@@ -1631,7 +1688,7 @@ def prefix_product(a: Any, init: Any = 1) -> Any:
     if is_tuple(a):
         if is_tuple(init):
             if len(a) != len(init):
-                raise ValueError(f"Length mismatch: {len(a)} vs {len(init)}")
+                raise LayoutError(f"Length mismatch: {len(a)} vs {len(init)}")
             return zip_transform(a, init, prefix_product)
         else:
             r = []
@@ -1641,7 +1698,7 @@ def prefix_product(a: Any, init: Any = 1) -> Any:
             return tuple(r)
     else:
         if is_tuple(init):
-            raise ValueError("Cannot apply tuple init to scalar shape")
+            raise LayoutError("Cannot apply tuple init to scalar shape")
         return init
 
 
@@ -1664,7 +1721,7 @@ def suffix_product(a: Any, init: Any = 1) -> Any:
     if is_tuple(a):
         if is_tuple(init):
             if len(a) != len(init):
-                raise ValueError(f"Length mismatch: {len(a)} vs {len(init)}")
+                raise LayoutError(f"Length mismatch: {len(a)} vs {len(init)}")
             return zip_transform(a, init, suffix_product)
         else:
             r = []
@@ -1675,7 +1732,7 @@ def suffix_product(a: Any, init: Any = 1) -> Any:
             return tuple(reversed(r))
     else:
         if is_tuple(init):
-            raise ValueError("Cannot apply tuple init to scalar shape")
+            raise LayoutError("Cannot apply tuple init to scalar shape")
         return init
 
 
@@ -1908,9 +1965,9 @@ def complement(layout: Layout, cosize_bound: Any = None) -> Layout:
         # CuTe/pycute asserts current_stride <= stride * shape (injectivity).
         # Negative strides or zero-sized shapes violate this invariant.
         if stride < 0:
-            raise ValueError(f"complement: negative stride {stride} is not supported")
+            raise LayoutError(f"complement: negative stride {stride} is not supported")
         if shape == 0:
-            raise ValueError("complement: zero-sized shape is not supported")
+            raise LayoutError("complement: zero-sized shape is not supported")
         gap_size, next_stride = _step_mode(current_stride, stride, shape)
         if gap_size > 1:
             result_shapes.append(gap_size)
@@ -2421,7 +2478,7 @@ def _slice_for_composition(crd, layout: LayoutExpr):
             # Rank-1 integer domain — no further recursion possible. The caller
             # should slice on the outer if a sub-domain view is needed.
             if not coords_all_none(crd):
-                raise NotImplementedError(
+                raise UnsupportedComposedLayoutError(
                     "Slicing a ComposedLayout with a Swizzle in the inner slot is not supported"
                 )
             return (layout, 0)
@@ -2493,7 +2550,7 @@ def idx2crd(coord: Any, shape: Any) -> Any:
     # We map the modes of the coordinate to the modes of the shape
     if is_tuple(coord):
         if len(coord) != len(shape):
-            raise ValueError(f"Coordinate rank {len(coord)} mismatch with Shape rank {len(shape)}")
+            raise LayoutError(f"Coordinate rank {len(coord)} mismatch with Shape rank {len(shape)}")
 
         return zip_transform(coord, shape, idx2crd)
 
@@ -2511,7 +2568,7 @@ def crd2flat(coord: Any, shape: Any = None) -> int:
 
     if isinstance(shape, int):
         if is_tuple(coord):
-            raise ValueError(f"Cannot map coordinate {coord} to scalar shape {shape}")
+            raise LayoutError(f"Cannot map coordinate {coord} to scalar shape {shape}")
         return int(coord)
 
     if isinstance(coord, int):
@@ -2519,7 +2576,7 @@ def crd2flat(coord: Any, shape: Any = None) -> int:
 
     if is_tuple(coord):
         if len(coord) != len(shape):
-            raise ValueError(f"Rank mismatch: coord {len(coord)} vs shape {len(shape)}")
+            raise LayoutError(f"Rank mismatch: coord {len(coord)} vs shape {len(shape)}")
 
         index = 0
         stride = 1
@@ -2549,7 +2606,7 @@ def crd2offset(coord, shape, stride) -> int:
     # Case 1: Scalar shape - direct multiplication
     if is_int(shape):
         if is_tuple(coord):
-            raise ValueError(f"Cannot map coordinate {coord} to scalar shape {shape}")
+            raise LayoutError(f"Cannot map coordinate {coord} to scalar shape {shape}")
         return coord * stride
 
     # Case 2: 1D index mapping (index -> nD -> offset)
@@ -2579,7 +2636,7 @@ def crd2offset(coord, shape, stride) -> int:
     if not is_tuple(coord):
         raise TypeError(f"Coordinate must be int or tuple, got {type(coord).__name__}")
     if len(coord) != len(shape):
-        raise ValueError(f"Coordinate rank {len(coord)} does not match layout rank {len(shape)}")
+        raise LayoutError(f"Coordinate rank {len(coord)} does not match layout rank {len(shape)}")
     offset = 0
     for c, s, d in zip(coord, shape, stride):
         if c is None:
@@ -2627,7 +2684,7 @@ def crd2crd(crd: Any, dst_shape: Any, src_shape: Any = None) -> Any:
     if is_tuple(crd):
         if is_tuple(dst_shape):
             if len(crd) != len(dst_shape):
-                raise ValueError(
+                raise LayoutError(
                     f"Rank mismatch: crd has {len(crd)} elements, dst_shape has {len(dst_shape)}"
                 )
             if src_shape is not None and is_tuple(src_shape):
@@ -2636,7 +2693,7 @@ def crd2crd(crd: Any, dst_shape: Any, src_shape: Any = None) -> Any:
         else:
             # crd is tuple, dst_shape is scalar: flatten using src_shape
             if src_shape is None:
-                raise ValueError("src_shape required to flatten tuple coordinate to scalar")
+                raise LayoutError("src_shape required to flatten tuple coordinate to scalar")
             return crd2flat(crd, src_shape)
     else:
         if is_tuple(dst_shape):
@@ -2669,7 +2726,7 @@ def slice_modes(crd, trg):
     if is_tuple(crd):
         if is_tuple(trg):
             if len(crd) != len(trg):
-                raise ValueError(f"Rank mismatch: crd has {len(crd)} elements, trg has {len(trg)}")
+                raise LayoutError(f"Rank mismatch: crd has {len(crd)} elements, trg has {len(trg)}")
             # Process each top-level mode independently, preserving hierarchy
             result = []
             for c, s in zip(crd, trg):
@@ -2680,7 +2737,7 @@ def slice_modes(crd, trg):
                     result.append(sub[0] if len(sub) == 1 else sub)
             return tuple(result)
         else:
-            raise ValueError("Cannot slice scalar target with tuple coordinate")
+            raise LayoutError("Cannot slice scalar target with tuple coordinate")
     elif crd is None:
         return (trg,)
     else:
@@ -2719,7 +2776,7 @@ def dice_modes(crd, layout):
         if is_tuple(crd):
             if is_tuple(trg):
                 if len(crd) != len(trg):
-                    raise ValueError(
+                    raise LayoutError(
                         f"Rank mismatch: crd has {len(crd)} elements, trg has {len(trg)}"
                     )
                 result = []
@@ -2727,7 +2784,7 @@ def dice_modes(crd, layout):
                     result.extend(dice_tuple(c, s))
                 return tuple(result)
             else:
-                raise ValueError("Cannot dice scalar target with tuple coordinate")
+                raise LayoutError("Cannot dice scalar target with tuple coordinate")
         elif crd is None:
             return ()
         else:
@@ -2819,9 +2876,9 @@ def safe_div(a: int, b: int) -> int:
     Returns a // b, asserting that b divides a.
     """
     if b == 0:
-        raise ValueError("Division by zero")
+        raise LayoutError("Division by zero")
     if a % b != 0:
-        raise ValueError(f"safe_div requires {b} to divide {a} evenly")
+        raise LayoutError(f"safe_div requires {b} to divide {a} evenly")
     return a // b
 
 
@@ -2867,7 +2924,7 @@ def shape_div(shape: Any, divisor: int) -> Any:
 
     def _scalar(s, d):
         if s % d != 0 and d % s != 0:
-            raise ValueError(
+            raise LayoutError(
                 f"shape_div({s}, {d}): one must divide the other for clean factorization"
             )
         return (s + d - 1) // d
@@ -2964,7 +3021,7 @@ def upcast(layout: "Layout", n: int) -> "Layout":
     def _apply(shape, stride):
         if is_tuple(shape):
             if not is_tuple(stride) or len(shape) != len(stride):
-                raise ValueError(f"Shape/stride structure mismatch: {shape} vs {stride}")
+                raise LayoutError(f"Shape/stride structure mismatch: {shape} vs {stride}")
             pairs = [_apply(s, d) for s, d in zip(shape, stride)]
             new_s = tuple(p[0] for p in pairs)
             new_d = tuple(p[1] for p in pairs)
@@ -2998,7 +3055,7 @@ def downcast(layout: "Layout", n: int) -> "Layout":
     def _apply(shape, stride):
         if is_tuple(shape):
             if not is_tuple(stride) or len(shape) != len(stride):
-                raise ValueError(f"Shape/stride structure mismatch: {shape} vs {stride}")
+                raise LayoutError(f"Shape/stride structure mismatch: {shape} vs {stride}")
             pairs = [_apply(s, d) for s, d in zip(shape, stride)]
             new_s = tuple(p[0] for p in pairs)
             new_d = tuple(p[1] for p in pairs)
@@ -3057,7 +3114,7 @@ def _composition_1d(layout_a: "Layout", b_shape: int, b_stride: int) -> "Layout"
         divisible = curr_shape % abs_stride == 0 or abs_stride % curr_shape == 0
         fits_in_mode = remaining_shape > 1 and (remaining_shape - 1) * abs_stride < curr_shape
         if not divisible and not fits_in_mode:
-            raise ValueError(
+            raise LayoutError(
                 f"compose: shape {curr_shape} and stride {remaining_stride} are not divisible"
             )
 
@@ -3078,7 +3135,7 @@ def _composition_1d(layout_a: "Layout", b_shape: int, b_stride: int) -> "Layout"
 
         new_shape = min(next_shape, remaining_shape)
         if remaining_shape % new_shape != 0:
-            raise ValueError(
+            raise LayoutError(
                 f"compose: shape {remaining_shape} and consumed extent {new_shape} are not divisible"
             )
 
@@ -3287,7 +3344,7 @@ def _compose_with_tuple_tiler(layout_a: Any, layout_b: tuple) -> Any:
     if all(isinstance(e, Layout) for e in tiler):
         tiler = Tile(*tiler)
     if len(tiler) > rank(layout_a):
-        raise ValueError(
+        raise LayoutError(
             f"Tiler has {len(tiler)} elements but layout has only {rank(layout_a)} modes"
         )
     return _compose_with_tiler(layout_a, tiler)
@@ -3372,7 +3429,7 @@ def compose(layout_a: Any, layout_b: Any) -> Any:
         return _compose_with_composed_rhs(layout_a, layout_b)
     if isinstance(layout_b, Tile):
         if len(layout_b) > rank(layout_a):
-            raise ValueError(
+            raise LayoutError(
                 f"Tiler has {len(layout_b)} elements but layout has only {rank(layout_a)} modes"
             )
         return _compose_with_tiler(layout_a, layout_b)
@@ -3482,7 +3539,7 @@ def _logical_divide_with_tiler(layout: Layout, tiler) -> Layout:
     # affine Layout from per-mode .shape/.stride pairs, so a composed result
     # would indicate that the earlier generic forwarding path was bypassed.
     if len(tiler) > rank(layout):
-        raise ValueError(
+        raise LayoutError(
             f"logical_divide: tiler has more modes ({len(tiler)}) than layout ({rank(layout)})"
         )
 
@@ -3524,7 +3581,7 @@ def _logical_divide_by_shape(layout: Layout, tiler_shape: Any) -> Layout:
 
     # CuTe C++ static_asserts: "logical_divide: Too many modes in tiler."
     if len(tiler_sizes) > len(layout_shapes):
-        raise ValueError(
+        raise LayoutError(
             f"logical_divide: tiler has more modes ({len(tiler_sizes)}) "
             f"than layout ({len(layout_shapes)})"
         )
@@ -3839,7 +3896,7 @@ def hier_unzip(splitter, layout_a: Layout, layout_b) -> Layout:
 
     if is_tuple(layout_b) and not isinstance(layout_b, Layout):
         if rank(layout_a) < len(layout_b):
-            raise ValueError(f"layout_a rank ({rank(layout_a)}) < tiler length ({len(layout_b)})")
+            raise LayoutError(f"layout_a rank ({rank(layout_a)}) < tiler length ({len(layout_b)})")
 
         splits = [
             hier_unzip(splitter, mode(layout_a, i), layout_b[i]) for i in range(len(layout_b))
@@ -3898,7 +3955,7 @@ def logical_product(layout_a: LayoutExpr, layout_b: Layout) -> LayoutExpr:
     # For tuple tilers, apply mode-by-mode
     if is_tuple(layout_b) and not isinstance(layout_b, Layout):
         if rank(layout_a) < len(layout_b):
-            raise ValueError(f"layout_a rank ({rank(layout_a)}) < tiler length ({len(layout_b)})")
+            raise LayoutError(f"layout_a rank ({rank(layout_a)}) < tiler length ({len(layout_b)})")
         result_modes = []
         for i in range(len(layout_b)):
             result_modes.append(logical_product(mode(layout_a, i), layout_b[i]))
@@ -4135,7 +4192,7 @@ def _zip_layouts(layout_a: Layout, layout_b: Layout) -> Layout:
         return Layout((layout_a.shape, layout_b.shape), (layout_a.stride, layout_b.stride))
 
     if a_rank != b_rank:
-        raise ValueError(f"Rank mismatch in zip: {a_rank} vs {b_rank}")
+        raise LayoutError(f"Rank mismatch in zip: {a_rank} vs {b_rank}")
     r = a_rank
     result_shapes = []
     result_strides = []
@@ -4369,7 +4426,7 @@ def make_swizzle(Y: int, Z: int):
     """
     num_bits = _popcount(Y)
     if num_bits != _popcount(Z):
-        raise ValueError(
+        raise LayoutError(
             f"make_swizzle: bit count mismatch: popcount({Y:#b})={num_bits} "
             f"vs popcount({Z:#b})={_popcount(Z)}"
         )
@@ -4380,12 +4437,12 @@ def make_swizzle(Y: int, Z: int):
     base = min(tz_y, tz_z)
     shift = tz_y - tz_z
     if abs(shift) < num_bits:
-        raise ValueError(
+        raise LayoutError(
             f"make_swizzle: masks overlap for popcount {num_bits}: Y={Y:#b}, Z={Z:#b}"
         )
     swizzle = Swizzle(num_bits, base, shift)
     if (Y | Z) != (swizzle.yyy_msk | swizzle.zzz_msk):
-        raise ValueError(
+        raise LayoutError(
             "make_swizzle: masks are not a canonical CuTe swizzle: "
             f"Y={Y:#b}, Z={Z:#b}, candidate={swizzle!r}"
         )
