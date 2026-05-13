@@ -55,7 +55,19 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Optional, Tuple
 
-import matplotlib
+try:
+    import matplotlib
+    import matplotlib.patches as patches
+    import matplotlib.pyplot as plt
+    import matplotlib.transforms as mtransforms
+    import numpy as np
+    from matplotlib.font_manager import FontProperties
+    from matplotlib.textpath import TextToPath
+except ImportError as _viz_dep_err:
+    raise ImportError(
+        "tensor_layouts.viz requires matplotlib (and numpy). "
+        "Install with `pip install tensor-layouts[viz]`."
+    ) from _viz_dep_err
 
 # Default to the Agg (non-interactive) backend for plain Python runs.
 # Inside IPython/Jupyter the `get_ipython` builtin is defined, so we leave
@@ -64,12 +76,6 @@ try:
     get_ipython()  # noqa: F821 -- injected by IPython
 except NameError:
     matplotlib.use("Agg")
-import matplotlib.patches as patches
-import matplotlib.pyplot as plt
-import matplotlib.transforms as mtransforms
-import numpy as np
-from matplotlib.font_manager import FontProperties
-from matplotlib.textpath import TextToPath
 
 from .layouts import *
 __all__ = [

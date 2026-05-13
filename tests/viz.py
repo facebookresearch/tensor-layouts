@@ -1697,3 +1697,45 @@ def test_draw_combined_mma_grid_returns_figure():
         assert isinstance(fig, matplotlib.figure.Figure)
     finally:
         plt.close(fig)
+
+def test_viz_module_raises_actionable_importerror_when_matplotlib_missing():
+    """Importing tensor_layouts.viz without matplotlib gives a helpful hint.
+
+    Simulates the missing-dependency case by installing a meta-path finder
+    that blocks `matplotlib*` and `numpy`, then re-imports
+    `tensor_layouts.viz`. The wrapped ImportError must mention the
+    `pip install tensor-layouts[viz]` install hint so the user gets an
+    actionable message instead of a deep ModuleNotFoundError.
+    """
+    import importlib
+    import sys
+
+    blocked = {"matplotlib", "numpy"}
+
+    class _BlockMatplotlib:
+        def find_spec(self, name, path=None, target=None):
+            base = name.split(".", 1)[0]
+            if base in blocked:
+                raise ImportError(
+                    f"simulated missing module: {name}", name=name
+                )
+            return None  # let the real importer handle it
+
+    # Snapshot and remove anything matplotlib/numpy-related plus the viz
+    # module itself, so the next import goes through the meta-path block.
+    saved_modules = {
+        name: sys.modules[name]
+        for name in list(sys.modules)
+        if name.split(".", 1)[0] in blocked or name == "tensor_layouts.viz"
+    }
+    for name in saved_modules:
+        del sys.modules[name]
+
+    sys.meta_path.insert(0, _BlockMatplotlib())
+    try:
+        with pytest.raises(ImportError, match=r"tensor-layouts\[viz\]"):
+            importlib.import_module("tensor_layouts.viz")
+    finally:
+        sys.meta_path.pop(0)
+        sys.modules.update(saved_modules)
+
