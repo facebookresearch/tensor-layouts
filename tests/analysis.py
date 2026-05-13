@@ -1530,7 +1530,7 @@ def test_to_F2_matrix_rejects_inverse_form_composed_layout():
     forward IS F2-linear -- gets rejected with guidance to invert in GF(2)
     on the matrix of the forward layout."""
     inv = ComposedLayout(Layout(32, 1), Swizzle(2, 1, 3), offset=-4)
-    with pytest.raises(ValueError, match="inverse-form"):
+    with pytest.raises(NotImplementedError, match="inverse-form"):
         to_F2_matrix(inv)
 
 

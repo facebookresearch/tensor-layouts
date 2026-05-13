@@ -43,8 +43,8 @@ def _validate_order_permutation(order, rank: int, *, func_name: str) -> tuple:
     try:
         order = tuple(order)
     except TypeError as exc:
-        raise ValueError(
-            f"{func_name}: order must be a permutation of {tuple(range(rank))}, got {order!r}"
+        raise TypeError(
+            f"{func_name}: order must be iterable, got {type(order).__name__}: {order!r}"
         ) from exc
 
     expected = tuple(range(rank))
