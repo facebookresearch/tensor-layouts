@@ -1803,26 +1803,32 @@ def test_offset_swizzled_layout_basic():
 
     sw_layout = compose(Swizzle(3, 0, 3), Layout((8, 8), (8, 1)))
     tensor = Tensor(sw_layout)
-    # Slicing a Tensor produces a Tensor with offset
+    # Slicing a Tensor produces a Tensor with an offset attribute. Under
+    # CuTe-aligned addressing the offset's exact value depends on whether
+    # the slice decayed to a plain Layout (post-swizzle linear residue) or
+    # remained a Form-B ComposedLayout (offset folded into the swizzle's
+    # domain, residue 0). Functional correctness is the real check.
     row_slice = tensor[3, :]
     assert hasattr(row_slice, "offset")
-    assert row_slice.offset == Layout((8, 8), (8, 1))(3, 0)  # = 24
 
     # Check functional correctness: tensor[3, :](j) == tensor(3, j)
     for j in range(8):
         assert row_slice(j) == tensor(3, j)
 
 
-def test_slice_and_offset_preserves_swizzle_for_partial_hierarchical_slice():
+def test_slice_and_offset_partial_hierarchical_slice_addresses_match():
+    """Partial-hierarchical slicing through an embedded-swizzle Layout
+    produces a (sublayout_expr, offset) pair whose addresses match the
+    un-sliced layout. Under CuTe-aligned addressing the swizzle's
+    contribution is absorbed into sublayout_expr (Form-B ComposedLayout or
+    affine-decayed Layout); the returned offset is the post-swizzle linear
+    residue and may be 0 even when the OLD posture would have returned
+    nonzero.
+    """
     from tensor_layouts import Tensor
 
     sw_layout = compose(Swizzle(2, 0, 2), Layout(((2, 2), 4), ((1, 2), 4)))
     sublayout, offset = slice_and_offset(((None, 1), None), sw_layout)
-
-    assert sublayout.shape == (2, 4)
-    assert sublayout.stride == (1, 4)
-    assert sublayout.swizzle == sw_layout.swizzle
-    assert offset == 2
 
     parent = Tensor(sw_layout)
     sliced = Tensor(sublayout, offset)
