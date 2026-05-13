@@ -167,7 +167,7 @@ def _validate_storage(layout: LayoutExpr, offset: int, data) -> None:
         )
     min_offset, max_offset = _address_bounds(layout, offset)
     if min_offset < 0:
-        raise ValueError(
+        raise TensorStorageError(
             f"Layout addresses negative storage indices in addressed range "
             f"[{min_offset}, {max_offset}] for offset={offset} and layout "
             f"{layout}. Either: (a) the layout has a negative stride and "
@@ -178,7 +178,7 @@ def _validate_storage(layout: LayoutExpr, offset: int, data) -> None:
             f"forward layout, not for direct buffer indexing."
         )
     if max_offset >= len(data):
-        raise ValueError(
+        raise TensorStorageError(
             f"Storage length {len(data)} does not cover addressed range "
             f"[{min_offset}, {max_offset}] for offset={offset} and layout {layout}"
         )
@@ -293,7 +293,7 @@ class Tensor:
         the same addressed-range invariant as any data-backed Tensor.
         """
         if self._data is None:
-            raise TypeError("Cannot create a view of a Tensor with no storage")
+            raise TensorStorageError("Cannot create a view of a Tensor with no storage")
         return Tensor(layout, offset=self._offset, data=self._data)
 
     def __repr__(self) -> str:
@@ -385,7 +385,7 @@ class Tensor:
             tensor[2, :][3] = 7  # write through a sliced sub-Tensor
         """
         if self._data is None:
-            raise TypeError("Cannot assign to a Tensor with no storage")
+            raise TensorStorageError("Cannot assign to a Tensor with no storage")
         if self._contains_free_coordinates(key):
             raise TypeError(
                 "Tensor assignment requires fully-fixed coordinates (no ':' or None in the key)"
