@@ -538,8 +538,7 @@ The matrix of the composition is computed as the matrix product
 `M_outer @ M_inner` over GF(2).
 
 ```python
-# These two forms produce the same matrix:
-to_F2_matrix(Layout((8, 8), (8, 1), swizzle=Swizzle(3, 0, 3)))
+# Equivalent forms (Path X canonical):
 to_F2_matrix(ComposedLayout(Swizzle(3, 0, 3), Layout((8, 8), (8, 1)), offset=0))
 ```
 
@@ -553,9 +552,9 @@ Rejected with `ValueError`:
 
 The inverse of `to_F2_matrix`: given a binary matrix `M` of shape
 `(n_offset_bits, n_coord_bits)` and a target layout `shape` (powers of 2,
-log2-product equal to `n_coord_bits`), reconstruct a `Layout` (with
-optional embedded `Swizzle`) such that
-`to_F2_matrix(from_F2_matrix(M, shape)) == M`.
+log2-product equal to `n_coord_bits`), reconstruct a `LayoutExpr`
+(plain `Layout` or `ComposedLayout(Sw, Layout, 0)` under Path X) such
+that `to_F2_matrix(from_F2_matrix(M, shape)) == M`.
 
 The `shape` parameter is required because the matrix encodes a bit-level
 map but loses the partition of input bits into modes; the constructor
@@ -582,7 +581,8 @@ L = Layout((4, 8), (8, 1))
 assert from_F2_matrix(to_F2_matrix(L), L.shape) == L
 
 # Round-trip a swizzled layout (swizzle gets extracted by the brute-force
-# search step)
-L = Layout((8, 8), (8, 1), swizzle=Swizzle(3, 0, 3))
-assert from_F2_matrix(to_F2_matrix(L), L.shape) == L
+# search step). Under Path X, the canonical swizzled form is a
+# ComposedLayout(Swizzle, Layout, 0).
+L = ComposedLayout(Swizzle(3, 0, 3), Layout((8, 8), (8, 1)), offset=0)
+assert from_F2_matrix(to_F2_matrix(L), (8, 8)) == L
 ```

@@ -471,8 +471,9 @@ def example_swizzle():
     same column of a row-major matrix all hit the same bank. Swizzling
     permutes each row's offsets so that column accesses spread across banks.
 
-    Composing a Swizzle with a Layout embeds the swizzle inside the Layout
-    so it is applied after computing the linear offset.
+    Composing a Swizzle with a Layout produces a ComposedLayout(Swizzle,
+    Layout, 0) -- the canonical Path X representation for "apply the
+    swizzle after computing the linear offset".
     """
     print("\n" + "=" * 60)
     print("11. Swizzle")
