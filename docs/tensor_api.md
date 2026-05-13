@@ -139,8 +139,8 @@ The two offsets play different roles:
 - `ComposedLayout.offset` is an **internal** offset that lives before the
   outer map, so it DOES interact with any swizzle in the outer slot.
 
-For both `Tensor(Layout(.., swizzle=Sw))` and
-`Tensor(ComposedLayout(Sw, L, k))`, addressing is therefore:
+For `Tensor(ComposedLayout(Sw, L, k))` (and any Tensor over a layout
+expression), addressing is therefore:
 
 ```python
 tensor(coord) == tensor.offset + tensor.layout(coord)

@@ -46,7 +46,7 @@ def _banner(title: str) -> None:
 
 
 def example_fast_path() -> None:
-    _banner("1. Canonical fast path: compose(Swizzle, Layout) stays a Layout")
+    _banner("1. Canonical swizzled form: compose(Swizzle, Layout) returns a ComposedLayout")
 
     base = Layout((4, 4), (4, 1))
     swizzled = compose(Swizzle(2, 0, 2), base)
@@ -57,8 +57,11 @@ def example_fast_path() -> None:
     print("is_layout:", is_layout(swizzled))
     print("affine   :", is_affine(swizzled))
 
-    assert isinstance(swizzled, Layout)
-    assert swizzled.swizzle == Swizzle(2, 0, 2)
+    # Path X: every swizzle lives in a ComposedLayout. The outer slot
+    # holds the Swizzle; the inner slot holds the affine Layout.
+    assert isinstance(swizzled, ComposedLayout)
+    assert swizzled.outer == Swizzle(2, 0, 2)
+    assert swizzled.inner == base
 
 
 def example_exact_fallback() -> LayoutExpr:

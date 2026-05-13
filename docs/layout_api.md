@@ -116,18 +116,21 @@ Most user-facing APIs now accept a **layout expression**:
 LayoutExpr = Layout | ComposedLayout
 ```
 
-`Layout` is still the normal affine case: it has a shape tree and a stride
-tree, and it may also carry one canonical final swizzle.
+`Layout` is the affine case: it has a shape tree and a stride tree, and
+nothing else. Under the Path X representation collapse, swizzles never
+live directly on a `Layout`.
 
-`ComposedLayout` is the exact fallback for compositions that cannot be
-represented as `Layout + one swizzle` without changing behavior.
+`ComposedLayout` is the home for every non-affine form: a swizzle in
+the outer slot (`ComposedLayout(Swizzle, Layout, offset)`), an inner
+offset bookkeeping a slice, or a Layout-on-Layout composition that is
+exact rather than coalesced.
 
 ```python
 from tensor_layouts import ComposedLayout, Layout, Swizzle, compose
 
 base = Layout((4, 4), (4, 1))
-swizzled = compose(Swizzle(2, 0, 2), base)   # still a plain Layout
-exact = compose(Layout(16, 2), swizzled)     # now a ComposedLayout
+swizzled = compose(Swizzle(2, 0, 2), base)   # ComposedLayout
+exact = compose(Layout(16, 2), swizzled)     # also a ComposedLayout
 ```
 
 Semantics:
@@ -163,18 +166,18 @@ stride tree, you are in an affine-only path and should say so explicitly.
 
 ### When `compose()` returns `Layout` vs `ComposedLayout`
 
-The fast path is preserved for the common canonical case:
+Under Path X, **every swizzle** lives in a `ComposedLayout`. The shortcut
+that used to return a `Layout` with an embedded swizzle is gone: the
+canonical `Sw o L` form is now uniformly `ComposedLayout(Sw, L, 0)`.
 
 ```python
 compose(Swizzle(2, 0, 2), Layout((4, 4), (4, 1)))
-# Layout((4, 4), (4, 1), swizzle=Swizzle(2, 0, 2))
+# ComposedLayout(Swizzle(2, 0, 2), Layout((4, 4), (4, 1)), offset=0)
 ```
 
-That is still a `Layout` because "a swizzled layout is a layout" remains the
-intended Python representation for the single-final-swizzle case.
-
-Once the result would require more than one nonlinear stage, Python now keeps
-the composition exact instead of guessing a replacement swizzle:
+`compose()` only returns a bare `Layout` when both operands are affine
+(no swizzle anywhere). Whenever a swizzle or a non-trivial composition is
+involved, the result is a `ComposedLayout` so the algebra stays exact:
 
 ```python
 base = Layout((8, 8), (8, 1))
@@ -187,8 +190,9 @@ compose(Layout((4, 4), (4, 1)), inner)
 # ComposedLayout(Layout((4, 4), (4, 1)), inner, offset=0)
 ```
 
-That is the key semantic change: the library now prefers **exactness** over an
-unsafe normalization.
+That is the key semantic change: the library prefers **exactness** over an
+unsafe normalization, and uses a single representation for every swizzled
+form.
 
 ### Example: canonical fast path vs exact fallback
 
@@ -199,7 +203,7 @@ base = Layout((4, 4), (4, 1))
 
 canonical = compose(Swizzle(2, 0, 2), base)
 type(canonical).__name__
-# 'Layout'
+# 'ComposedLayout'
 
 exact = compose(Layout(16, 2), canonical)
 type(exact).__name__
@@ -456,10 +460,10 @@ compose(Layout(((2, 3), 8), ((1, 2), 6)), ((2, 3), 4))
 # being flattened into a single stride-1 layout.
 ```
 
-When `A` is a `Swizzle`, the canonical `compose(Swizzle, affine Layout)` case
-still returns a `Layout` with an embedded swizzle. If `B` is already swizzled
-or composed, `compose()` returns a `ComposedLayout` instead so the composition
-remains exact.
+When `A` is a `Swizzle`, `compose(Swizzle, layout_b)` returns
+``ComposedLayout(Swizzle, layout_b, 0)`` -- there is no embedded-swizzle
+shortcut anymore. If `B` is already swizzled or composed, `compose()`
+also returns a `ComposedLayout` so the composition remains exact.
 
 ### complement(L, bound)
 
