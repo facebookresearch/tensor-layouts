@@ -1722,7 +1722,7 @@ def to_F2_matrix(layout) -> list[list[int]]:
         # which would otherwise hit the offset check with a less useful
         # diagnostic.
         if isinstance(layout.inner, Swizzle):
-            raise ValueError(
+            raise NotImplementedError(
                 "to_F2_matrix() does not support the inverse-form "
                 "ComposedLayout(Layout, offset, Swizzle). The forward map is "
                 "F2-linear; this is its inverse, which is also F2-linear in "

@@ -3194,7 +3194,7 @@ def _expand_hier_slice(spec, shape):
             for combo in itertools.product(*sub_iters):
                 yield combo
         else:
-            raise TypeError(f"Tuple spec {spec} for scalar shape {shape}")
+            raise ValueError(f"Tuple spec {spec} for scalar shape {shape}")
     else:
         # Concrete integer: single value
         yield spec

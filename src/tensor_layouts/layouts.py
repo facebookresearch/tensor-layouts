@@ -1641,7 +1641,7 @@ def prefix_product(a: Any, init: Any = 1) -> Any:
             return tuple(r)
     else:
         if is_tuple(init):
-            raise TypeError("Cannot apply tuple init to scalar shape")
+            raise ValueError("Cannot apply tuple init to scalar shape")
         return init
 
 
@@ -1675,7 +1675,7 @@ def suffix_product(a: Any, init: Any = 1) -> Any:
             return tuple(reversed(r))
     else:
         if is_tuple(init):
-            raise TypeError("Cannot apply tuple init to scalar shape")
+            raise ValueError("Cannot apply tuple init to scalar shape")
         return init
 
 
@@ -2680,7 +2680,7 @@ def slice_modes(crd, trg):
                     result.append(sub[0] if len(sub) == 1 else sub)
             return tuple(result)
         else:
-            raise TypeError("Cannot slice scalar target with tuple coordinate")
+            raise ValueError("Cannot slice scalar target with tuple coordinate")
     elif crd is None:
         return (trg,)
     else:
@@ -2727,7 +2727,7 @@ def dice_modes(crd, layout):
                     result.extend(dice_tuple(c, s))
                 return tuple(result)
             else:
-                raise TypeError("Cannot dice scalar target with tuple coordinate")
+                raise ValueError("Cannot dice scalar target with tuple coordinate")
         elif crd is None:
             return ()
         else:
