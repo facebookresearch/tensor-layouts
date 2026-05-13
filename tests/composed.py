@@ -221,7 +221,10 @@ def test_logical_divide_forwards_through_composed_layout():
 
 
 def test_logical_product_forwards_through_composed_layout():
-    composed = compose(Layout(8, 2), compose(Swizzle(2, 0, 2), Layout(8, 1)))
+    # Path X: build the composed wrapper directly via ComposedLayout so the
+    # outer/inner shape is preserved regardless of how ``compose`` happens
+    # to associate Sw o L o L'.
+    composed = ComposedLayout(Layout(8, 2), compose(Swizzle(2, 0, 2), Layout(8, 1)))
     result = logical_product(composed, Layout(3, 1))
     expected = ComposedLayout(composed.outer, logical_product(composed.inner, Layout(3, 1)))
 
@@ -278,7 +281,10 @@ def test_right_inverse_of_zero_offset_swizzled_composed_layout():
     composed = ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), offset=0)
     inv = right_inverse(composed)
 
-    assert isinstance(inv, Layout)
+    # Path X representation-tolerant: pre-Path X this came back as a
+    # Layout-with-embedded-swizzle; post-Path X it lives as a ComposedLayout.
+    # Pointwise correctness (composed o inv == identity) is the contract.
+    assert isinstance(inv, (Layout, ComposedLayout))
     for i in range(size(inv)):
         assert composed(inv(i)) == i
 
@@ -287,7 +293,8 @@ def test_left_inverse_of_zero_offset_swizzled_composed_layout():
     composed = ComposedLayout(Swizzle(2, 1, 3), Layout(32, 1), offset=0)
     inv = left_inverse(composed)
 
-    assert isinstance(inv, Layout)
+    # Path X representation-tolerant; see right_inverse sibling.
+    assert isinstance(inv, (Layout, ComposedLayout))
     for i in range(size(composed)):
         assert inv(composed(i)) == i
 

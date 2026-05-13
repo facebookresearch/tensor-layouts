@@ -263,7 +263,8 @@ _IDENTITY_LAYOUT = Layout(1, 1)
 
 def _normalize_display_layout(layout):
     if isinstance(layout, Layout):
-        return Layout(unwrap(layout.shape), unwrap(layout.stride), swizzle=layout.swizzle)
+        # Path X: Layout is purely affine; no swizzle to propagate.
+        return Layout(unwrap(layout.shape), unwrap(layout.stride))
     return layout
 
 
@@ -271,11 +272,9 @@ def _eval_layout_with_offset(layout, offset: int, *args):
     """Evaluate a sliced layout with an external offset, matching tensor semantics."""
     coord = args[0] if len(args) == 1 else args
     if isinstance(layout, Layout):
+        # Path X: Layout is purely affine; no embedded swizzle to apply.
         linear = crd2offset(coord, layout.shape, layout.stride)
-        total_linear = offset + linear
-        if layout.swizzle is not None:
-            return layout.swizzle(total_linear)
-        return total_linear
+        return offset + linear
     return offset + layout(coord)
 
 
@@ -285,9 +284,9 @@ def _layout_expr_with_offset(layout, offset: int):
     if offset == 0:
         return layout
     if isinstance(layout, Layout):
-        if layout.swizzle is None:
-            return ComposedLayout(_IDENTITY_LAYOUT, Layout(layout.shape, layout.stride), offset=offset)
-        return ComposedLayout(layout.swizzle, Layout(layout.shape, layout.stride), offset=offset)
+        # Path X: Layout is purely affine; always use the identity-outer
+        # ComposedLayout to internalize the external offset.
+        return ComposedLayout(_IDENTITY_LAYOUT, Layout(layout.shape, layout.stride), offset=offset)
     return ComposedLayout(_IDENTITY_LAYOUT, layout, offset=offset)
 
 

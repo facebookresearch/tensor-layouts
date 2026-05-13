@@ -65,6 +65,10 @@ def _tensor_address(offset: int, layout: LayoutExpr, coords) -> int:
     matches the ComposedLayout addressing convention.
     """
     if isinstance(layout, Layout):
+        # Path X: Layout is purely affine (in-tree). The legacy embedded-swizzle
+        # arm is preserved here for backward compatibility while the
+        # ``Layout(.., swizzle=...)`` kwarg is still accepted; it is removed
+        # in C3.
         linear_result = crd2offset(coords, layout.shape, layout.stride)
         if layout.swizzle is not None:
             return offset + layout.swizzle(linear_result)
@@ -91,9 +95,14 @@ def _linear_offset_bounds(shape, stride) -> tuple[int, int]:
 
 def _address_bounds(layout: LayoutExpr, offset: int) -> tuple[int, int]:
     """Return the min/max storage indices addressed by a Tensor."""
-    if is_affine(layout) and layout.swizzle is None:
-        min_linear, max_linear = _linear_offset_bounds(layout.shape, layout.stride)
-        return offset + min_linear, offset + max_linear
+    if is_affine(layout):
+        # Path X: Layout is purely affine. ``_split_zero_offset_swizzle``
+        # below still recognises the legacy embedded form for as long as
+        # ``Layout(.., swizzle=...)`` is accepted; the canonical Path X
+        # form is ComposedLayout(Sw, L, 0).
+        if getattr(layout, "swizzle", None) is None:
+            min_linear, max_linear = _linear_offset_bounds(layout.shape, layout.stride)
+            return offset + min_linear, offset + max_linear
 
     # Fast path for canonical Sw o L (both the embedded-swizzle Layout
     # and the explicit ComposedLayout(Sw, L, 0) form). After the
@@ -478,7 +487,7 @@ class Tensor:
 
         sub, offset = slice_and_offset(normalized, self._layout)
         if isinstance(sub, Layout):
-            sub = Layout(unwrap(sub.shape), unwrap(sub.stride), swizzle=sub.swizzle)
+            sub = Layout(unwrap(sub.shape), unwrap(sub.stride))
         return Tensor(sub, self._offset + offset, data=self._data)
 
     @staticmethod
