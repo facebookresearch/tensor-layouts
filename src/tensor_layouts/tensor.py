@@ -95,22 +95,17 @@ def _address_bounds(layout: LayoutExpr, offset: int) -> tuple[int, int]:
         min_linear, max_linear = _linear_offset_bounds(layout.shape, layout.stride)
         return offset + min_linear, offset + max_linear
 
-    # Fast path for canonical Sw o L. Two preconditions are required for
-    # `(offset, offset + cosize(layout) - 1)` to be correct:
+    # Fast path for canonical Sw o L (both the embedded-swizzle Layout
+    # and the explicit ComposedLayout(Sw, L, 0) form). After the
+    # CuTe-aligned addressing fix (commit c19e378) the Tensor's external
+    # offset is added linearly AFTER the layout call for BOTH forms, so a
+    # single uniform rule applies:
     #
-    # 1. The inner affine layout's image starts at 0, so Sw(0) = 0 is in
-    #    the image and the lower bound is achieved. Equivalent to all
-    #    inner strides being non-negative.
+    #     bounds = (offset, offset + cosize(layout) - 1)
     #
-    # 2. The Tensor's external offset is added AFTER the swizzle, so it
-    #    only translates the image. In ComposedLayout(Sw, L, 0) the
-    #    Tensor offset is added in `offset + layout(coords)` -- always
-    #    after-swizzle. In embedded-swizzle Layout the offset is added
-    #    BEFORE the swizzle (Sw(offset + L(coords))), which rotates the
-    #    swizzle's input domain instead of translating the image; the
-    #    naive bound is wrong for nonzero offsets there. So embedded form
-    #    only takes the fast path when offset == 0; ComposedLayout form
-    #    takes it for any offset.
+    # Precondition: the inner affine layout's image starts at 0 (so
+    # Sw(0) = 0 is in the image and the lower bound is achieved).
+    # Equivalent to all inner strides being non-negative.
     #
     # cosize(layout) is itself O(size) on first call but cached on the
     # instance (commits 65fd5c4 / de0269f), so repeats are O(1).
@@ -118,7 +113,7 @@ def _address_bounds(layout: LayoutExpr, offset: int) -> tuple[int, int]:
     if split is not None:
         _swizzle, inner_affine = split
         inner_min, _ = _linear_offset_bounds(inner_affine.shape, inner_affine.stride)
-        if inner_min == 0 and (isinstance(layout, ComposedLayout) or offset == 0):
+        if inner_min == 0:
             return offset, offset + cosize(layout) - 1
 
     min_offset = None
