@@ -213,181 +213,69 @@ def validate_c_layout(atom, arch: str):
 
 
 # =============================================================================
-# CDNA1 (gfx908) FP16 atoms
+# C-layout oracle tests (one per atom)
 # =============================================================================
+#
+# Each atom's C-layout is validated against the AMD matrix-instruction
+# calculator output. The (atom, arch) list pairs each atom with the GPU
+# generation whose calculator entry it should match (CDNA1 = gfx908,
+# CDNA2 = gfx90a, CDNA3 = gfx942 / gfx950). Adding a new atom is a
+# one-line append here -- no new test function needed.
+
+ORACLE_C_LAYOUT_CASES = [
+    # CDNA1 FP16
+    (CDNA_32x32x8_F32F16F16_MFMA, "cdna1"),
+    (CDNA_16x16x16_F32F16F16_MFMA, "cdna1"),
+    (CDNA_4x4x4_F32F16F16_MFMA, "cdna1"),
+    # CDNA1 non-k-reduction
+    (CDNA_32x32x4_F32F16F16_MFMA, "cdna1"),
+    (CDNA_16x16x4_F32F16F16_MFMA, "cdna1"),
+    # CDNA2 BF16 1K
+    (CDNA_32x32x8_F32BF16BF16_1K_MFMA, "cdna2"),
+    (CDNA_16x16x16_F32BF16BF16_1K_MFMA, "cdna2"),
+    # CDNA1/2 BF16 (original, non-1K)
+    (CDNA_32x32x4_F32BF16BF16_MFMA, "cdna1"),
+    (CDNA_16x16x8_F32BF16BF16_MFMA, "cdna1"),
+    # CDNA1/2 INT8
+    (CDNA_32x32x8_I32I8I8_MFMA, "cdna1"),
+    (CDNA_16x16x16_I32I8I8_MFMA, "cdna1"),
+    # CDNA1/2 FP32
+    (CDNA_32x32x2_F32F32F32_MFMA, "cdna1"),
+    (CDNA_16x16x4_F32F32F32_MFMA, "cdna1"),
+    # CDNA2 FP64
+    (CDNA_16x16x4_F64F64F64_MFMA, "cdna2"),
+    # CDNA3 enhanced
+    (CDNA3_32x32x16_I32I8I8_MFMA, "cdna3"),
+    (CDNA3_16x16x32_I32I8I8_MFMA, "cdna3"),
+    (CDNA3_32x32x4_F32XF32XF32_MFMA, "cdna3"),
+    (CDNA3_16x16x8_F32XF32XF32_MFMA, "cdna3"),
+    # CDNA3 FP8 (8 variants)
+    (CDNA3_32x32x16_F32F8F8_MFMA, "cdna3"),
+    (CDNA3_16x16x32_F32F8F8_MFMA, "cdna3"),
+    (CDNA3_32x32x16_F32BF8BF8_MFMA, "cdna3"),
+    (CDNA3_16x16x32_F32BF8BF8_MFMA, "cdna3"),
+    (CDNA3_32x32x16_F32F8BF8_MFMA, "cdna3"),
+    (CDNA3_16x16x32_F32F8BF8_MFMA, "cdna3"),
+    (CDNA3_32x32x16_F32BF8F8_MFMA, "cdna3"),
+    (CDNA3_16x16x32_F32BF8F8_MFMA, "cdna3"),
+    # CDNA3+ double-rate
+    (CDNA3P_32x32x16_F32F16F16_MFMA, "cdna3"),
+    (CDNA3P_16x16x32_F32F16F16_MFMA, "cdna3"),
+    (CDNA3P_32x32x16_F32BF16BF16_MFMA, "cdna3"),
+    (CDNA3P_16x16x32_F32BF16BF16_MFMA, "cdna3"),
+    (CDNA3P_32x32x32_I32I8I8_MFMA, "cdna3"),
+    (CDNA3P_16x16x64_I32I8I8_MFMA, "cdna3"),
+]
+
 
 @requires_calculator
-def test_oracle_cdna_32x32x8_f32f16f16():
-    validate_c_layout(CDNA_32x32x8_F32F16F16_MFMA, "cdna1")
-
-@requires_calculator
-def test_oracle_cdna_16x16x16_f32f16f16():
-    validate_c_layout(CDNA_16x16x16_F32F16F16_MFMA, "cdna1")
-
-@requires_calculator
-def test_oracle_cdna_4x4x4_f32f16f16():
-    validate_c_layout(CDNA_4x4x4_F32F16F16_MFMA, "cdna1")
-
-
-# =============================================================================
-# CDNA1 non-k-reduction variants
-# =============================================================================
-
-@requires_calculator
-def test_oracle_cdna_32x32x4_f32f16f16():
-    validate_c_layout(CDNA_32x32x4_F32F16F16_MFMA, "cdna1")
-
-@requires_calculator
-def test_oracle_cdna_16x16x4_f32f16f16():
-    validate_c_layout(CDNA_16x16x4_F32F16F16_MFMA, "cdna1")
-
-
-# =============================================================================
-# CDNA2 (gfx90a) BF16_1K atoms
-# =============================================================================
-
-@requires_calculator
-def test_oracle_cdna_32x32x8_f32bf16bf16_1k():
-    validate_c_layout(CDNA_32x32x8_F32BF16BF16_1K_MFMA, "cdna2")
-
-@requires_calculator
-def test_oracle_cdna_16x16x16_f32bf16bf16_1k():
-    validate_c_layout(CDNA_16x16x16_F32BF16BF16_1K_MFMA, "cdna2")
-
-
-# =============================================================================
-# CDNA1/2 BF16 (original, non-1K) atoms
-# =============================================================================
-
-@requires_calculator
-def test_oracle_cdna_32x32x4_f32bf16bf16():
-    validate_c_layout(CDNA_32x32x4_F32BF16BF16_MFMA, "cdna1")
-
-@requires_calculator
-def test_oracle_cdna_16x16x8_f32bf16bf16():
-    validate_c_layout(CDNA_16x16x8_F32BF16BF16_MFMA, "cdna1")
-
-
-# =============================================================================
-# CDNA1/2 INT8 atoms
-# =============================================================================
-
-@requires_calculator
-def test_oracle_cdna_32x32x8_i32i8i8():
-    validate_c_layout(CDNA_32x32x8_I32I8I8_MFMA, "cdna1")
-
-@requires_calculator
-def test_oracle_cdna_16x16x16_i32i8i8():
-    validate_c_layout(CDNA_16x16x16_I32I8I8_MFMA, "cdna1")
-
-
-# =============================================================================
-# CDNA1/2 FP32 atoms
-# =============================================================================
-
-@requires_calculator
-def test_oracle_cdna_32x32x2_f32f32f32():
-    validate_c_layout(CDNA_32x32x2_F32F32F32_MFMA, "cdna1")
-
-@requires_calculator
-def test_oracle_cdna_16x16x4_f32f32f32():
-    validate_c_layout(CDNA_16x16x4_F32F32F32_MFMA, "cdna1")
-
-
-# =============================================================================
-# CDNA2/3 FP64 atom
-# =============================================================================
-
-@requires_calculator
-def test_oracle_cdna_16x16x4_f64f64f64():
-    validate_c_layout(CDNA_16x16x4_F64F64F64_MFMA, "cdna2")
-
-
-# =============================================================================
-# CDNA3 (gfx942) enhanced atoms
-# =============================================================================
-
-@requires_calculator
-def test_oracle_cdna3_32x32x16_i32i8i8():
-    validate_c_layout(CDNA3_32x32x16_I32I8I8_MFMA, "cdna3")
-
-@requires_calculator
-def test_oracle_cdna3_16x16x32_i32i8i8():
-    validate_c_layout(CDNA3_16x16x32_I32I8I8_MFMA, "cdna3")
-
-@requires_calculator
-def test_oracle_cdna3_32x32x4_f32xf32xf32():
-    validate_c_layout(CDNA3_32x32x4_F32XF32XF32_MFMA, "cdna3")
-
-@requires_calculator
-def test_oracle_cdna3_16x16x8_f32xf32xf32():
-    validate_c_layout(CDNA3_16x16x8_F32XF32XF32_MFMA, "cdna3")
-
-
-# =============================================================================
-# CDNA3 FP8 atoms
-# =============================================================================
-
-@requires_calculator
-def test_oracle_cdna3_32x32x16_f32f8f8():
-    validate_c_layout(CDNA3_32x32x16_F32F8F8_MFMA, "cdna3")
-
-@requires_calculator
-def test_oracle_cdna3_16x16x32_f32f8f8():
-    validate_c_layout(CDNA3_16x16x32_F32F8F8_MFMA, "cdna3")
-
-@requires_calculator
-def test_oracle_cdna3_32x32x16_f32bf8bf8():
-    validate_c_layout(CDNA3_32x32x16_F32BF8BF8_MFMA, "cdna3")
-
-@requires_calculator
-def test_oracle_cdna3_16x16x32_f32bf8bf8():
-    validate_c_layout(CDNA3_16x16x32_F32BF8BF8_MFMA, "cdna3")
-
-@requires_calculator
-def test_oracle_cdna3_32x32x16_f32f8bf8():
-    validate_c_layout(CDNA3_32x32x16_F32F8BF8_MFMA, "cdna3")
-
-@requires_calculator
-def test_oracle_cdna3_16x16x32_f32f8bf8():
-    validate_c_layout(CDNA3_16x16x32_F32F8BF8_MFMA, "cdna3")
-
-@requires_calculator
-def test_oracle_cdna3_32x32x16_f32bf8f8():
-    validate_c_layout(CDNA3_32x32x16_F32BF8F8_MFMA, "cdna3")
-
-@requires_calculator
-def test_oracle_cdna3_16x16x32_f32bf8f8():
-    validate_c_layout(CDNA3_16x16x32_F32BF8F8_MFMA, "cdna3")
-
-
-# =============================================================================
-# CDNA3+ (gfx950) double-rate atoms
-# =============================================================================
-
-@requires_calculator
-def test_oracle_cdna3p_32x32x16_f32f16f16():
-    validate_c_layout(CDNA3P_32x32x16_F32F16F16_MFMA, "cdna3")
-
-@requires_calculator
-def test_oracle_cdna3p_16x16x32_f32f16f16():
-    validate_c_layout(CDNA3P_16x16x32_F32F16F16_MFMA, "cdna3")
-
-@requires_calculator
-def test_oracle_cdna3p_32x32x16_f32bf16bf16():
-    validate_c_layout(CDNA3P_32x32x16_F32BF16BF16_MFMA, "cdna3")
-
-@requires_calculator
-def test_oracle_cdna3p_16x16x32_f32bf16bf16():
-    validate_c_layout(CDNA3P_16x16x32_F32BF16BF16_MFMA, "cdna3")
-
-@requires_calculator
-def test_oracle_cdna3p_32x32x32_i32i8i8():
-    validate_c_layout(CDNA3P_32x32x32_I32I8I8_MFMA, "cdna3")
-
-@requires_calculator
-def test_oracle_cdna3p_16x16x64_i32i8i8():
-    validate_c_layout(CDNA3P_16x16x64_I32I8I8_MFMA, "cdna3")
+@pytest.mark.parametrize(
+    "atom,arch",
+    ORACLE_C_LAYOUT_CASES,
+    ids=[f"{atom.name}-{arch}" for atom, arch in ORACLE_C_LAYOUT_CASES],
+)
+def test_oracle_validate_c_layout(atom, arch):
+    validate_c_layout(atom, arch)
 
 
 # =============================================================================
