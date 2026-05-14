@@ -150,6 +150,7 @@ __all__ = [
     "Tile",
     "Swizzle",
     "make_swizzle",
+    "split_outer_swizzle",
     # Stride computation
     "compute_col_major_strides",
     "compute_row_major_strides",
@@ -876,11 +877,35 @@ LayoutExpr = Layout | ComposedLayout
 _NO_FORWARD = object()
 
 
-def _split_zero_offset_swizzle(layout: LayoutExpr):
-    """Return (swizzle, inner_layout) for canonical zero-offset swizzle wrappers.
+def split_outer_swizzle(layout: LayoutExpr):
+    """Recognize the canonical ``ComposedLayout(Swizzle, Layout, offset=0)`` form.
 
-    Path X: only the ComposedLayout(Sw, L, 0) form is recognised; the
-    legacy embedded-swizzle Layout has been retired.
+    Returns ``(swizzle, inner_layout)`` if ``layout`` is a zero-offset
+    swizzle wrapper around an affine layout, else ``None``. This is the
+    structural shape produced by ``Tensor`` swizzling and by
+    ``ComposedLayout(Sw, L, 0)`` literals; recognising it lets callers
+    take fast paths that exploit the swizzle's linearity (e.g. O(1)
+    cosize-based address bounds, see ``max_common_vector``).
+
+    "Outer" refers to the slot the Swizzle occupies. The mirror-image
+    inverse-form ``ComposedLayout(Layout, Swizzle, offset)`` -- where
+    the Swizzle sits in the *inner* slot -- is a different beast: 1-D,
+    non-affine, can address negative storage, and arises only as the
+    output of ``right_inverse`` / ``left_inverse``. It is intentionally
+    NOT recognised here. The current call sites (``_address_bounds``,
+    ``max_common_vector``) only make sense for the outer form, and
+    conflating the two would let callers misuse a non-affine result via
+    affine-shaped reasoning. The inverse-form has its own private
+    predicate ``_is_swizzle_inner_composed``; promote it to a sibling
+    ``split_inner_swizzle`` if a public consumer ever materialises.
+
+    Forms NOT recognised:
+
+    - Nonzero offset: an affine shift wrapping the swizzle that callers
+      must handle explicitly.
+    - Inverse-form (see above).
+    - Plain ``Layout``: pre-Path-X ``Layout(..., swizzle=Sw)`` no
+      longer exists; bare ``Layout`` is purely affine.
     """
     if (
         isinstance(layout, ComposedLayout)
@@ -2189,8 +2214,8 @@ def max_common_layout(layout_a: LayoutExpr, layout_b: LayoutExpr) -> LayoutExpr:
         max_common_layout(Layout(8, 1), Layout((4,2), (1,4))) -> 4:1
     """
     if (
-        _split_zero_offset_swizzle(layout_a) is not None
-        or _split_zero_offset_swizzle(layout_b) is not None
+        split_outer_swizzle(layout_a) is not None
+        or split_outer_swizzle(layout_b) is not None
     ):
         vec = max_common_vector(layout_a, layout_b)
         inv_b = right_inverse(layout_b)
@@ -2251,8 +2276,8 @@ def max_common_vector(layout_a: LayoutExpr, layout_b: LayoutExpr) -> int:
         max_common_vector(Layout((4,2), (2,1)), Layout(8,1)) -> 1
         max_common_vector(Layout(8, 1), Layout((4,2), (1,4))) -> 4
     """
-    split_a = _split_zero_offset_swizzle(layout_a)
-    split_b = _split_zero_offset_swizzle(layout_b)
+    split_a = split_outer_swizzle(layout_a)
+    split_b = split_outer_swizzle(layout_b)
     if split_a is not None:
         swizzle_a, inner_a = split_a
         if split_b is not None:

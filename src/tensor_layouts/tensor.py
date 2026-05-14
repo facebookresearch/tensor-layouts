@@ -53,7 +53,6 @@ swizzle's domain.
 import warnings  # noqa: F401  -- kept for back-compat re-export via ``from .tensor import *``
 
 from .layouts import *
-from .layouts import _split_zero_offset_swizzle
 
 
 def _tensor_address(offset: int, layout: LayoutExpr, coords) -> int:
@@ -105,7 +104,7 @@ def _address_bounds(layout: LayoutExpr, offset: int) -> tuple[int, int]:
     #
     # cosize(layout) is itself O(size) on first call but cached on the
     # instance (commits 65fd5c4 / de0269f), so repeats are O(1).
-    split = _split_zero_offset_swizzle(layout)
+    split = split_outer_swizzle(layout)
     if split is not None:
         _swizzle, inner_affine = split
         inner_min, _ = _linear_offset_bounds(inner_affine.shape, inner_affine.stride)
