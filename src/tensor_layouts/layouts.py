@@ -805,7 +805,15 @@ class ComposedLayout:
 
     outer: Any
     inner: "LayoutExpr"
-    offset: int = 0
+    # ``offset`` is keyword-only -- you must spell it as ``offset=k``. This
+    # rules out the silent porting trap where someone copies a CuTe C++
+    # ``ComposedLayout<A, Offset, B>`` literal into Python expecting the
+    # same positional order. tensor-layouts uses ``ComposedLayout(outer,
+    # inner, offset=k)`` so the common zero-offset case can drop the
+    # ``offset`` argument entirely; CuTe / pycute place the offset
+    # positionally between A and B and require it on every literal. See
+    # docs/layout_api.md for a full discussion.
+    offset: int = field(default=0, kw_only=True)
     # Lazy O(1) cache for cosize. Populated by cosize() on first call via
     # object.__setattr__ (frozen dataclass blocks normal assignment).
     # Excluded from init/repr/eq/hash so two equal ComposedLayouts with
