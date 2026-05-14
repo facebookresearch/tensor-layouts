@@ -136,7 +136,7 @@ exact = compose(Layout(16, 2), swizzled)     # also a ComposedLayout
 Semantics:
 
 ```python
-ComposedLayout(outer, inner, offset)(coord) == outer(offset + inner(coord))
+ComposedLayout(outer, inner, offset=k)(coord) == outer(k + inner(coord))
 ```
 
 This mirrors CuTe C++'s `LayoutA o Offset o LayoutB` model:
@@ -148,6 +148,39 @@ This mirrors CuTe C++'s `LayoutA o Offset o LayoutB` model:
 The practical reason for `offset` is slicing. Once a fixed coordinate has
 been pushed under a nonlinear outer map, that fixed contribution can no longer
 be treated as an ordinary pointer offset.
+
+#### Constructor signature vs CuTe / pycute
+
+tensor-layouts uses `ComposedLayout(outer, inner, offset=k)`. CuTe C++ and
+pycute both place the offset positionally **between** the outer and inner
+slots:
+
+| Library | Constructor | Common case |
+|---|---|---|
+| CuTe C++ | `ComposedLayout<LayoutA, Offset, LayoutB>` | `ComposedLayout<Sw, _0, L>` |
+| pycute | `ComposedLayout(layoutB, offset, layoutA)` | `ComposedLayout(Sw, 0, L)` |
+| **tensor-layouts** | `ComposedLayout(outer, inner, offset=k)` | `ComposedLayout(Sw, L)` |
+
+The reason for the difference is ergonomics: most layouts have `offset == 0`
+(the canonical `Sw o L`), so making `offset` the trailing default-argument
+lets that common case drop the parameter entirely.
+
+To rule out the silent porting trap where someone copies a CuTe positional
+literal into Python expecting the same order, **`offset` is keyword-only**.
+Both forms below raise `TypeError: __init__() takes 3 positional arguments
+but 4 were given`:
+
+```python
+ComposedLayout(Swizzle(2, 0, 2), Layout(16, 1), 4)        # tensor-layouts positional offset -- rejected
+ComposedLayout(Swizzle(2, 0, 2), 4, Layout(16, 1))        # CuTe-style positional order -- rejected
+```
+
+The supported forms are:
+
+```python
+ComposedLayout(Swizzle(2, 0, 2), Layout(16, 1))           # offset defaults to 0
+ComposedLayout(Swizzle(2, 0, 2), Layout(16, 1), offset=4) # explicit non-zero offset
+```
 
 ### Trait helpers
 
