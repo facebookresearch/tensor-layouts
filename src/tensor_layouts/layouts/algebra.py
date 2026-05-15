@@ -20,162 +20,37 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-"""Pure-Python implementation of NVIDIA CuTe layout algebra.
+"""The CuTe layout algebra: composition, division, product, inverses, and
+their structural support functions.
 
-A Layout is a function from logical coordinates to memory offsets, defined by
-a pair (shape, stride). The shape describes the logical domain (how many
-elements along each dimension), and the stride describes how coordinates map
-to offsets: offset = dot(coord, stride).
-
-    Layout((4, 8), (1, 4))  maps a 4x8 column-major matrix.
-    Layout((4, 8), (8, 1))  maps a 4x8 row-major matrix.
-    Layout(32, 1)           maps 32 contiguous elements.
-
-What makes CuTe's algebra powerful is that shapes can be hierarchical ---
-nested tuples like ((2, 4), (3, 2)) describe multi-level coordinate spaces.
-This lets you represent complex GPU memory access patterns (tiles within tiles,
-swizzled shared memory banks) as simple shape/stride pairs.
-
-The algebra is built on four key operations:
-
-  compose(A, B)      Function composition: compose(A, B)(i) = A(B(i)).
-                     B selects which elements of A to visit, and in what order.
-
-  complement(L)      The "other half": a layout that visits the offsets L skips,
-                     so Layout(L, complement(L)) covers every offset once.
-
-  logical_divide(L, T)   Factor L into (tile, rest) using T as the tile shape.
-                         Defined as compose(L, Layout(T, complement(T))).
-
-  logical_product(A, B)  Reproduce A's pattern at each position B describes.
-                         Defined as Layout(A, compose(complement(A), B)).
-
-Division answers "how do I iterate in tiles?", product answers "how do I
-replicate a pattern?", and both are defined in terms of compose + complement.
+Layered above ``core.py`` (Layout, Swizzle, tuple operations) and
+``expr.py`` (ComposedLayout, the LayoutExpr predicates and coercers,
+swizzle splitters). Everything in this
+module assumes both are in scope.
 """
 
 from __future__ import annotations
 
 import math
-from collections.abc import Iterable as IterableType
-from dataclasses import dataclass, field
-from typing import Any, Union
+from typing import Any
 
-# Tuple of int | tuple
-IntOrIntTuple = Union[int, tuple["IntOrIntTuple", ...]]
-
-
-# =============================================================================
-# Exception taxonomy
-# =============================================================================
-#
-# These three classes give the layout algebra, ComposedLayout structural
-# restrictions, and Tensor storage state errors stable identities while
-# remaining backwards-compatible with handlers that catch the standard
-# Python base classes.
-#
-# The classes are used by raise sites throughout this package and also
-# re-exported via the package's star-import surface so user code can
-# write e.g. `except LayoutError` when it cares about the specific kind.
-
-
-class LayoutError(ValueError):
-    """A layout-algebra precondition failed.
-
-    Raised when a Layout / ComposedLayout operation is called with inputs
-    that violate the algebra's structural rules (shape/stride congruence,
-    rank mismatch, mode out of range, tiler incompatibility, swizzle mask
-    overlap, etc.). Subclasses ``ValueError`` so existing
-    ``except ValueError`` handlers continue to catch it.
-    """
-
-
-class UnsupportedComposedLayoutError(NotImplementedError):
-    """A ComposedLayout form does not support the requested operation.
-
-    Mostly the F6 inverse-form ``ComposedLayout(Layout, Swizzle, offset)``
-    produced by ``right_inverse`` / ``left_inverse`` of an offset-bearing
-    swizzle-fronted layout. Operations that delegate to the inner Layout
-    (``complement``, ``coalesce``, ``logical_product``, ``logical_divide``,
-    ``to_F2_matrix``) cannot be defined on this form because the inner
-    is a ``Swizzle`` rather than a Layout. Mirrors CuTe C++ -- those
-    templates fail to instantiate. Subclasses ``NotImplementedError`` so
-    existing handlers continue to catch it.
-    """
-
-
-class TensorStorageError(ValueError):
-    """Tensor's storage state is inconsistent with the requested operation.
-
-    Raised when a Tensor without backing storage is asked to perform an
-    operation that requires storage (assignment, view), or when a Tensor's
-    layout addresses positions outside its storage (negative indices,
-    out-of-range upper bound). Subclasses ``ValueError`` because from the
-    caller's point of view the offending input is the storage value (or
-    its absence) -- existing ``except ValueError`` handlers continue to
-    catch it.
-    """
+from .core import *  # noqa: F401, F403
+from .expr import *  # noqa: F401, F403
+from .expr import (
+    _NO_FORWARD,
+    _forward_layout_domain,
+    _is_swizzle_inner_composed,
+    _reject_swizzle_inner_composed,
+)
 
 
 __all__ = [
-    # Exceptions
-    "LayoutError",
-    "UnsupportedComposedLayoutError",
-    "TensorStorageError",
-    # Type alias
-    "IntOrIntTuple",
-    "LayoutExpr",
-    # Type predicates
-    "is_tuple",
-    "is_int",
-    "is_scalar",
-    "is_iterable",
-    "is_layout",
-    "is_affine",
-    "is_pure_shape",
-    "is_empty",
-    "has_none",
-    # Shape conversions
-    "as_tuple",
-    "as_shape",
-    "as_list",
-    "as_layout",
-    "as_layout_expr",
-    "as_affine_layout",
-    "unwrap",
-    "normalize",
-    # Core types
-    "Layout",
-    "ComposedLayout",
-    "Tile",
-    "Swizzle",
-    "make_swizzle",
-    "split_outer_swizzle",
-    # Stride computation
-    "compute_col_major_strides",
-    "compute_row_major_strides",
-    # Query functions
     "size",
     "cosize",
     "rank",
     "depth",
     "mode",
-    # Tuple operations
-    "concat",
-    "congruent",
-    "weakly_congruent",
-    "compatible",
-    "tuple_max",
-    "transform_tuple",
-    "zip_transform",
-    "fold",
-    "fold_accumulate",
-    "elem_scale",
-    "inner_product",
-    "prefix_product",
-    "suffix_product",
-    "product_each",
-    # Layout manipulation
+    "iter_layout",
     "append",
     "prepend",
     "replace",
@@ -184,7 +59,13 @@ __all__ = [
     "unflatten",
     "sort",
     "coalesce",
-    # Coordinate conversion
+    "complement",
+    "right_inverse",
+    "left_inverse",
+    "nullspace",
+    "max_common_layout",
+    "max_common_vector",
+    "slice_and_offset",
     "idx2crd",
     "crd2flat",
     "crd2offset",
@@ -192,825 +73,24 @@ __all__ = [
     "crd2crd",
     "slice_modes",
     "dice_modes",
-    "slice_and_offset",
-    # Core algebra
-    "compose",
-    "complement",
-    "logical_divide",
-    "logical_product",
-    # Division variants
-    "zipped_divide",
-    "tiled_divide",
-    "flat_divide",
-    # Product variants
-    "zipped_product",
-    "tiled_product",
-    "hier_unzip",
-    "blocked_product",
-    "raked_product",
-    "flat_product",
-    # Inverse and related
-    "right_inverse",
-    "left_inverse",
-    "nullspace",
-    "max_common_layout",
-    "max_common_vector",
-    # Shape arithmetic
     "safe_div",
     "shape_div",
     "shape_mod",
-    # Upcast / downcast
     "upcast",
     "downcast",
-    # Iteration
-    "iter_layout",
+    "compose",
+    "logical_divide",
+    "zipped_divide",
+    "tiled_divide",
+    "flat_divide",
+    "logical_product",
+    "blocked_product",
+    "raked_product",
+    "flat_product",
+    "zipped_product",
+    "tiled_product",
+    "hier_unzip",
 ]
-
-
-# =============================================================================
-# Type predicates
-# =============================================================================
-#
-# Simple type checks used throughout the algebra.
-#
-
-
-def is_tuple(x) -> bool:
-    """Check if x is a tuple (matches CuTe's is_tuple convention)."""
-    return isinstance(x, tuple)
-
-
-def is_int(x) -> bool:
-    """Check if x is an integer (excluding booleans which are int subclasses in Python)."""
-    return isinstance(x, int) and not isinstance(x, bool)
-
-
-def as_layout(obj):
-    """Convert an affine Layout-like object to a Layout.
-
-    Accepts our Layout, or any object with .shape and .stride attributes
-    (e.g. pycute Layout). This allows viz and analysis functions to accept
-    foreign affine layout objects without requiring them as a dependency.
-
-    ComposedLayout is intentionally rejected here because it has a logical
-    domain but no affine stride tree. Generic consumers should use
-    as_layout_expr() instead.
-    """
-    if hasattr(obj, "layout") and not isinstance(obj, (Layout, ComposedLayout)):
-        return as_layout(obj.layout)
-    if isinstance(obj, Layout):
-        return obj
-    if isinstance(obj, ComposedLayout):
-        raise TypeError("Expected affine Layout, got ComposedLayout")
-    if hasattr(obj, "shape") and hasattr(obj, "stride"):
-        return Layout(obj.shape, obj.stride)
-    raise TypeError(f"Expected Layout, got {type(obj).__name__}")
-
-
-def as_layout_expr(obj):
-    """Convert a layout-like object to Layout or ComposedLayout.
-
-    Accepts our Layout / ComposedLayout, Tensor-like objects with a .layout
-    attribute, or foreign affine layout objects with .shape/.stride.
-    """
-    if hasattr(obj, "layout") and not isinstance(obj, (Layout, ComposedLayout)):
-        return as_layout_expr(obj.layout)
-    if isinstance(obj, (Layout, ComposedLayout)):
-        return obj
-    if hasattr(obj, "shape") and hasattr(obj, "stride"):
-        return Layout(obj.shape, obj.stride)
-    raise TypeError(f"Expected LayoutExpr, got {type(obj).__name__}")
-
-
-def as_affine_layout(obj):
-    """Convert obj to an affine Layout, asserting affinity at the boundary.
-
-    Like ``as_layout()`` but explicit about the contract: callers that need
-    direct ``.shape`` / ``.stride`` access (analysis, viz, ``Tensor.stride``,
-    affine algebra) should use this so the precondition is documented at the
-    call site. Use ``as_layout_expr()`` instead if your caller can handle a
-    ``ComposedLayout``.
-
-    Raises ``TypeError`` if ``obj`` cannot be coerced to an affine ``Layout``.
-    The ``is_affine`` post-check is belt-and-suspenders: today ``as_layout()``
-    already guarantees the result, but the explicit assertion documents the
-    contract and protects against future loosening.
-    """
-    layout = as_layout(obj)
-    if not is_affine(layout):
-        raise TypeError(
-            f"as_affine_layout: not affine after conversion: {layout!r} "
-            f"(use as_layout_expr() to accept ComposedLayout)"
-        )
-    return layout
-
-
-def is_scalar(x) -> bool:
-    """Check if x represents a scalar shape (int, not tuple)."""
-    return is_int(x)
-
-
-def is_iterable(x) -> bool:
-    """Check if x is an iterable collection (excluding strings and bytes)."""
-    return isinstance(x, IterableType) and not isinstance(x, (str, bytes))
-
-
-def is_layout(x) -> bool:
-    """Check if x is a supported layout object (matches CuTe's is_layout trait)."""
-    return isinstance(x, (Layout, ComposedLayout))
-
-
-def is_affine(obj) -> bool:
-    """Return True if obj is (or contains) an affine ``Layout`` node.
-
-    This is a *structural* check: a ``ComposedLayout`` that happens to be
-    mathematically affine (e.g. a swizzle-free composition that could
-    coalesce to a flat ``Layout``) still returns False, because we have no
-    machinery to attempt that normalization. Callers that have an arbitrary
-    ``LayoutExpr`` and need direct ``.shape``/``.stride`` access should pair
-    this with ``as_affine_layout()`` (which raises on ``ComposedLayout``).
-
-    Works with both ``Layout``/``ComposedLayout`` and any object exposing a
-    ``.layout`` attribute (e.g. ``Tensor``).
-    """
-    layout = obj.layout if hasattr(obj, "layout") and not is_layout(obj) else obj
-    return isinstance(layout, Layout)
-
-
-def is_pure_shape(t) -> bool:
-    """Check if t is a pure shape (nested ints with no Layouts).
-
-    A pure shape is an int or a tuple containing only ints (recursively).
-    This is used to distinguish shape tuples from tiler tuples that may
-    contain Layouts.
-
-    Examples:
-        is_pure_shape(4) -> True
-        is_pure_shape((2, 3)) -> True
-        is_pure_shape(((2, 3), 4)) -> True
-        is_pure_shape(Layout(4, 1)) -> False
-        is_pure_shape((Layout(4, 1), 3)) -> False
-    """
-    if is_layout(t):
-        return False
-    if is_int(t):
-        return True
-    if is_tuple(t):
-        return all(is_pure_shape(elem) for elem in t)
-    return False
-
-
-def is_empty(obj) -> bool:
-    """Return True if obj is (or contains) the unit/empty layout.
-
-    The unit layout has the empty-tuple shape ``()``, rank 0, and size 1
-    (the empty product). It is the multiplicative identity for layout
-    composition and concatenation. This is **distinct** from a zero-sized
-    layout such as ``Layout((0,), (0,))``, which has rank 1 and size 0;
-    use ``size(L) == 0`` to test for that.
-
-    Matches the conventions in pycute (``product(()) == 1``) and CuTe C++
-    (``Product`` returns ``Int<1>{}`` for empty tuples).
-
-    Works with both Layout objects and Tensors (via the ``.layout`` attribute).
-    """
-    layout = obj.layout if hasattr(obj, "layout") and not is_layout(obj) else obj
-    if not is_layout(layout):
-        return False
-    return is_tuple(layout.shape) and len(layout.shape) == 0
-
-
-def has_none(a) -> bool:
-    """Determine if None appears at any terminal of an int-tuple.
-
-    Used to detect slice operations in coordinate arguments.
-
-    Examples:
-        has_none(3) -> False
-        has_none(None) -> True
-        has_none((1, None, 3)) -> True
-        has_none((1, (2, None))) -> True
-    """
-    return fold(a, False, lambda acc, v: acc or v is None)
-
-
-def coords_all_none(a) -> bool:
-    """Return True if every terminal coordinate is None."""
-    return fold(a, True, lambda acc, v: acc and v is None)
-
-
-# =============================================================================
-# Shape conversions
-# =============================================================================
-#
-#   Function          Direction              When to use
-#   ────────────────  ─────────────────────  ──────────────────────────────────
-#   as_tuple(x)       int|tuple → tuple      Iterate uniformly over modes
-#   as_shape(items)   list → int|tuple       Build result, preserving rank
-#   unwrap(t)         (x,) → x               Extract single composed mode
-#   normalize(x)      any → int|tuple        Sanitize user input
-#
-
-
-def as_tuple(x) -> tuple:
-    """Ensure x is a tuple for uniform iteration.
-
-    Scalars become single-element tuples; tuples pass through unchanged.
-    Use this to iterate over modes uniformly:
-
-        for s, d in zip(as_tuple(shape), as_tuple(stride)):
-            ...
-
-    Examples:
-        as_tuple(8)       → (8,)
-        as_tuple((4, 8))  → (4, 8)
-    """
-    if isinstance(x, int):
-        return (x,)
-    return tuple(x)
-
-
-def as_shape(items) -> IntOrIntTuple:
-    """Convert a list of modes back to a shape, preserving rank semantics.
-
-    Single-element lists become scalars (rank-0); multi-element become tuples.
-    Use this when building computed results from a list of modes:
-
-        result_shapes = [...]  # built up during computation
-        return Layout(as_shape(result_shapes), as_shape(result_strides))
-
-    Examples:
-        as_shape([8])        → 8        (scalar)
-        as_shape([(2, 4)])   → (2, 4)   (still a tuple, just unwrapped from list)
-        as_shape([4, 8])     → (4, 8)   (tuple)
-    """
-    if len(items) == 1:
-        return items[0]
-    return tuple(items)
-
-
-def as_list(x) -> list:
-    """Convert a shape or stride to a list for mutation.
-
-    Unlike as_tuple (for iteration) or as_shape (for building results),
-    as_list is for when you need to modify the structure before creating
-    a new Layout.
-
-    Examples:
-        as_list(8)              # [8]
-        as_list((4, 8))         # [4, 8]
-        as_list(((2, 4), 8))    # [(2, 4), 8]  (nested structure preserved)
-    """
-    return list(as_tuple(x))
-
-
-def unwrap(t):
-    """Unwrap a single-element tuple to its element; pass through otherwise.
-
-    Use this when extracting a single mode from composition, where the result
-    might be wrapped in a spurious outer tuple:
-
-        composed = compose(mode_layout, other)
-        result_shapes.append(unwrap(composed.shape))
-
-    Examples:
-        unwrap((4,))    → 4
-        unwrap((4, 8))  → (4, 8)
-        unwrap(4)       → 4
-    """
-    if is_tuple(t) and len(t) == 1:
-        return t[0]
-    return t
-
-
-def normalize(x: Any) -> IntOrIntTuple:
-    """Normalize user input to a canonical shape: int | tuple[int | tuple, ...].
-
-    - int passes through unchanged
-    - iterables (lists, generators) become tuples with normalized elements
-    - single-element tuples are preserved (user intent is explicit)
-
-    Used by Layout.__init__ to sanitize user-provided shapes/strides.
-
-    Examples:
-        normalize(8)           → 8
-        normalize([4, 8])      → (4, 8)
-        normalize((4,))        → (4,)      # preserved!
-        normalize([[2, 4], 8]) → ((2, 4), 8)
-    """
-    if is_int(x):
-        return x
-    if is_iterable(x):
-        return tuple(normalize(elem) for elem in x)
-    raise TypeError(f"Cannot normalize shape: {type(x).__name__}")
-
-
-# =============================================================================
-# Layout
-# =============================================================================
-#
-# A Layout is a function from logical coordinates to memory offsets, defined by
-# a pair (shape, stride). Each "mode" (dimension) contributes coord_i * stride_i
-# to the offset. When a shape element is itself a tuple, that mode has sub-modes,
-# creating the hierarchical coordinate spaces that are CuTe's key innovation.
-#
-
-
-def _validate_shape_type(x, name: str) -> None:
-    """Validate that *x* is a valid shape or stride: int or nested tuple of ints.
-
-    Raises TypeError with a clear message naming the offending parameter
-    (``name`` should be ``"shape"`` or ``"stride"``).
-    """
-    if is_int(x):
-        return
-    if isinstance(x, (list, tuple)):
-        for elem in x:
-            _validate_shape_type(elem, name)
-        return
-    raise TypeError(f"Layout {name} must be int or tuple of ints, got {type(x).__name__}")
-
-
-def _validate_nonnegative_shape(shape: Any) -> None:
-    """Validate that every shape extent is nonnegative."""
-    if is_int(shape):
-        if shape < 0:
-            raise LayoutError(f"Layout shape must contain only nonnegative extents, got {shape}")
-        return
-    for elem in shape:
-        _validate_nonnegative_shape(elem)
-
-
-def _fmt_shape(x):
-    """Format a shape/stride without Python's trailing-comma for 1-tuples.
-
-    Python renders ``((4, 2),)`` for a 1-element tuple, but CuTe notation
-    uses ``((4, 2))`` which is cleaner for human readers.
-    """
-    if isinstance(x, int):
-        return str(x)
-    return "(" + ", ".join(_fmt_shape(e) for e in x) + ")"
-
-
-class Layout:
-    """A function from logical coordinates to memory offsets: offset = sum(coord_i * stride_i).
-
-    A Layout is defined by (shape, stride) where shape describes the logical
-    domain and stride describes the memory step for each dimension.
-
-    Examples:
-        Layout((4, 8), (1, 4))   -- 4x8 column-major matrix
-        Layout((4, 8), (8, 1))   -- 4x8 row-major matrix
-        Layout(32, 1)            -- 32 contiguous elements
-        Layout((4, 8), (2, 0))   -- strided rows, broadcast columns
-
-    Shapes can be hierarchical (nested tuples):
-        Layout(((2, 4), 8), ((1, 2), 8))   -- a 2x4 tile within an 8-column layout
-
-    This hierarchy lets you describe complex GPU memory patterns --- tiles within
-    tiles, swizzled banks, interleaved threads --- as simple shape/stride pairs.
-
-    Shapes and strides are stored as int | tuple:
-    - int for scalar (1D) shapes
-    - tuple for multi-dimensional shapes
-
-    Swizzled layouts:
-        When composed with a Swizzle, a Layout stores the swizzle function and
-        applies it after computing the linear offset. This keeps composition
-        closed: compose(Swizzle, Layout) returns a Layout.
-
-    Construction:
-        Layout(shape)              -- column-major strides computed automatically
-        Layout(shape, stride)      -- explicit shape and stride
-        Layout(layout_a, layout_b) -- bundle two layouts as modes of a new layout
-    """
-
-    def __init__(self, *args):
-        # Path X: Layout is purely affine. The legacy ``swizzle=`` kwarg
-        # and ``_cached_cosize`` slot were removed in C3.
-
-        if len(args) == 0:
-            self._shape = ()
-            self._stride = ()
-
-        elif all(isinstance(arg, Layout) for arg in args):
-            if len(args) == 1:
-                # Wrap the inner layout's shape/stride to add one level of nesting
-                inner = args[0]
-                self._shape = normalize((inner.shape,))
-                self._stride = normalize((inner.stride,))
-            else:
-                shapes = tuple(layout.shape for layout in args)
-                strides = tuple(layout.stride for layout in args)
-                self._shape = shapes
-                self._stride = strides
-
-        elif len(args) == 1:
-            shape = args[0]
-            _validate_shape_type(shape, "shape")
-            self._shape = normalize(shape)
-            _validate_nonnegative_shape(self._shape)
-            self._stride = compute_col_major_strides(self._shape)
-
-        elif len(args) == 2:
-            shape, stride = args
-            _validate_shape_type(shape, "shape")
-            _validate_shape_type(stride, "stride")
-            self._shape = normalize(shape)
-            _validate_nonnegative_shape(self._shape)
-            self._stride = normalize(stride)
-
-        else:
-            raise TypeError(
-                "Layout() takes shapes/stride arguments or multiple Layout arguments for bundling"
-            )
-
-        if not congruent(self._shape, self._stride):
-            raise LayoutError(f"Shape {self._shape} and Stride {self._stride} are not congruent")
-
-    def __eq__(self, other):
-        if self is other:
-            return True
-        if not isinstance(other, Layout):
-            return False
-        return (
-            self.shape == other.shape
-            and self.stride == other.stride
-        )
-
-    def __hash__(self):
-        return hash((self.shape, self.stride))
-
-    def __repr__(self):
-        """Return an eval-safe constructor string: Layout((4, 2), (1, 4))."""
-        return f"Layout({self._shape!r}, {self._stride!r})"
-
-    def __str__(self):
-        """Return human-readable CuTe notation: (4, 2) : (1, 4)."""
-        return f"{_fmt_shape(self._shape)} : {_fmt_shape(self._stride)}"
-
-    @property
-    def shape(self) -> IntOrIntTuple:
-        return self._shape
-
-    @property
-    def stride(self) -> IntOrIntTuple:
-        return self._stride
-
-    def __call__(self, *args):
-        """Map a logical coordinate to a linear index, or slice the layout.
-
-        If any coordinate is None, returns a sublayout (the sliced dimensions).
-        A bare None is a full slice and returns the layout unchanged.
-        Otherwise returns the integer offset.
-
-        Path X: Layout is purely affine; swizzled forms live in
-        ``ComposedLayout``.
-
-        Examples:
-            Layout((4,8))((2,3)) -> 26       # coordinate to index
-            Layout((4,8))(None) -> (4, 8) : (1, 4)  # full slice
-            Layout((4,8))(None, 3) -> (4,) : (1,)  # slice: fix dim 1 to 3, keep dim 0
-        """
-        if len(args) == 1:
-            coords = args[0]
-        else:
-            coords = args
-        if coords is None:
-            return self
-        if has_none(coords):
-            sliced_shape = slice_modes(coords, self.shape)
-            sliced_stride = slice_modes(coords, self.stride)
-            if not sliced_shape:
-                return Layout((), ())
-            return Layout(sliced_shape, sliced_stride)
-        return crd2offset(coords, self.shape, self.stride)
-
-    def squeeze(self) -> "Layout":
-        """Removes all dimensions of size 1 and their corresponding strides."""
-        new_shape, new_stride = self.filter_shapes(self.shape, self.stride, 1)
-        return Layout(new_shape, new_stride)
-
-    def filter(self) -> "Layout":
-        """Removes all dimensions with a stride of 0."""
-        new_shape, new_stride = self.filter_strides(self.shape, self.stride, 0)
-        return Layout(new_shape, new_stride)
-
-    def filter_shapes(self, shape, stride, target):
-        """Removes all dimensions of size 'target', and their corresponding strides."""
-        if is_int(shape):
-            if shape == target:
-                return (), ()
-            return shape, stride
-
-        s_out = []
-        d_out = []
-        for s, d in zip(shape, stride):
-            if is_tuple(s):
-                sub_s, sub_d = self.filter_shapes(s, d, target)
-                if sub_s != ():
-                    s_out.append(sub_s)
-                    d_out.append(sub_d)
-            elif s != target:
-                s_out.append(s)
-                d_out.append(d)
-        return as_shape(s_out) if s_out else (), as_shape(d_out) if d_out else ()
-
-    def filter_strides(self, shape, stride, target):
-        """Removes all dimensions with a stride of 'target', and their corresponding shapes."""
-        if is_int(shape):
-            if stride == target:
-                return (), ()
-            return shape, stride
-
-        s_out = []
-        d_out = []
-        for s, d in zip(shape, stride):
-            if is_tuple(s):
-                sub_s, sub_d = self.filter_strides(s, d, target)
-                if sub_s != ():
-                    s_out.append(sub_s)
-                    d_out.append(sub_d)
-            elif d != target:
-                s_out.append(s)
-                d_out.append(d)
-        return as_shape(s_out) if s_out else (), as_shape(d_out) if d_out else ()
-
-    def __len__(self):
-        """Number of elements in the layout's domain."""
-        return size(self)
-
-    def __iter__(self):
-        """Yield coordinates in colexicographic order (flat index 0, 1, 2, ...)."""
-        for i in range(size(self)):
-            yield idx2crd(i, self._shape)
-
-
-@dataclass(frozen=True)
-class ComposedLayout:
-    """An exact layout-expression node for compositions that are not affine.
-
-    Semantics:
-        ComposedLayout(outer, inner, offset)(coord) ==
-            outer(offset + inner(coord))
-
-    The inner layout defines the logical domain (shape, size, rank, depth).
-    The offset remains inside the composition, before the outer nonlinear
-    map, which is why ComposedLayout intentionally does not expose .stride.
-
-    Supported inner shapes
-    ----------------------
-
-    Two shapes for ``(outer, inner)`` are supported, with very different
-    expressiveness:
-
-    1. **Layout (or ComposedLayout) inner** -- the canonical case. All
-       layout-algebra operations are defined: ``coalesce``, ``complement``,
-       ``flatten``, ``logical_product``, ``logical_divide``, ``compose``,
-       ``right_inverse``, ``left_inverse``, etc. This is what arises from
-       slicing a swizzled layout (``ComposedLayout(Swizzle, Layout, k)``)
-       and from nesting two compositions.
-
-    2. **Swizzle inner** -- the *inverse-form* shape, structurally
-       ``ComposedLayout(outer=Layout, inner=Swizzle, offset)``. This form
-       arises only as the result of ``right_inverse`` / ``left_inverse``
-       applied to an offset-bearing swizzle-fronted ``ComposedLayout`` (see
-       CuTe ``swizzle_layout.hpp:348-358``); the inverse swaps the slots and
-       negates the offset. Its logical domain is 1-D with extent taken from
-       ``outer.shape``.
-
-       **What works:** ``__call__``, ``size``, ``shape``, ``cosize``,
-       ``rank``, ``depth``, ``flatten``, ``coalesce`` (no-op: rank-1 with
-       no structure to merge), ``right_inverse``, ``left_inverse``,
-       ``compose`` (so the inverse-and-cancel round trip is closed).
-
-       **What raises NotImplementedError:** ``complement``,
-       ``logical_product``, ``logical_divide``. These ops delegate to the
-       inner layout and ``Swizzle`` does not satisfy the Layout interface;
-       defining them on the inverse-form would also require a sensible
-       answer for ``complement`` of a 1-D non-affine layout, which is
-       not just a coding question. CuTe C++ refuses these forms too --
-       the corresponding templates don't instantiate. Matching CuTe's
-       posture keeps tensor-layouts honest: structurally allowed,
-       semantically narrow, errors loud.
-
-       **Beware of negative offsets.** The negation in the inverse rule
-       means ``__call__`` can return values below zero on early indices
-       (``F6(0) = -4`` for ``ComposedLayout(Layout(32,1), Swizzle(2,1,3),
-       offset=-4)``). The inverse-form is intended for composition with
-       its forward layout, where the negative term cancels; using it as
-       direct buffer addressing is wrong. ``Tensor`` rejects storage that
-       would receive negative addresses; see ``tensor.py``
-       ``_validate_storage``.
-    """
-
-    outer: Any
-    inner: "LayoutExpr"
-    # ``offset`` is keyword-only -- you must spell it as ``offset=k``. This
-    # rules out the silent porting trap where someone copies a CuTe C++
-    # ``ComposedLayout<A, Offset, B>`` literal into Python expecting the
-    # same positional order. tensor-layouts uses ``ComposedLayout(outer,
-    # inner, offset=k)`` so the common zero-offset case can drop the
-    # ``offset`` argument entirely; CuTe / pycute place the offset
-    # positionally between A and B and require it on every literal. See
-    # docs/layout_api.md for a full discussion.
-    offset: int = field(default=0, kw_only=True)
-    # Lazy O(1) cache for cosize. Populated by cosize() on first call via
-    # object.__setattr__ (frozen dataclass blocks normal assignment).
-    # Excluded from init/repr/eq/hash so two equal ComposedLayouts with
-    # different cache states still compare equal and hash the same.
-    _cached_cosize: "int | None" = field(
-        default=None, init=False, repr=False, compare=False, hash=False
-    )
-
-    def __post_init__(self):
-        if not callable(self.outer):
-            raise TypeError(
-                f"ComposedLayout outer must be callable, got {type(self.outer).__name__}"
-            )
-        if not (is_layout(self.inner) or isinstance(self.inner, Swizzle)):
-            raise TypeError(
-                f"ComposedLayout inner must be Layout, ComposedLayout, or Swizzle, "
-                f"got {type(self.inner).__name__}"
-            )
-        if not is_int(self.offset):
-            raise TypeError(
-                f"ComposedLayout offset must be int, got {type(self.offset).__name__}"
-            )
-
-    @property
-    def shape(self):
-        if isinstance(self.inner, Swizzle):
-            return self.outer.shape
-        return self.inner.shape
-
-    def __repr__(self) -> str:
-        return f"ComposedLayout({self.outer!r}, {self.inner!r}, offset={self.offset!r})"
-
-    def __str__(self) -> str:
-        if self.offset:
-            return f"({self.outer}) o {{{self.offset}}} o ({self.inner})"
-        return f"({self.outer}) o ({self.inner})"
-
-    def __call__(self, *args):
-        if len(args) == 1:
-            coords = args[0]
-        else:
-            coords = args
-        if coords is None:
-            return self
-        if has_none(coords):
-            return slice_and_offset(coords, self)[0]
-        return self.outer(self.offset + self.inner(coords))
-
-    def __len__(self):
-        return size(self)
-
-    def __iter__(self):
-        for i in range(size(self)):
-            yield idx2crd(i, self.shape)
-
-
-LayoutExpr = Layout | ComposedLayout
-
-
-_NO_FORWARD = object()
-
-
-def split_outer_swizzle(layout: LayoutExpr):
-    """Recognize the canonical ``ComposedLayout(Swizzle, Layout, offset=0)`` form.
-
-    Returns ``(swizzle, inner_layout)`` if ``layout`` is a zero-offset
-    swizzle wrapper around an affine layout, else ``None``. This is the
-    structural shape produced by ``Tensor`` swizzling and by
-    ``ComposedLayout(Sw, L, 0)`` literals; recognising it lets callers
-    take fast paths that exploit the swizzle's linearity (e.g. O(1)
-    cosize-based address bounds, see ``max_common_vector``).
-
-    "Outer" refers to the slot the Swizzle occupies. The mirror-image
-    inverse-form ``ComposedLayout(Layout, Swizzle, offset)`` -- where
-    the Swizzle sits in the *inner* slot -- is a different beast: 1-D,
-    non-affine, can address negative storage, and arises only as the
-    output of ``right_inverse`` / ``left_inverse``. It is intentionally
-    NOT recognised here. The current call sites (``_address_bounds``,
-    ``max_common_vector``) only make sense for the outer form, and
-    conflating the two would let callers misuse a non-affine result via
-    affine-shaped reasoning. The inverse-form has its own private
-    predicate ``_is_swizzle_inner_composed``; promote it to a sibling
-    ``split_inner_swizzle`` if a public consumer ever materialises.
-
-    Forms NOT recognised:
-
-    - Nonzero offset: an affine shift wrapping the swizzle that callers
-      must handle explicitly.
-    - Inverse-form (see above).
-    - Plain ``Layout``: pre-Path-X ``Layout(..., swizzle=Sw)`` no
-      longer exists; bare ``Layout`` is purely affine.
-    """
-    if (
-        isinstance(layout, ComposedLayout)
-        and isinstance(layout.outer, Swizzle)
-        and layout.offset == 0
-    ):
-        return layout.outer, layout.inner
-    return None
-
-
-def _forward_layout_domain(layout, transform):
-    """Apply a domain-only transform to the inner layout of a layout expression.
-
-    Path X: ``Layout`` is purely affine. ComposedLayout always stays
-    composed; bare Layout falls through to the caller (which then applies
-    the transform on the whole affine layout).
-    """
-    if isinstance(layout, ComposedLayout):
-        if isinstance(layout.inner, Swizzle):
-            return _NO_FORWARD
-        return ComposedLayout(layout.outer, transform(layout.inner), offset=layout.offset)
-    return _NO_FORWARD
-
-
-def _is_swizzle_inner_composed(obj: Any) -> bool:
-    """True iff obj is a ComposedLayout whose inner slot holds a Swizzle.
-
-    Structurally: ``ComposedLayout(outer=Layout, inner=Swizzle, offset)``.
-    Semantically: this form arises only as the result of ``right_inverse`` /
-    ``left_inverse`` applied to an offset-bearing swizzle-fronted
-    ``ComposedLayout`` (e.g. ``Sw o {+k} o L``); the inverse swaps the outer
-    and inner slots and negates the offset, putting the Swizzle on the inner
-    side.
-
-    Most layout-algebra operations are not defined on this form -- CuTe C++
-    refuses to instantiate ``cosize``, ``coalesce``, ``complement``,
-    ``logical_product``, ``logical_divide`` because they delegate to the
-    inner layout, and ``Swizzle`` does not satisfy the Layout interface.
-    tensor-layouts matches by raising ``NotImplementedError``. The form
-    remains usable for ``__call__``, ``size``, ``shape``, ``rank``,
-    ``depth``, ``flatten``, and round-tripping through ``right_inverse`` /
-    ``left_inverse`` / ``compose`` so that the inverse-and-cancel algebra
-    continues to work.
-    """
-    return isinstance(obj, ComposedLayout) and isinstance(obj.inner, Swizzle)
-
-
-def _reject_swizzle_inner_composed(obj: Any, op_name: str) -> None:
-    """Raise NotImplementedError if obj is the F6 inverse-form."""
-    if _is_swizzle_inner_composed(obj):
-        raise UnsupportedComposedLayoutError(
-            f"{op_name} is not defined on a ComposedLayout with a Swizzle "
-            f"in the inner slot (the inverse-form produced by "
-            f"right_inverse/left_inverse on an offset-bearing swizzle-fronted "
-            f"ComposedLayout). CuTe C++ refuses this form too. The inverse "
-            f"is intended for composition with the forward layout, not for "
-            f"direct algebraic manipulation. Got: {obj}"
-        )
-
-
-def compute_col_major_strides(shape: IntOrIntTuple) -> IntOrIntTuple:
-    """Compute column-major (leftmost-fastest) strides for a shape.
-
-    Each element gets stride equal to the product of all preceding elements,
-    making the first (leftmost) mode vary fastest --- like Fortran/column-major order.
-    """
-    strides = prefix_product(shape)
-    return _zero_leading_unit_strides(shape, strides)
-
-
-def compute_row_major_strides(shape: IntOrIntTuple) -> IntOrIntTuple:
-    """Compute row-major (rightmost-fastest) strides for a shape.
-
-    Each element gets stride equal to the product of all following elements,
-    making the last (rightmost) mode vary fastest --- like C/row-major order.
-    """
-    return suffix_product(shape)
-
-
-def _zero_leading_unit_strides(shape, strides):
-    """CuTe convention: leading size-1 modes get stride 0 instead of 1."""
-    if is_int(shape):
-        if shape == 1 and strides == 1:
-            return 0
-        return strides
-
-    result = []
-    still_leading = True
-    for s, d in zip(shape, strides):
-        if is_tuple(s):
-            if still_leading:
-                sub = _zero_leading_unit_strides(s, d)
-                result.append(sub)
-                if size(s) != 1:
-                    still_leading = False
-            else:
-                result.append(d)
-        else:
-            if still_leading and s == 1 and d == 1:
-                result.append(0)
-            else:
-                result.append(d)
-                if s != 1:
-                    still_leading = False
-    return tuple(result)
 
 
 # =============================================================================
@@ -1037,7 +117,7 @@ def size(obj: Any) -> int:
     raise TypeError(f"Cannot calculate size of {type(obj).__name__}")
 
 
-def cosize(obj: LayoutExpr) -> int:
+def cosize(obj: "LayoutExpr") -> int:
     """Returns the codomain size: max(L(i) for i in [0, size(L))) + 1.
 
     For affine ``Layout`` this is computed in O(1) via the closed-form
@@ -1158,101 +238,6 @@ def mode(obj: Any, idx):
     raise TypeError(f"Cannot get mode of {type(obj).__name__}")
 
 
-def concat(t1: Any, t2: Any):
-    if is_tuple(t1) and is_tuple(t2):
-        return t1 + t2
-    if isinstance(t1, Layout) and isinstance(t2, Layout):
-        return Layout(
-            as_tuple(t1.shape) + as_tuple(t2.shape), as_tuple(t1.stride) + as_tuple(t2.stride)
-        )
-    raise TypeError(f"Cannot concatenate objects of {type(t1).__name__} and {type(t2).__name__}")
-
-
-def congruent(a: IntOrIntTuple, b: IntOrIntTuple) -> bool:
-    """Returns True if two layouts have the same rank and structure.
-
-    Matches CuTe's congruent(): tests if two tuples have the same profile
-    (hierarchical rank division).  Congruent shapes can be element-wise
-    zipped (like zip_transform).
-
-    Examples:
-        congruent((2, 3), (4, 5))     -> True   (same rank)
-        congruent((2, 3), 6)          -> False  (int vs tuple)
-        congruent(((2, 3), 4), ((5, 6), 7))  -> True   (same nesting)
-    """
-    if isinstance(a, int) and isinstance(b, int):
-        return True
-    if is_tuple(a) and is_tuple(b):
-        return len(a) == len(b) and all(congruent(sa, sb) for sa, sb in zip(a, b))
-    return False
-
-
-def weakly_congruent(a: IntOrIntTuple, b: IntOrIntTuple) -> bool:
-    """Returns True if A's profile is contained in B's profile.
-
-    Matches CuTe's weakly_congruent(): a partial order A <= B where A's
-    hierarchical rank division is "at most as deep as" B's.  A scalar on
-    the A side matches any sub-tree on the B side, but a tuple on the A
-    side requires at least as much structure on the B side.
-
-    Examples:
-        weakly_congruent(6, (2, 3))              -> True   (scalar matches anything)
-        weakly_congruent((2, 3), 6)              -> False  (tuple vs scalar)
-        weakly_congruent((2, 3), (4, 5))         -> True   (same rank)
-        weakly_congruent((2, (3, 4)), (5, (6, 7)))  -> True  (same nesting)
-        weakly_congruent((2, (3, 4)), (5, 6))    -> False  (A deeper than B)
-        weakly_congruent((2, 3), (5, (6, 7)))    -> True   (A flatter than B)
-    """
-    if isinstance(a, int):
-        return True
-    if is_tuple(a) and is_tuple(b):
-        return len(a) == len(b) and all(weakly_congruent(sa, sb) for sa, sb in zip(a, b))
-    return False
-
-
-def compatible(a: IntOrIntTuple, b: IntOrIntTuple) -> bool:
-    """Checks if shape A is compatible with shape B.
-
-    Matches CuTe's compatible(): A is compatible with B if size(A) == size(B)
-    and any coordinate into A can also be used as a coordinate into B.
-    This is a partial order: A <= B.
-
-    A is compatible with B if A's modes can be grouped to match B's structure.
-
-    Examples:
-        compatible((2, 2, 3), (4, 3))  -> True   (2*2 groups into 4)
-        compatible(12, (2, 2, 3))      -> True   (scalar is compatible with any shape)
-        compatible((2, 2, 3), (5, 2))  -> False  (sizes don't match)
-    """
-    if size(a) != size(b):
-        return False
-
-    if is_scalar(a):
-        return True
-    if is_scalar(b):
-        return False
-
-    if len(a) == len(b):
-        return all(compatible(sa, sb) for sa, sb in zip(a, b))
-
-    return _can_group_a_into_b(list(a), b)
-
-
-def _can_group_a_into_b(a_modes: list, b) -> bool:
-    """Check if A's modes can be consumed/grouped to match B's structure."""
-    if is_scalar(b):
-        target_size = size(b)
-        acc_size = 1
-        while acc_size < target_size and a_modes:
-            acc_size *= size(a_modes.pop(0))
-        return acc_size == target_size
-
-    if is_tuple(b):
-        return all(_can_group_a_into_b(a_modes, sub_b) for sub_b in b) and len(a_modes) == 0
-
-    return False
-
-
 # =============================================================================
 # Iteration
 # =============================================================================
@@ -1264,7 +249,7 @@ def _can_group_a_into_b(a_modes: list, b) -> bool:
 #
 
 
-def iter_layout(layout: LayoutExpr):
+def iter_layout(layout: "LayoutExpr"):
     """Yield (coordinate, offset) pairs for every element in the layout.
 
     Iterates in colexicographic order (flat index 0, 1, 2, ...).
@@ -1291,7 +276,7 @@ def iter_layout(layout: LayoutExpr):
 #
 
 
-def append(a: LayoutExpr, b: Layout) -> LayoutExpr:
+def append(a: "LayoutExpr", b: "Layout") -> "LayoutExpr":
     """Appends layout b as a new mode at the end of layout a.
 
     append(3:1, 4:3) -> (3,4):(1,3)
@@ -1303,7 +288,7 @@ def append(a: LayoutExpr, b: Layout) -> LayoutExpr:
     return Layout(as_tuple(a.shape) + (b.shape,), as_tuple(a.stride) + (b.stride,))
 
 
-def prepend(a: LayoutExpr, b: Layout) -> LayoutExpr:
+def prepend(a: "LayoutExpr", b: "Layout") -> "LayoutExpr":
     """Prepends layout b as a new mode at the beginning of layout a.
 
     prepend(3:1, 4:3) -> (4,3):(3,1)
@@ -1314,7 +299,7 @@ def prepend(a: LayoutExpr, b: Layout) -> LayoutExpr:
     return Layout((b.shape,) + as_tuple(a.shape), (b.stride,) + as_tuple(a.stride))
 
 
-def replace(layout: LayoutExpr, idx: int, new_layout: Layout) -> LayoutExpr:
+def replace(layout: "LayoutExpr", idx: int, new_layout: "Layout") -> "LayoutExpr":
     """Replaces the mode at index idx with new_layout.
 
     replace((3,4,(3,4)):(1,3,(1,3)), 2, 4:3) -> (3,4,4):(1,3,3)
@@ -1331,7 +316,7 @@ def replace(layout: LayoutExpr, idx: int, new_layout: Layout) -> LayoutExpr:
     return Layout(tuple(shapes), tuple(strides))
 
 
-def group(layout: LayoutExpr, start: int, end: int) -> LayoutExpr:
+def group(layout: "LayoutExpr", start: int, end: int) -> "LayoutExpr":
     """Groups modes from index start to end (exclusive) into a nested tuple.
 
     group((2,3,5,7):(1,2,6,30), 0, 2) -> ((2,3),5,7):((1,2),6,30)
@@ -1450,32 +435,7 @@ def unflatten(obj, target_profile):
     raise TypeError(f"Cannot unflatten object of type {type(obj).__name__}")
 
 
-def product_each(shape: Any) -> tuple:
-    """Compute the product of each top-level mode of a shape.
-
-    Flattens nested shape elements to get the size of each top-level mode.
-    This is useful when you need the "effective" size of each mode after
-    flattening any internal structure.
-
-    Args:
-        shape: A shape (int or tuple, possibly nested)
-
-    Returns:
-        A tuple where each element is the product of the corresponding
-        top-level mode. If input is an int, returns (shape,).
-
-    Examples:
-        product_each((4, 8))       -> (4, 8)
-        product_each(((2, 2), 8))  -> (4, 8)    # 2*2 = 4
-        product_each((3, (2, 4)))  -> (3, 8)    # 2*4 = 8
-        product_each(16)           -> (16,)
-    """
-    if is_int(shape):
-        return (shape,)
-    return tuple(size(s) for s in shape)
-
-
-def sort(obj: LayoutExpr) -> LayoutExpr:
+def sort(obj: "LayoutExpr") -> "LayoutExpr":
     """Returns a new Layout with modes sorted by stride."""
     forwarded = _forward_layout_domain(obj, sort)
     if forwarded is not _NO_FORWARD:
@@ -1493,243 +453,6 @@ def sort(obj: LayoutExpr) -> LayoutExpr:
 
 
 # =============================================================================
-# Tuple arithmetic: tuple_max, elem_scale, inner_product, prefix_product
-# =============================================================================
-#
-# Arithmetic operations that work element-wise on hierarchical int-tuples.
-# These mirror their scalar counterparts but respect the nested structure.
-# prefix_product is particularly important: it computes column-major strides
-# from a shape, which is how Layout(shape) auto-computes its strides.
-#
-
-
-def tuple_max(a: Any) -> int:
-    """Return the maximum value across all terminals of a (possibly nested) int-tuple.
-
-    Examples:
-        tuple_max(5) -> 5
-        tuple_max((3, 7, 2)) -> 7
-        tuple_max(((1, 9), (4, 2))) -> 9
-    """
-    return fold(a, -float("inf"), lambda acc, x: max(acc, x))
-
-
-def transform_tuple(t: Any, f) -> Any:
-    """Apply f to each leaf element of a (possibly nested) tuple.
-
-    Recursively descends into nested tuples, applying f only to
-    non-tuple elements (integers). Preserves the hierarchical structure.
-
-    Examples:
-        transform_tuple(5, lambda x: x*2) -> 10
-        transform_tuple((3, 4), lambda x: x*2) -> (6, 8)
-        transform_tuple(((2, 3), 4), lambda x: x+1) -> ((3, 4), 5)
-    """
-    if is_tuple(t):
-        return tuple(transform_tuple(elem, f) for elem in t)
-    return f(t)
-
-
-def zip_transform(a: Any, b: Any, f) -> Any:
-    """Apply f(a_i, b_i) element-wise to two congruent tuples.
-
-    Both arguments must have the same structure (same nesting and lengths).
-    Recursively descends into nested tuples, applying f to paired leaf elements.
-
-    Examples:
-        zip_transform(2, 3, lambda x, y: x*y) -> 6
-        zip_transform((1, 2), (3, 4), lambda x, y: x+y) -> (4, 6)
-        zip_transform(((1, 2), 3), ((4, 5), 6), lambda x, y: x*y) -> ((4, 10), 18)
-    """
-    if is_tuple(a):
-        if not is_tuple(b) or len(a) != len(b):
-            raise LayoutError(f"Structure mismatch: {a} vs {b}")
-        return tuple(zip_transform(ai, bi, f) for ai, bi in zip(a, b))
-    return f(a, b)
-
-
-def fold(t: Any, init: Any, f) -> Any:
-    """Left-fold a (possibly nested) tuple with an initial value and binary function.
-
-    Recursively descends into nested tuples, applying f only to leaf elements.
-    Reduces from left to right: f(f(f(init, leaf0), leaf1), leaf2)...
-    For scalars, returns f(init, t).
-
-    This is useful for accumulating results across all elements of a shape/stride.
-
-    Examples:
-        fold(5, 0, lambda acc, x: acc + x) -> 5
-        fold((1, 2, 3), 0, lambda acc, x: acc + x) -> 6
-        fold(((1, 2), 3), 0, lambda acc, x: acc + x) -> 6
-        fold((2, 3, 4), 1, lambda acc, x: acc * x) -> 24
-    """
-    if is_tuple(t):
-        acc = init
-        for elem in t:
-            acc = fold(elem, acc, f)
-        return acc
-    return f(init, t)
-
-
-def fold_accumulate(t: Any, init: Any, f, update) -> Any:
-    """Left-fold a tuple, collecting intermediate results while threading state.
-
-    Like fold, but returns a tuple of the same structure containing the result
-    at each position. The state is updated via `update` after each element.
-
-    Implements the pattern:
-        fold_accumulate((a, b, c), v, f, u) = (f(a, v), f(b, u(a, v)), f(c, u(b, u(a, v))))
-
-    Args:
-        t: A (possibly nested) tuple to fold over
-        init: Initial state value
-        f: (element, state) -> result for each element
-        update: (element, state) -> new_state for the next element
-
-    Examples:
-        # Prefix product (computing strides from shapes):
-        fold_accumulate((2, 3, 4), 1,
-                        f=lambda elem, state: state,
-                        update=lambda elem, state: state * elem)
-        # -> (1, 2, 6)  — each result is the product of all prior elements
-
-        # shape_div uses this to divide a shape by a divisor:
-        #   f: ceil(element / divisor)  — divide this mode
-        #   update: divisor / size(element)  — carry remainder to next mode
-        # shape_div((2, 3, 4), 6) -> (1, 1, 4)
-        #   mode 0: ceil(2/6)=1, remaining divisor=6/2=3
-        #   mode 1: ceil(3/3)=1, remaining divisor=3/3=1
-        #   mode 2: ceil(4/1)=4, done
-    """
-    if isinstance(t, int):
-        return f(t, init)
-
-    if not is_tuple(t) or len(t) == 0:
-        return t
-
-    results = []
-    state = init
-    for elem in t:
-        results.append(fold_accumulate(elem, state, f, update))
-        state = update(elem, state)
-
-    return tuple(results)
-
-
-def elem_scale(a: Any, b: Any) -> Any:
-    """Element-wise scale of int-tuple a by int-tuple b.
-
-    For scalars: a * b.
-    For tuple a, scalar b: error (ambiguous).
-    For scalar a, tuple b: a * product(b).
-    For tuple a, tuple b: pairwise elem_scale.
-
-    Examples:
-        elem_scale(3, 4) -> 12
-        elem_scale(2, (3, 4)) -> 24   (2 * 12)
-        elem_scale((2, 3), (4, 5)) -> (8, 15)
-    """
-    if is_tuple(a):
-        if is_tuple(b):
-            return zip_transform(a, b, elem_scale)
-        else:
-            raise TypeError("Cannot elem_scale tuple by scalar (ambiguous)")
-    else:
-        if is_tuple(b):
-            return elem_scale(a, size(b))
-        else:
-            return a * b
-
-
-def inner_product(a: Any, b: Any) -> int:
-    """Compute the inner product of two int-tuples.
-
-    For scalars: a * b
-    For tuples: sum of pairwise inner products.
-
-    Examples:
-        inner_product(2, 3) -> 6
-        inner_product((1, 2), (3, 2)) -> 7
-        inner_product(((2, 3), 4), ((2, 1), 2)) -> 15
-    """
-    if is_tuple(a):
-        if not is_tuple(b) or len(a) != len(b):
-            raise LayoutError(f"Structure mismatch: {a} vs {b}")
-        return sum(inner_product(x, y) for x, y in zip(a, b))
-    else:
-        if not isinstance(a, int) or not isinstance(b, int):
-            raise TypeError(f"Expected int, got {type(a).__name__} and {type(b).__name__}")
-        return a * b
-
-
-def prefix_product(a: Any, init: Any = 1) -> Any:
-    """Compute the exclusive prefix product of an int-tuple.
-
-    Returns a tuple of the same structure where each element is replaced
-    by the product of all preceding elements (starting from init).
-
-    For scalars: returns init (the prefix before the scalar).
-    For tuples: recursively computes prefix products with carry.
-
-    Examples:
-        prefix_product(2) -> 1
-        prefix_product((3, 2)) -> (1, 3)
-        prefix_product((3, 2, 4)) -> (1, 3, 6)
-        prefix_product(((2, 3), 4)) -> ((1, 2), 6)
-        prefix_product(((2, 3), (2, 1, 2), (5, 2, 1))) -> ((1, 2), (6, 12, 12), (24, 120, 240))
-    """
-    if is_tuple(a):
-        if is_tuple(init):
-            if len(a) != len(init):
-                raise LayoutError(f"Length mismatch: {len(a)} vs {len(init)}")
-            return zip_transform(a, init, prefix_product)
-        else:
-            r = []
-            for v in a:
-                r.append(prefix_product(v, init))
-                init = init * size(v)
-            return tuple(r)
-    else:
-        if is_tuple(init):
-            raise LayoutError("Cannot apply tuple init to scalar shape")
-        return init
-
-
-def suffix_product(a: Any, init: Any = 1) -> Any:
-    """Compute the exclusive suffix product of an int-tuple.
-
-    Returns a tuple of the same structure where each element is replaced
-    by the product of all following elements (ending with init).
-
-    For scalars: returns init (the suffix after the scalar).
-    For tuples: recursively computes suffix products with carry from the right.
-
-    Examples:
-        suffix_product(2) -> 1
-        suffix_product((3, 2)) -> (2, 1)
-        suffix_product((3, 2, 4)) -> (8, 4, 1)
-        suffix_product(((2, 3), 4)) -> ((12, 4), 1)
-        suffix_product((3, (2, 4))) -> (8, (4, 1))
-    """
-    if is_tuple(a):
-        if is_tuple(init):
-            if len(a) != len(init):
-                raise LayoutError(f"Length mismatch: {len(a)} vs {len(init)}")
-            return zip_transform(a, init, suffix_product)
-        else:
-            r = []
-            carry = init
-            for v in reversed(a):
-                r.append(suffix_product(v, carry))
-                carry = carry * size(v)
-            return tuple(reversed(r))
-    else:
-        if is_tuple(init):
-            raise LayoutError("Cannot apply tuple init to scalar shape")
-        return init
-
-
-# =============================================================================
 # Coalescing
 # =============================================================================
 #
@@ -1741,7 +464,7 @@ def suffix_product(a: Any, init: Any = 1) -> Any:
 #
 
 
-def coalesce(obj: LayoutExpr, profile: Any = None) -> LayoutExpr:
+def coalesce(obj: "LayoutExpr", profile: Any = None) -> "LayoutExpr":
     """Returns a new Layout where contiguous dimensions are merged.
 
     Args:
@@ -1776,7 +499,7 @@ def coalesce(obj: LayoutExpr, profile: Any = None) -> LayoutExpr:
     return _coalesce_by_mode(obj, profile if is_tuple(profile) else (profile,))
 
 
-def _coalesce_flat(obj: Layout) -> Layout:
+def _coalesce_flat(obj: "Layout") -> "Layout":
     """Coalesce a layout by filtering trivial modes and merging contiguous ones."""
     flat = flatten(obj)
 
@@ -1802,7 +525,7 @@ def _coalesce_flat(obj: Layout) -> Layout:
     return Layout(as_shape(merged_s), as_shape(merged_d))
 
 
-def _coalesce_by_mode(layout: Layout, profile: tuple) -> Layout:
+def _coalesce_by_mode(layout: "Layout", profile: tuple) -> "Layout":
     """Coalesce a layout respecting mode boundaries defined by profile.
 
     If profile contains None, coalesce each original mode independently.
@@ -1887,7 +610,7 @@ def _coalesce_by_mode(layout: Layout, profile: tuple) -> Layout:
 #
 
 
-def complement(layout: Layout, cosize_bound: Any = None) -> Layout:
+def complement(layout: "Layout", cosize_bound: Any = None) -> "Layout":
     """Compute the complement of a layout: a layout that fills in the gaps.
 
     If L visits offsets {0, 2, 4, 6} within a range of 8, then complement(L, 8)
@@ -2141,7 +864,7 @@ def left_inverse(layout: Any) -> Any:
     return coalesce(Layout(as_shape(result_shapes), as_shape(result_strides)))
 
 
-def nullspace(layout: Layout) -> Layout:
+def nullspace(layout: "Layout") -> "Layout":
     """Compute the nullspace (kernel) of a layout.
 
     The nullspace contains all coordinates that map to offset 0. These are
@@ -2189,7 +912,7 @@ def nullspace(layout: Layout) -> Layout:
     return Layout(as_shape(zero_shapes), as_shape(zero_strides))
 
 
-def max_common_layout(layout_a: LayoutExpr, layout_b: LayoutExpr) -> LayoutExpr:
+def max_common_layout(layout_a: "LayoutExpr", layout_b: "LayoutExpr") -> "LayoutExpr":
     """Return a layout expression for the maximum contiguous elements common to both.
 
     Two layouts "logically correspond" when indexing through one produces the
@@ -2257,7 +980,7 @@ def max_common_layout(layout_a: LayoutExpr, layout_b: LayoutExpr) -> LayoutExpr:
         return Layout(1, 0)
 
 
-def max_common_vector(layout_a: LayoutExpr, layout_b: LayoutExpr) -> int:
+def max_common_vector(layout_a: "LayoutExpr", layout_b: "LayoutExpr") -> int:
     """Return the number of contiguous elements that logically correspond in both layouts.
 
     This is the size of max_common_layout(a, b) — the length of the longest
@@ -2395,7 +1118,7 @@ def _try_decay_swizzle_composed(composed: "ComposedLayout"):
     return (decayed, base_offset)
 
 
-def slice_and_offset(crd, layout: LayoutExpr):
+def slice_and_offset(crd, layout: "LayoutExpr"):
     """Slice a layout by a coordinate and return (sublayout, offset).
 
     Given a coordinate with None values marking sliced (free) dimensions
@@ -2450,7 +1173,7 @@ def slice_and_offset(crd, layout: LayoutExpr):
     return (sublayout, offset)
 
 
-def _slice_for_composition(crd, layout: LayoutExpr):
+def _slice_for_composition(crd, layout: "LayoutExpr"):
     """Slice a layout expression for use inside an outer composition.
 
     Returns (sublayout_expr, delta) such that the original sliced expression is
@@ -2812,47 +1535,6 @@ def dice_modes(crd, layout):
 #
 
 
-class Tile(tuple):
-    """A Tiler is a tuple-of-Layouts used for mode-by-mode composition.
-
-    Tile is semantically distinct from a plain tuple: it signals mode-by-mode
-    composition rather than bundling.  When you compose(L, Tile(A, B)), each
-    mode of L is composed independently:
-
-        compose(a, tiler) = Layout(compose(mode(a, 0), tiler[0]),
-                                   compose(mode(a, 1), tiler[1]), ...)
-
-    This is different from compose(L, Layout((s0, s1), (d0, d1))) where the
-    Layout is treated as a single mapping.  Tile makes the intent explicit:
-    "apply these tilers to L's modes, one-by-one."
-
-    Examples:
-        # (12,(4,8)):(59,(13,1))
-        a = Layout((12, (4, 8)), (59, (13, 1)))
-
-        # <3:4, 8:2>
-        tiler = Tile(Layout(3, 4), Layout(8, 2))
-
-        # (3,(2,4)):(236,(26,1))
-        result = compose(a, tiler)
-    """
-
-    def __new__(cls, *layouts):
-        """Create a Tile from one or more Layouts.
-
-        Args:
-            *layouts: Layout objects to include in the tile
-        """
-        for i, layout in enumerate(layouts):
-            if not isinstance(layout, Layout):
-                raise TypeError(f"Tile element {i} must be a Layout, got {type(layout).__name__}")
-        return super().__new__(cls, layouts)
-
-    def __repr__(self):
-        contents = ", ".join(repr(layout) for layout in self)
-        return f"Tile({contents})"
-
-
 def safe_div(a: int, b: int) -> int:
     """Integer division where b must divide a evenly.
 
@@ -3097,6 +1779,7 @@ def _composition_1d(layout_a: "Layout", b_shape: int, b_stride: int) -> "Layout"
 
         divisible = curr_shape % abs_stride == 0 or abs_stride % curr_shape == 0
         fits_in_mode = remaining_shape > 1 and (remaining_shape - 1) * abs_stride < curr_shape
+
         if not divisible and not fits_in_mode:
             raise LayoutError(
                 f"compose: shape {curr_shape} and stride {remaining_stride} are not divisible"
@@ -3136,7 +1819,7 @@ def _composition_1d(layout_a: "Layout", b_shape: int, b_stride: int) -> "Layout"
     return Layout(as_shape(result_shape), as_shape(result_stride))
 
 
-def _compose_layouts(layout_a: Layout, layout_b: Layout) -> Layout:
+def _compose_layouts(layout_a: "Layout", layout_b: "Layout") -> "Layout":
     """Compose two Layout objects."""
     if is_empty(layout_a) or size(layout_a) == 0:
         return Layout()
@@ -3160,7 +1843,7 @@ def _compose_layouts(layout_a: Layout, layout_b: Layout) -> Layout:
     return _composition_1d(layout_a, layout_b.shape, layout_b.stride)
 
 
-def _compose_with_tiler(layout_a: Layout, tiler) -> Layout:
+def _compose_with_tiler(layout_a: "Layout", tiler) -> "Layout":
     """Compose a layout mode-by-mode with a tiler (Tile or tuple)."""
     # ComposedLayout inputs should already have been intercepted by
     # _forward_layout_domain() before we get here.  This helper rebuilds an
@@ -3427,7 +2110,7 @@ def compose(layout_a: Any, layout_b: Any) -> Any:
 #
 
 
-def logical_divide(layout: LayoutExpr, tiler: Any) -> LayoutExpr:
+def logical_divide(layout: "LayoutExpr", tiler: Any) -> "LayoutExpr":
     """Divide a layout into (tile, rest) --- the core tiling operation.
 
     Division answers: "if I want to process this layout in tiles of size T,
@@ -3503,7 +2186,7 @@ def logical_divide(layout: LayoutExpr, tiler: Any) -> LayoutExpr:
         raise TypeError(f"Tiler must be int, tuple, or Layout, got {type(tiler)}")
 
 
-def _logical_divide_with_tiler(layout: Layout, tiler) -> Layout:
+def _logical_divide_with_tiler(layout: "Layout", tiler) -> "Layout":
     """Divide a layout mode-by-mode with a possibly nested tuple tiler."""
     # ComposedLayout inputs should already have been intercepted by
     # _forward_layout_domain() before we get here.  This helper rebuilds an
@@ -3536,7 +2219,7 @@ def _logical_divide_with_tiler(layout: Layout, tiler) -> Layout:
     return Layout(as_shape(result_shapes), as_shape(result_strides))
 
 
-def _logical_divide_by_shape(layout: Layout, tiler_shape: Any) -> Layout:
+def _logical_divide_by_shape(layout: "Layout", tiler_shape: Any) -> "Layout":
     """Divide a layout mode-by-mode using a shape tuple.
 
     This is used when the tiler is a simple shape tuple (not a Layout).
@@ -3611,7 +2294,7 @@ def _logical_divide_by_shape(layout: Layout, tiler_shape: Any) -> Layout:
     return Layout(as_shape(result_shapes), as_shape(result_strides))
 
 
-def _split_divided_modes(layout: Layout, tiler: Any):
+def _split_divided_modes(layout: "Layout", tiler: Any):
     """Split logical_divide() results for shape-like tilers.
 
     Performs logical_divide, then separates each divided mode into its tile
@@ -3657,7 +2340,7 @@ def _split_divided_modes(layout: Layout, tiler: Any):
     return tile_shapes, tile_strides, rest_shapes, rest_strides
 
 
-def _unpack_grouped_mode(grouped_mode: Layout) -> list[Layout]:
+def _unpack_grouped_mode(grouped_mode: "Layout") -> list:
     """Return a grouped mode's members, or the mode itself if already scalar.
 
     CuTe's tiled/flat divide variants unpack the grouped modes of
@@ -3669,7 +2352,7 @@ def _unpack_grouped_mode(grouped_mode: Layout) -> list[Layout]:
     return [grouped_mode]
 
 
-def _layout_from_modes(modes: list[Layout]) -> Layout:
+def _layout_from_modes(modes: list) -> "Layout":
     """Build a layout from a sequence of mode layouts."""
     return Layout(
         as_shape([m.shape for m in modes]),
@@ -3677,7 +2360,7 @@ def _layout_from_modes(modes: list[Layout]) -> Layout:
     )
 
 
-def zipped_divide(layout: LayoutExpr, tiler: Any) -> LayoutExpr:
+def zipped_divide(layout: "LayoutExpr", tiler: Any) -> "LayoutExpr":
     """Divide a layout and zip the tile/rest modes together.
 
     Result structure: ((TileM, TileN), (RestM, RestN, L, ...))
@@ -3720,7 +2403,7 @@ def zipped_divide(layout: LayoutExpr, tiler: Any) -> LayoutExpr:
     return Layout((tiles_shape, rests_shape), (tiles_stride, rests_stride))
 
 
-def tiled_divide(layout: LayoutExpr, tiler: Any) -> LayoutExpr:
+def tiled_divide(layout: "LayoutExpr", tiler: Any) -> "LayoutExpr":
     """Divide a layout into tiles and tile indices.
 
     Result structure: ((TileM, TileN), RestM, RestN, L, ...)
@@ -3746,7 +2429,7 @@ def tiled_divide(layout: LayoutExpr, tiler: Any) -> LayoutExpr:
     return _layout_from_modes(modes)
 
 
-def flat_divide(layout: LayoutExpr, tiler: Any) -> LayoutExpr:
+def flat_divide(layout: "LayoutExpr", tiler: Any) -> "LayoutExpr":
     """Divide a layout and flatten all modes.
 
     Result structure: (TileM, TileN, RestM, RestN, L, ...)
@@ -3792,7 +2475,7 @@ def flat_divide(layout: LayoutExpr, tiler: Any) -> LayoutExpr:
 #
 
 
-def zipped_product(layout_a: LayoutExpr, layout_b) -> LayoutExpr:
+def zipped_product(layout_a: "LayoutExpr", layout_b) -> "LayoutExpr":
     """Apply logical_product hierarchically and gather split modes into two modes.
 
     Like zipped_divide but uses logical_product instead of logical_divide.
@@ -3810,7 +2493,7 @@ def zipped_product(layout_a: LayoutExpr, layout_b) -> LayoutExpr:
     return hier_unzip(logical_product, layout_a, layout_b)
 
 
-def tiled_product(layout_a: LayoutExpr, layout_b) -> LayoutExpr:
+def tiled_product(layout_a: "LayoutExpr", layout_b) -> "LayoutExpr":
     """Apply logical_product hierarchically and flatten the second mode.
 
     Like tiled_divide but uses logical_product instead of logical_divide.
@@ -3839,7 +2522,7 @@ def tiled_product(layout_a: LayoutExpr, layout_b) -> LayoutExpr:
     return Layout(shapes, strides)
 
 
-def hier_unzip(splitter, layout_a: Layout, layout_b) -> Layout:
+def hier_unzip(splitter, layout_a: "Layout", layout_b) -> "Layout":
     """Apply a splitter hierarchically and gather the split modes into two modes.
 
     This is the generic helper behind zipped_divide, zipped_product, etc.
@@ -3893,7 +2576,7 @@ def hier_unzip(splitter, layout_a: Layout, layout_b) -> Layout:
     return splitter(layout_a, layout_b)
 
 
-def logical_product(layout_a: LayoutExpr, layout_b: Layout) -> LayoutExpr:
+def logical_product(layout_a: "LayoutExpr", layout_b: "Layout") -> "LayoutExpr":
     """Reproduce layout A's pattern at each position B describes.
 
     Product is the reverse of division. If division splits A into tiles,
@@ -4011,7 +2694,7 @@ def _logical_product_with_swizzled_tile(layout_a: "Layout", tile: "ComposedLayou
     return compose(new_swizzle, new_layout)
 
 
-def _product_interleave(layout_a: Layout, layout_b: Layout) -> Layout:
+def _product_interleave(layout_a: "Layout", layout_b: "Layout") -> "Layout":
     """Interleave modes of two layouts, scaling B's strides by cosize(A).
 
     For each mode i: shape = (A_shape[i], B_shape[i]),
@@ -4051,7 +2734,7 @@ def _product_interleave(layout_a: Layout, layout_b: Layout) -> Layout:
     return Layout(tuple(result_shapes), tuple(result_strides))
 
 
-def blocked_product(layout_a: LayoutExpr, layout_b: Layout) -> LayoutExpr:
+def blocked_product(layout_a: "LayoutExpr", layout_b: "Layout") -> "LayoutExpr":
     """Compute a blocked product of two layouts.
 
     Unlike logical_product which concatenates (A, B) for 1D, blocked_product
@@ -4128,7 +2811,7 @@ def blocked_product(layout_a: LayoutExpr, layout_b: Layout) -> LayoutExpr:
     return _product_interleave(layout_a, layout_b)
 
 
-def _pad_to_rank(layout: Layout, target_rank: int) -> Layout:
+def _pad_to_rank(layout: "Layout", target_rank: int) -> "Layout":
     """Pad a layout to a target rank by appending (1, 0) modes.
 
     Matches C++ CuTe's append<R>(layout) which pads with Layout<_1,_0>{}.
@@ -4144,7 +2827,7 @@ def _pad_to_rank(layout: Layout, target_rank: int) -> Layout:
     return Layout(tuple(shapes), tuple(strides))
 
 
-def _zip_layouts(layout_a: Layout, layout_b: Layout) -> Layout:
+def _zip_layouts(layout_a: "Layout", layout_b: "Layout") -> "Layout":
     """Zip two layouts mode-by-mode: ((a0,b0), (a1,b1), ...).
 
     Matches C++ CuTe's zip(layoutA, layoutB) which interleaves corresponding
@@ -4175,7 +2858,7 @@ def _zip_layouts(layout_a: Layout, layout_b: Layout) -> Layout:
     return Layout(tuple(result_shapes), tuple(result_strides))
 
 
-def flat_product(block: LayoutExpr, tiler) -> LayoutExpr:
+def flat_product(block: "LayoutExpr", tiler) -> "LayoutExpr":
     """Compute a flat product: zipped_product with both modes unpacked.
 
     Like zipped_product, but flattens both the block modes and the product
@@ -4226,7 +2909,7 @@ def flat_product(block: LayoutExpr, tiler) -> LayoutExpr:
     return Layout(tuple(shapes), tuple(strides))
 
 
-def raked_product(block: LayoutExpr, tiler: Layout) -> LayoutExpr:
+def raked_product(block: "LayoutExpr", tiler: "Layout") -> "LayoutExpr":
     """Compute a raked product: block-interleaved reproduction.
 
     Like blocked_product, but with the tiler varying fastest within each mode.
@@ -4268,151 +2951,3 @@ def raked_product(block: LayoutExpr, tiler: Layout) -> LayoutExpr:
     m1 = mode(result, 1)  # product modes
 
     return _zip_layouts(m1, m0)
-
-
-# =============================================================================
-# Swizzle
-# =============================================================================
-#
-# Swizzling is used in GPU shared memory to avoid bank conflicts. Shared memory
-# is divided into banks (typically 32), and threads that access the same bank
-# in the same cycle must serialize. By XORing row bits into column bits,
-# adjacent rows access different banks, enabling full memory bandwidth.
-#
-# A Swizzle is a nonlinear function (it uses XOR, not multiply-add), so it
-# cannot be represented as strides. Instead, compose(Swizzle, Layout) produces
-# a Layout with an embedded swizzle that applies the layout first, then swizzles.
-#
-
-
-class Swizzle:
-    """A nonlinear index transformation that XORs two bit fields to avoid bank conflicts.
-
-    GPU shared memory is divided into banks (typically 32). When multiple threads
-    access the same bank simultaneously, they serialize. Swizzling avoids this by
-    XORing row bits into column bits so that adjacent rows map to different banks,
-    enabling full memory bandwidth.
-
-    Given an index with bit pattern: 0bxxxYYYxxxxZZZxxxx
-    - base: number of least-significant bits to keep constant (rightmost xxxx)
-    - bits: number of bits in each mask (ZZZ and YYY width)
-    - shift: distance between the two bit fields
-
-    The operation replaces ZZZ with (ZZZ XOR YYY), leaving everything else unchanged.
-
-    Args:
-        bits: Number of bits in each mask
-        base: Number of least-significant bits to keep constant
-        shift: Distance between the two masks (positive: YYY is above ZZZ)
-
-    Examples:
-        Swizzle(3, 0, 3)  -- XOR bits [0,3) with bits [3,6)
-        Swizzle(2, 1, 3)  -- XOR bits [1,3) with bits [4,6)
-
-    Visual example for Swizzle(3, 0, 3):
-        Input index:  0b___YYY___ZZZ   (Y=row bits [3,6), Z=col bits [0,3))
-        Output index: 0b___YYY___(ZZZ XOR YYY)
-
-        Concrete: index 19 = 0b010_011  (Y=010=2, Z=011=3)
-            -> 0b010_(011 XOR 010) = 0b010_001 = 17
-
-        This causes adjacent rows to access different memory banks,
-        avoiding shared memory bank conflicts.
-    """
-
-    def __init__(self, bits: int, base: int, shift: int):
-        self.bits = bits
-        self.base = base
-        self.shift = shift
-
-    def __repr__(self) -> str:
-        return f"Swizzle({self.bits}, {self.base}, {self.shift})"
-
-    def __eq__(self, other: object) -> bool:
-        if self is other:
-            return True
-        if not isinstance(other, Swizzle):
-            return False
-        return self.bits == other.bits and self.base == other.base and self.shift == other.shift
-
-    def __hash__(self) -> int:
-        return hash((self.bits, self.base, self.shift))
-
-    @property
-    def yyy_msk(self) -> int:
-        """Bit mask for the Y (source) bits of the swizzle."""
-        return ((1 << self.bits) - 1) << (self.base + max(0, self.shift))
-
-    @property
-    def zzz_msk(self) -> int:
-        """Bit mask for the Z (destination) bits of the swizzle."""
-        return ((1 << self.bits) - 1) << (self.base + max(0, -self.shift))
-
-    def __call__(self, idx: int) -> int:
-        """Apply the swizzle to an index."""
-        # Create mask for 'bits' number of bits at position 'base'
-        mask = ((1 << self.bits) - 1) << self.base
-
-        if self.shift >= 0:
-            # Positive shift: XOR higher bits into lower bits
-            # Extract bits from [base+shift, base+shift+bits), XOR into [base, base+bits)
-            return idx ^ ((idx >> self.shift) & mask)
-        else:
-            # Negative shift: XOR lower bits into higher bits
-            # Extract bits from [base, base+bits), shift left, XOR into higher position
-            return idx ^ ((idx & mask) << (-self.shift))
-
-
-def _popcount(x: int) -> int:
-    """Number of set bits in ``x`` (matches C++ ``std::popcount``)."""
-    return bin(x).count("1")
-
-
-def _countr_zero(x: int) -> int:
-    """Number of trailing zero bits in ``x`` (matches C++ ``std::countr_zero``).
-
-    Uses the standard ``x & -x`` trick: two's-complement negation isolates
-    the lowest set bit, and ``bit_length() - 1`` reads off its position.
-    Caller must guarantee ``x != 0``.
-    """
-    return (x & -x).bit_length() - 1
-
-
-def make_swizzle(Y: int, Z: int):
-    """Create a Swizzle from Y and Z bit positions.
-
-    Given bit masks Y and Z indicating which bits interact, construct
-    the Swizzle(bits, base, shift) that performs the corresponding XOR.
-
-    Matches CuTe C++ make_swizzle<Y,Z>() in swizzle.hpp.
-
-    Args:
-        Y: Bit mask for the Y (source) bits
-        Z: Bit mask for the Z (destination) bits
-
-    Returns:
-        A Swizzle, or None if both masks are zero (identity).
-    """
-    num_bits = _popcount(Y)
-    if num_bits != _popcount(Z):
-        raise LayoutError(
-            f"make_swizzle: bit count mismatch: popcount({Y:#b})={num_bits} "
-            f"vs popcount({Z:#b})={_popcount(Z)}"
-        )
-    if num_bits == 0:
-        return None  # Identity swizzle
-    tz_y = _countr_zero(Y)
-    tz_z = _countr_zero(Z)
-    base = min(tz_y, tz_z)
-    shift = tz_y - tz_z
-    if abs(shift) < num_bits:
-        raise LayoutError(
-            f"make_swizzle: masks overlap for popcount {num_bits}: Y={Y:#b}, Z={Z:#b}"
-        )
-    swizzle = Swizzle(num_bits, base, shift)
-    if (Y | Z) != (swizzle.yyy_msk | swizzle.zzz_msk):
-        raise LayoutError(
-            "make_swizzle: masks are not a canonical CuTe swizzle: "
-            f"Y={Y:#b}, Z={Z:#b}, candidate={swizzle!r}"
-        )
-    return swizzle
