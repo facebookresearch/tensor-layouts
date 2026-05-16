@@ -1741,6 +1741,47 @@ def test_is_bijective_negative_stride_dense():
     assert is_contiguous(layout)
 
 
+def test_shifted_composed_dense_span_is_contiguous_not_origin_surjective():
+    """A shifted dense subview is bijective over only the span it occupies."""
+    layout = ComposedLayout(Layout(16, 1), Layout(4, 1), offset=5)
+    assert image(layout) == [5, 6, 7, 8]
+    assert is_surjective(layout)
+    assert is_bijective(layout)
+    assert is_contiguous(layout)
+    assert not is_surjective(layout, codomain_size=4)
+
+
+def test_shifted_composed_strided_span_is_not_surjective():
+    """A shifted layout with holes is not surjective over its occupied span."""
+    layout = ComposedLayout(Layout(32, 1), Layout(4, 2), offset=5)
+    assert image(layout) == [5, 7, 9, 11]
+    assert is_injective(layout)
+    assert not is_surjective(layout)
+    assert not is_bijective(layout)
+    assert not is_contiguous(layout)
+
+
+def test_shifted_composed_broadcast_span_is_surjective_but_not_bijective():
+    """A shifted broadcast can cover its span while still aliasing coordinates."""
+    layout = ComposedLayout(Layout(16, 1), Layout((2, 2), (0, 1)), offset=5)
+    assert image(layout) == [5, 6]
+    assert is_surjective(layout)
+    assert not is_injective(layout)
+    assert not is_bijective(layout)
+    assert not is_contiguous(layout)
+
+
+def test_empty_layout_is_dense_over_empty_span():
+    """The empty image is the dense empty span for surjectivity checks."""
+    layout = Layout(0, 3)
+    assert image(layout) == []
+    assert is_surjective(layout)
+    assert is_injective(layout)
+    assert is_bijective(layout)
+    assert is_contiguous(layout)
+    assert is_surjective(layout, codomain_size=0)
+
+
 def test_is_surjective_negative_stride_custom_codomain():
     """Negative-stride dense spans are not surjective onto [0, n) by default."""
     layout = Layout(4, -1)
