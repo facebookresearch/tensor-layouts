@@ -9,6 +9,9 @@
 
 A pure-Python implementation of the [NVIDIA CuTe](https://github.com/NVIDIA/cutlass/blob/main/media/docs/cpp/cute/00_quickstart.md) layout algebra. **No GPU required.**
 
+Note that tensor-layouts is now maintained out of [https://github.com/jduprat/tensor-layouts.git](https://github.com/jduprat/tensor-layouts.git)
+
+
 CuTe layouts describe how logical coordinates map to memory offsets on GPUs.
 This library lets you construct, compose, and visualize those layouts using
 plain Python — useful for understanding tensor core access patterns, debugging
@@ -215,7 +218,10 @@ pytest tests/oracle_nv.py
 pytest tests/oracle_cute_cpp.py
 
 # AMD (cross-validation against amd_matrix_instruction_calculator)
-pip install -e ".[test,oracle-amd]"
+# AMD's tool is not on PyPI; clone it from GitHub and put it on PYTHONPATH:
+#   git clone https://github.com/ROCm/amd_matrix_instruction_calculator
+#   export PYTHONPATH="$PWD/amd_matrix_instruction_calculator:$PYTHONPATH"
+pip install -e ".[test]"
 pytest tests/oracle_amd.py
 ```
 
@@ -236,3 +242,7 @@ pytest tests/oracle_amd.py
 ## License
 
 MIT License. See [LICENSE](https://github.com/facebookresearch/tensor-layouts/blob/main/LICENSE) for details.
+
+## Repo
+
+tensor-layouts is maintained out of [https://github.com/jduprat/tensor-layouts.git](https://github.com/jduprat/tensor-layouts.git)

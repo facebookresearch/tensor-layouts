@@ -33,7 +33,11 @@ dependencies = []
 viz = ["matplotlib>=3.5"]
 test = ["pytest>=7.0"]
 oracle-nv = ["nvidia-cutlass"]
-oracle-amd = ["amd-matrix-instruction-calculator"]
+# Note: there is no `oracle-amd` extra. AMD's matrix instruction calculator is
+# not published on PyPI; it ships only as a script in the GitHub repo
+# (https://github.com/ROCm/amd_matrix_instruction_calculator). Declaring it as a
+# PyPI dependency would invite dependency-confusion attacks, so the AMD oracle
+# test (tests/oracle_amd.py) imports it from PYTHONPATH and skips if absent.
 dev = ["pytest>=7.0", "matplotlib>=3.5", "ruff>=0.4"]
 
 [project.urls]
