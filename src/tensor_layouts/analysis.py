@@ -80,19 +80,26 @@ __all__ = [
 # from coordinates to offsets:
 #   image         -- the set of offsets actually produced
 #   is_injective  -- no two coordinates map to the same offset
-#   is_surjective -- every offset in the codomain is hit
-#   is_bijective  -- both (the layout is a permutation)
-#   is_contiguous -- maps to [0, size) with no gaps or aliasing (== bijective)
+#   is_surjective -- every offset in an occupied or explicit codomain is hit
+#   is_bijective  -- every logical coordinate maps uniquely into a dense span
+#   is_contiguous -- maps to one dense span with no gaps or aliasing
 #
+
+
+def _is_dense_sorted_offsets(offsets: list[int]) -> bool:
+    """Return True when sorted unique offsets occupy one dense interval."""
+    if not offsets:
+        return True
+    return len(offsets) == (offsets[-1] - offsets[0] + 1)
 
 
 def image(layout: LayoutExpr) -> list:
     """Return the sorted list of distinct offsets produced by the layout.
 
     The image (or range) of a layout is the subset of offsets that are
-    actually hit --- as opposed to the codomain [0, cosize), which is the
-    full interval the layout *could* map into.  A surjective layout is
-    one whose image equals its codomain.
+    actually hit.  This may be smaller than the full occupied span when
+    a layout has gaps, and smaller than the domain when a layout aliases
+    multiple logical coordinates onto one offset.
 
     Examples:
         image(Layout(4, 1))              # [0, 1, 2, 3]
@@ -118,28 +125,26 @@ def is_injective(layout: LayoutExpr) -> bool:
 
 
 def is_surjective(layout: LayoutExpr, codomain_size: int | None = None) -> bool:
-    """True if every offset in [0, codomain_size) is produced.
+    """True if every offset in the requested codomain is produced.
 
-    A surjective layout has no gaps --- the image covers the entire
-    codomain.  The codomain defaults to the layout's own span, whose
-    size is ``cosize(layout)``. For nonnegative-stride layouts this is
-    ``[0, cosize(layout))``; for negative-stride layouts the interval
-    may be shifted below zero.
+    Without ``codomain_size``, the requested codomain is the layout's
+    occupied span: the dense interval from its minimum produced offset
+    through its maximum produced offset.  With ``codomain_size``, the
+    requested codomain is explicitly the origin-based interval
+    ``[0, codomain_size)``.
 
     Args:
         layout: The layout to check.
-        codomain_size: Size of the codomain.  Defaults to cosize(layout).
+        codomain_size: Optional size of an explicit origin-based codomain.
 
     Examples:
-        is_surjective(Layout(4, 1))    # True  (image == codomain)
+        is_surjective(Layout(4, 1))    # True  (image covers 0..3)
         is_surjective(Layout(4, 2))    # False (image has gaps)
+        is_surjective(Layout(4, -1))   # True  (image covers -3..0)
     """
     offsets = image(layout)
     if codomain_size is None:
-        if not offsets:
-            return True
-        lo, hi = offsets[0], offsets[-1]
-        return len(offsets) == (hi - lo + 1)
+        return _is_dense_sorted_offsets(offsets)
 
     if not is_int(codomain_size):
         raise TypeError("codomain_size must be an integer")
@@ -153,27 +158,36 @@ def is_surjective(layout: LayoutExpr, codomain_size: int | None = None) -> bool:
 
 
 def is_bijective(layout: LayoutExpr) -> bool:
-    """True if the layout is a bijection on [0, cosize).
+    """True if the layout visits one dense codomain span exactly once.
 
     A bijective layout is both injective (no aliasing) and surjective
-    (no gaps).  It defines a permutation of the codomain.
+    over its occupied codomain span (no gaps).  The default codomain span
+    follows :func:`is_surjective`: it is the dense interval from the
+    layout's minimum produced offset through its maximum produced offset,
+    rather than necessarily the origin-based interval ``[0, cosize)``.
+    This keeps shifted subviews and negative-stride reverse traversals
+    classified as bijective when they visit each offset in their span
+    exactly once.
 
     Examples:
         is_bijective(Layout(4, 1))              # True
         is_bijective(Layout((2, 2), (2, 1)))    # True (row-major 2x2)
         is_bijective(Layout(4, 2))              # False (has gaps)
         is_bijective(Layout((4, 2), (0, 1)))    # False (has aliasing)
+        is_bijective(Layout(4, -1))             # True (dense reverse span)
     """
     img = image(layout)
-    return len(img) == size(layout) and len(img) == cosize(layout)
+    if len(img) != size(layout):
+        return False
+    return _is_dense_sorted_offsets(img)
 
 
 def is_contiguous(layout: LayoutExpr) -> bool:
     """True if the layout maps to a dense range of size ``size(layout)``.
 
     A contiguous layout visits a dense run of memory offsets exactly
-    once. Equivalently, ``size == cosize`` and the layout is injective —
-    there are no gaps and no aliasing.
+    once. Equivalently, the layout is injective and its produced offsets
+    have no gaps between their minimum and maximum values.
 
     This is the same as :func:`is_bijective` but named for readability
     when the question is "does this layout occupy one contiguous block

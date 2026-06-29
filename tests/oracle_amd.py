@@ -32,9 +32,11 @@ that exercise the full tensor_layouts API against every AMD MFMA atom.
 The oracle tool is available at:
     https://github.com/ROCm/amd_matrix_instruction_calculator
 
-Install:
-    pip install amd-matrix-instruction-calculator
-    # or: git clone https://github.com/ROCm/amd_matrix_instruction_calculator
+It is NOT published on PyPI, so do not `pip install` it (the name is
+unclaimed there and a dependency-confusion target). Clone the repo and add
+it to PYTHONPATH instead:
+    git clone https://github.com/ROCm/amd_matrix_instruction_calculator
+    export PYTHONPATH="$PWD/amd_matrix_instruction_calculator:$PYTHONPATH"
 
 Skipped automatically if the tool is not installed.
 """

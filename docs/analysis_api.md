@@ -94,8 +94,8 @@ memory offsets.  They enumerate all coordinates, so their cost is O(size).
 |----------|-------------|
 | `image(L)` | Sorted list of distinct offsets produced |
 | `is_injective(L)` | True if no two coordinates share an offset |
-| `is_surjective(L, codomain_size=None)` | True if every offset in `[0, codomain)` is hit |
-| `is_bijective(L)` | True if both injective and surjective (a permutation) |
+| `is_surjective(L, codomain_size=None)` | True if every offset in the occupied span is hit; with `codomain_size`, checks `[0, codomain_size)` |
+| `is_bijective(L)` | True if both injective and surjective over the occupied span |
 | `is_contiguous(L)` | Alias for `is_bijective` — reads as "one dense block?" |
 
 ```python
@@ -107,6 +107,11 @@ broadcast = Layout((4, 8), (0, 1))
 image(broadcast)        # [0, 1, 2, 3, 4, 5, 6, 7]
 is_injective(broadcast) # False (stride-0 causes aliasing)
 ```
+
+A layout does not need to start at offset 0 to be contiguous by this definition:
+shifted subviews and negative-stride reverse traversals are contiguous when they
+visit each offset in their occupied span exactly once. Pass `codomain_size` to
+`is_surjective` when you specifically need coverage of an origin-based interval.
 
 ## Functional Equivalence
 
